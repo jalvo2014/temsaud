@@ -16,7 +16,7 @@
 # tested on Windows Activestate 5.12.2
 #
 
-$gVersion = 0.500000;
+$gVersion = 0.600000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -120,6 +120,18 @@ my $timestart = "";         # first time seen - z/OS
 my $timeend = "";           # last time seen - z/OS
 my $sx;                     # index
 my $insize;                 # calculated
+
+my $mani = -1;              # count of managed systems
+my @man = ();               # managed system name
+my %manx = ();              # associative array from managed system name to index
+my @manct = ();             # managed system results count
+my @manrows = ();           # managed system results count of rows
+my @manres = ();            # managed system results count of result size
+my @mantbl = ();            # managed system table
+my @manrmin = ();           # managed system results minimum of result size
+my @manrmax = ();           # managed system results maximum of result size
+my @manrmaxsit = ();        # managed system situation giving maximum of result size
+my $mx;                     # index
 
 my $toobigi = -1;           # count of toobig cases
 my @toobigsit = ();         # array of toobig situation names
@@ -303,6 +315,38 @@ foreach $oneline (<KIB>)
       }
    $sitres[$sx] += $insize;
    $sitres_tot  += $insize;
+
+   next if $isit eq "HEARTBEAT";
+
+   if (!defined $manx{$inode}) {      # if newly observed node, set up initial values and associative array
+      $mani++;
+      $man[$mani] = $inode;
+      $manx{$inode} = $mani;
+      $mx = $mani;
+      $mantbl[$mx] = $itbl;
+      $manct[$mx] = 0;
+      $manrows[$mx] = 0;
+      $manres[$mx] = 0;
+      $manrmin[$mx] = $insize;
+      $manrmax[$mx] = $insize;
+      $manrmaxsit[$mx] = $isit;
+   }
+   else {
+      $mx = $manx{$inode};
+   }
+   $manct[$mx] += 1;
+   $manrows[$mx] += $irows;
+   if ($insize != 0) {
+      if ($insize < $manrmin[$mx]) {
+         $manrmin[$mx] = $insize;
+      }
+   }
+   if ($insize > $manrmax[$mx]) {
+         $manrmax[$mx] = $insize;
+         $manrmaxsit[$mx] = $isit;
+      }
+   $manres[$mx] += $insize;
+
 }
 close(KIB);
 
@@ -332,6 +376,21 @@ if ($dur == 0)  {
 
 $cnt = 0;
 $cnt++;
+print "Too Big Report\n";
+$cnt++;
+print "Situation,Table,FilterSize\n";
+for ($i = 0; $i <= $toobigi; $i++) {
+   $cnt++;
+   $outl = $toobigsit[$i] . ",";
+   $outl .= $toobigtbl[$i] . ",";
+   $outl .= $toobigsize[$i] . ",";
+   print $outl . "\n";
+}
+$cnt++;
+print "\n";
+
+$cnt++;
+print "Situation Summary Report\n";
 print "Situation,Table,Count,Rows,ResultBytes,Result/Min,MinResults,MaxResults,MaxNode\n";
 for ($i = 0; $i <= $siti; $i++) {
    $cnt++;
@@ -356,17 +415,36 @@ $outl .= $sitres_tot . ",";
 $respermin = int($sitres_tot / ($dur / 60));
 $outl .= $respermin;
 print $outl . "\n";
+
 $cnt++;
 print "\n";
 
-print "Situation,Table,FilterSize\n";
-for ($i = 0; $i <= $toobigi; $i++) {
+$cnt++;
+print "Managed System Summary Report - non-HEARTBEAT situations\n";
+print "Node,Table,Count,Rows,ResultBytes,Result/Min,MinResults,MaxResults,MaxSit\n";
+for ($i = 0; $i <= $mani; $i++) {
    $cnt++;
-   $outl = $toobigsit[$i] . ",";
-   $outl .= $toobigtbl[$i] . ",";
-   $outl .= $toobigsize[$i] . ",";
+   $outl = $man[$i] . ",";
+   $outl .= $mantbl[$i] . ",";
+   $outl .= $manct[$i] . ",";
+   $outl .= $manrows[$i] . ",";
+   $outl .= $manres[$i] . ",";
+   $respermin = int($manres[$i] / ($dur / 60));
+   $outl .= $respermin . ",";
+   $outl .= $manrmin[$i] . ",";
+   $outl .= $manrmax[$i] . ",";
+   $outl .= $manrmaxsit[$i];
    print $outl . "\n";
 }
+$cnt++;
+$outl = "*total" . ",";
+$outl .= $dur . ",";
+$outl .= $sitct_tot . ",";
+$outl .= $sitrows_tot . ",";
+$outl .= $sitres_tot . ",";
+$respermin = int($sitres_tot / ($dur / 60));
+$outl .= $respermin;
+print $outl . "\n";
 
 print STDERR "Wrote $cnt lines\n";
 
@@ -402,3 +480,5 @@ EndOFHelp
 exit;
 }
 #------------------------------------------------------------------------------
+# 0.50000 - initial development
+# 0.60000 - too big report first, add managed system report
