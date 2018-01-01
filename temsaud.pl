@@ -16,7 +16,7 @@
 # tested on Windows Activestate 5.16.3
 #
 
-$gVersion = 1.00000;
+$gVersion = 1.01000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -93,6 +93,7 @@ my $opt_logpath;
 my $opt_workpath;
 my $full_logfn;
 my $opt_v;
+my $workdel = "";
 
 while (@ARGV) {
    if ($ARGV[0] eq "-h") {
@@ -1211,6 +1212,7 @@ sub open_kib {
          $rc = system($cmd);
       }
       $opt_logpath = $opt_workpath;
+      $workdel = $logbase . "-*.log";
    } else {
       $logpat = $logfn
    }
@@ -1266,6 +1268,7 @@ sub read_kib {
    $inline = <KIB>;
    return if defined $inline;
    close(KIB);
+   unlink $segcurr if $workdel ne "";
    $segp += 1;
    return if $segp > $segi;
    $segcurr = $seg[$segp];
@@ -1314,3 +1317,4 @@ exit;
 # 0.95000 - add move summary to top and add per cent column
 # 0.99000 - calculate the correct log segments
 # 1.00000 - Optional work directory when handling log segments
+# 1.01000 - erase work directory files when finished
