@@ -23,7 +23,7 @@
 ## Add location and names of logs analyzed
 ## add alert when maximum results exceeds 16meg-8k bytes - likely partial results returned
 
-$gVersion = 1.24000;
+$gVersion = 1.25000;
 
 
 # CPAN packages used
@@ -106,6 +106,7 @@ my $opt_nofile = 0;                              # number of file descriptors, z
 my $opt_stack = 0;                               # Stack limit zero means not found
 my $opt_sr;                                      # Soap Report
 my $opt_cmdall;                                  # show all commands
+my $opt_nohdr;                                   # skip variable outputs
 
 sub gettime;                             # get time
 
@@ -114,7 +115,6 @@ my @hdr = ();                                #
 
 $hdri++;$hdr[$hdri] = "TEMS Audit report v$gVersion";
 my $audit_start_time = gettime();       # formated current time for report
-$hdri++;$hdr[$hdri] = "Start: $audit_start_time";
 
 #  following are the nominal values. These are used to generate an advisories section
 #  that can guide usage of the Workload report. These can be overridden by the temsaud.ini file.
@@ -134,7 +134,6 @@ my $opt_max_listen        = 16;              # maximum listen count allowed by d
 my $opt_nominal_soap_burst = 300;             # maximum burst of 300 per minute
 
 my $arg_start = join(" ",@ARGV);
-$hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
 
 while (@ARGV) {
    if ($ARGV[0] eq "-h") {
@@ -151,6 +150,9 @@ while (@ARGV) {
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-cmdall") {
       $opt_cmdall = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-nohdr") {
+      $opt_nohdr = 1;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-inplace") {
 #     $opt_inplace = 1;                # ignore as unused
@@ -189,8 +191,12 @@ if (!defined $opt_z) {$opt_z = 0;}
 if (!defined $opt_b) {$opt_b = 0;}
 if (!defined $opt_sr) {$opt_sr = 0;}
 if (!defined $opt_cmdall) {$opt_cmdall = 0;}
+if (!defined $opt_nohdr) {$opt_nohdr = 0;}
 if (!defined $opt_v) {$opt_v = 0;}
 if (!defined $opt_expslot) {$opt_expslot = 60;}
+
+$hdri++;$hdr[$hdri] = "Start: $audit_start_time" if $opt_nohdr == 0;
+$hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start" if $opt_nohdr == 0;
 
 $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
@@ -477,6 +483,10 @@ my @act_ok = ();                             # count when exit status was zero
 my @act_err = ();                            # count when exit status was non-zero
 my @act_ct = ();                             # count of total action commands
 my @act_act = ();                            # array of action commands
+my $act_id = -1;                             # sequence id for action commands
+my $act_max = 0;                             # max number of simultaneous action commands
+my @act_max_cmds = ();                       # array of max simultaneous action commands
+my %act_current_cmds = ();                   # hash of current simultaneous action commands
 
 my $act_start = 0;
 my $act_end = 0;
@@ -489,12 +499,23 @@ my $contkey;
 
 # following are in the $runx value, which is actually an array
 my $runref;                                  # reference to array
-my $run_start;                               # start time of command start
-my $run_state;                               # 1 = found entry line
-my $run_stamp;
-my $run_cmd;                                 # command string being built
-my $run_cmd_tot;                             # total length to be found
 my $run_thread;                              # needed for cross references
+
+my $sqli = -1;                               # number of SQLs spotted
+my @sql = ();                                # Array of SQLs
+my %sqlx = ();                               # SQL to index has
+my @sql_ct = ();                             # count of SQLs
+
+my $sql_start = 0;
+my $sql_end = 0;
+
+my $sqltabi = -1;                            # number of SQL tables spotted
+my @sqltab = ();                             # Array of SQL tables
+my %sqltabx = ();                            # SQL table to index has
+my @sqltab_ct = ();                          # count of SQL table usages
+my $sql_state = 0;                           # state of SQL capture
+my $sql_cap = "";                            # collection of SQL fragments
+
 
 my $inrowsize;
 my $inobject;
@@ -532,7 +553,7 @@ my $hx;
 my @hist = ();                  # object name - attribute group
 my %histx = ();                 # index to object name
 my @hist_table = ();            # table name
-my @hist_appl = ();             # appliaction name
+my @hist_appl = ();             # application name
 my @hist_rows = ();             # number of rows
 my @hist_rowsize = ();          # size of row
 my @hist_bytes = ();            # total size of rows
@@ -556,7 +577,7 @@ my %histobjectx = ();           # index to object_yymmddhh
 my @histobject_object = ();     # object name
 my @histobject_time = ();       # time
 my @histobject_table = ();      # table name
-my @histobject_appl = ();       # appliaction name
+my @histobject_appl = ();       # application name
 my @histobject_rows = ();       # number of rows
 my @histobject_rowsize = ();    # size of rows
 my @histobject_bytes = ();      # total size of rows
@@ -784,22 +805,15 @@ for(;;)
    # (53FE31BA.0045-61C:kglhc1c.c,601,"KGLHC1_Command") <0x190B4CFB,0x8A> Command String
    # +53FE31BA.0045     00000000   443A5C73 63726970  745C756E 69782031   D:\script\unix.1
    # +53FE31BA.0045     00000010   31343038 32373134  31353038 30303020   140827141508000.
-   ##?? add capture of command line dumps here.
    if (substr($oneline,0,1) eq "+")  {
       $contkey = substr($oneline,1,13);
       $runref = $contx{$contkey};
       if (defined $runref) {
-         ($run_thread,$run_start,$run_state,$run_stamp,$run_cmd,$run_cmd_tot) = @{$runref};
-         if ($run_state == 3) {
-         # $target =~ s/0x(([0-9a-f][0-9a-f])+)/pack('H*', $1)/ie;
+         if ($runref->{'state'} == 3) {
             my $cmd_frag = substr($oneline,30,36);
             $cmd_frag =~ s/\ //g;
             $cmd_frag =~ s/(([0-9a-f][0-9a-f])+)/pack('H*', $1)/ie;
-            $run_cmd .= $cmd_frag;
-#print STDERR "developing cmd $run_cmd\n";
-            $runref = [$run_thread,$run_start,$run_state,$run_stamp,$run_cmd,$run_cmd_tot];
-            $contx{$contkey} = $runref;
-            $runx{$run_thread} = $runref;
+            $runref->{'cmd'} .= $cmd_frag;
          }
       }
    }
@@ -836,6 +850,43 @@ for(;;)
             $trcetime = $logtime;
          }
       }
+   }
+   # looking for a continuaion of sql line
+   if ($sql_state == 1) {
+      my $sql_frag_line = 1;
+      if (substr($logunit,0,10) ne "kdssqprs.c") {
+         $sql_frag_line = 0;
+         $sql_state = 0;
+      } elsif ($logentry ne "PRS_ParseSql") {
+         $sql_frag_line = 0;
+         $sql_state = 0;
+      } else {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,19) eq "SQL to be parsed is") {
+            $sql_frag_line = 0;
+            $sql_state = 0;
+         }
+      }
+      #(540CE6F4.0047-C:kdssqprs.c,658,"PRS_ParseSql") SELECT TRANSID,GBLTMSTMP,TARGETMSN,CMSNAME,RESERVED2,RETVAL,RETMSGPARM,G
+      if ($sql_frag_line == 1) {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         $sql_frag .= substr($rest,1,73);
+         next;
+      }
+      # at this point we have a completed SQL to process
+      $sql_frag =~ s/\s+$//;                    # strip trailing blanks
+      $sx = $sqlx{$sql_frag};
+      if (!defined $sx) {
+         $sqli += 1;
+         $sx = $sqli;
+         $sql[$sx] = $sql_frag;
+         $sqlx{$sql_frag} = $sx;
+         $sql_ct[$sx] = 0;
+      }
+      $sql_ct[$sx] += 1;
+      $sql_state = 0;
    }
    $syncdist_first_time = $logtime if !defined $syncdist_first_time;
    if (substr($logunit,0,12) eq "kpxreqds.cpp") {
@@ -1312,6 +1363,7 @@ for(;;)
    # +53FE31BA.0045     00000080   6973206F 66203938  2027                is.of.98.'
    # (53FE31BD.0000-61C:kglhc1c.c,862,"KGLHC1_Command") Exit: 0x0
 
+#$DB::single=2 if $l >= 21952;
    if (substr($logunit,0,9) eq "kglhc1c.c") {
       $oneline =~ /^\((\S+)\)(.+)$/;
       $rest = $2;
@@ -1326,25 +1378,35 @@ for(;;)
          $act_end = $logtime;
       }
       if (substr($rest,1,6) eq "Entry") {             # starting a new command capture
-          $run_thread = $logthread;
-          $run_start = $logtime;
-          $run_state = 1;
-          $run_stamp = $logtimehex;
-          $run_cmd = "";
-          $run_cmd_tot = 0;
-          $runref = [$run_thread,$run_start,$run_state,$run_stamp,$run_cmd,$run_cmd_tot];
+          $act_id += 1;
+          $runref = {                                # anonymous hash for command capture
+                     thread => $logthread,           # Thread id associated with command capture
+                     start => $logtime,              # Decimal time start
+                     state => 1,                     # state = 1 means looking for command text
+                     stamp => $logtimehex,           # stamp - hex time
+                     cmd => "",                      # collected command text
+                     cmd_tot => 0,                   # cmd expected length
+                     id => $act_id,                  # action command id
+          };
           $runx{$logthread} = $runref;
           $contkey = $logtimehex . "." . $logline;
           $contx{$contkey} = $runref;
+          $act_current_cmds{$act_id} = $runref;            #
+          my $current_act = keys %act_current_cmds;
+          if ($current_act > $act_max) {
+             $act_max = $current_act;
+             @act_max_cmds = ();
+             @act_max_cmds = values %act_current_cmds;
+          }
       } else {
          $runref = $runx{$logthread};                     # is this a known command capture?
-         if (defined $runref) {                           # so process, started before trace capture
-            my ($run_thread,$run_start,$run_state,$run_stamp,$run_cmd,$run_cmd_tot) = @{$runref};
+         if (defined $runref) {                           # ignore if process started before trace capture
 
             # (53FE31BD.0000-61C:kglhc1c.c,862,"KGLHC1_Command") Exit: 0x0
             if (substr($rest,1,4) eq "Exit") {             # Ending a command capture
-               my $testcmd = $run_cmd . " ";
-               my $testkey = substr($run_cmd,0,index($testcmd," "));
+               my $cmd1 = $runref->{'cmd'};
+               my $testcmd = $cmd1 . " ";
+               my $testkey = substr($cmd1,0,index($cmd1," "));
                my $ax = $actx{$testkey};
                if (!defined $ax) {
                   $acti += 1;
@@ -1357,33 +1419,58 @@ for(;;)
                   $act_ct[$ax] = 0;
                   $act_act[$ax] = [];
                }
-               $act_elapsed[$ax] += $logtime - $run_start;
+               $act_elapsed[$ax] += $logtime - $runref->{'start'};
                $act_ct[$ax] += 1;
                $act_ok[$ax] += 1 if substr($rest,7,3) eq "0x0";
                $act_err[$ax] += 1 if substr($rest,7,3) ne "0x0";
-               push(@{$act_act[$ax]},$run_cmd);
+               push(@{$act_act[$ax]},$cmd1);
+               my $endid = $runref->{'id'};
+               delete $act_current_cmds{$endid};
             } else {
                if (substr($rest,1,1) eq "<") {
-                  # (53FE31BA.0044-61C:kglhc1c.c,592,"KGLHC1_Command") <0x190B3D18,0x8> Attribute type 0
-                  # (53FE31BA.0045-61C:kglhc1c.c,601,"KGLHC1_Command") <0x190B4CFB,0x8A> Command String
-                  $rest =~ /\<\S+\,(\S+)\> (.*)/;
-                  my $vlen = $1;
-                  $rest = $2;
-                  if (substr($rest,0,9) eq "Attribute") {             # Attribute, unintesting
-                     $run_state = 2;                                  # skip next continuation capture
-                  } else {
-                     $run_state = 3;                                  # capture the next continuations
-                     $run_cmd_tot = hex($vlen);
-                  }
-                  $runref = [$run_thread,$run_start,$run_state,$run_stamp,$run_cmd,$run_cmd_tot];
-                  $runx{$logthread} = $runref;
-                  $key = $logtimehex . "." . $logline;
-                  $contx{$key} = $runref;
-                  }
+                   # (53FE31BA.0044-61C:kglhc1c.c,592,"KGLHC1_Command") <0x190B3D18,0x8> Attribute type 0
+                   # (53FE31BA.0045-61C:kglhc1c.c,601,"KGLHC1_Command") <0x190B4CFB,0x8A> Command String
+                   $rest =~ /\<\S+\,(\S+)\> (.*)/;
+                   my $vlen = $1;
+                   $rest = $2;
+                   $key = $logtimehex . "." . $logline;
+                   if (substr($rest,0,9) eq "Attribute") {             # Attribute, unintesting
+                      $runref->{'state'} = 2;
+
+                   } else {
+                      $runref->{'state'} = 3;
+                      $runref->{'cmd'} = "";
+                      $runref->{'cmd_tot'} = hex($vlen);
+                   }
+                    $contx{$key} = $runref;
                }
             }
          }
+      }
    }
+
+   if (substr($logunit,0,10) eq "kdssqprs.c") {
+      if ($logentry eq "PRS_ParseSql") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,19) eq "SQL to be parsed is") {
+            $sql_state = 1;
+            $sql_frag = "";
+            if ($sql_start == 0) {
+               $sql_start = $logtime;
+               $sql_end = $logtime;
+            }
+            if ($logtime < $sql_start) {
+               $sql_start = $logtime;
+            }
+            if ($logtime > $sql_end) {
+               $sql_end = $logtime;
+            }
+         }
+      }
+      next;
+   }
+
    next if substr($logunit,0,12) ne "kpxrpcrq.cpp";
    next if $logentry ne "IRA_NCS_Sample";
    $oneline =~ /^\((\S+)\)(.+)$/;
@@ -1674,13 +1761,12 @@ if ($acti != -1) {
    $act_duration = $act_end - $act_start;
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Reflex Command Summary Report\n";
-   $cnt++;$oline[$cnt]="Cmd,Elapsed,Count,Error,Example\n";
+   $cnt++;$oline[$cnt]="Count,Error,Elapsed,Cmd\n";
    foreach $f ( sort { $act_ct[$actx{$b}] <=> $act_ct[$actx{$a}] } keys %actx ) {
       $i = $actx{$f};
-      $outl = $act[$i] . ",";
-      $outl .= $act_elapsed[$i] . ",";
-      $outl .= $act_ct[$i] . ",";
+      $outl = $act_ct[$i] . ",";
       $outl .= $act_err[$i] . ",";
+      $outl .= $act_elapsed[$i] . ",";
       my @cmdarray = @{$act_act[$i]};
       my $pcommand = $cmdarray[0];
       $pcommand =~ s/\x09/\\t/g;
@@ -1696,7 +1782,7 @@ if ($acti != -1) {
       if ($opt_cmdall == 1) {
          if ($#cmdarray > 0) {
             for (my $c=1;$c<=$#cmdarray;$c++) {
-               $outl = ",,,,";
+               $outl = ",,,";
                $pcommand = $cmdarray[$c];
                $pcommand =~ s/\x09/\\t/g;
                $pcommand =~ s/\x0A/\\n/g;
@@ -1714,6 +1800,37 @@ if ($acti != -1) {
    $outl .= $act_elapsed_total . ",";
    $outl .= $act_ct_total . ",";
    $outl .= $act_ct_error . ",";
+   $cnt++;$oline[$cnt]=$outl . "\n";
+   if ($#act_max_cmds > 0) {
+      $cnt++;$oline[$cnt]="\n";
+      $outl = "Maximum action command overlay - $act_max";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      $outl = "Seq,Command";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      for (my $i = 0; $i <=$#act_max_cmds; $i++) {
+         $runref = $act_max_cmds[$i];
+         $outl = "$i,$runref->{cmd},";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+      }
+   }
+}
+
+my $sqlt_duration;
+
+if ($sqli != -1) {
+   $sql_duration = $sql_end - $sql_start;
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="SQL Summary Report\n";
+   $cnt++;$oline[$cnt]="Count,SQL\n";
+   foreach $f ( sort { $sql_ct[$sqlx{$b}] <=> $sql_ct[$sqlx{$a}] } keys %sqlx ) {
+      $i = $sqlx{$f};
+      $outl = $sql_ct[$i] . ",";
+      $outl .= "=\"" . $sql[$i] . "\",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      $sql_ct_total += $sql_ct[$i];
+   }
+   $outl = "duration" . " " . $sql_duration . ",";
+   $outl .= $sql_ct_total . ",";
    $cnt++;$oline[$cnt]=$outl . "\n";
 }
 
@@ -1854,10 +1971,12 @@ if ($histi != -1) {
    $cnt++;$oline[$cnt]=$outl . "\n";
 }
 
-for (my $i=0; $i<=$hdri; $i++) {
-   print $hdr[$i] . "\n";
+if ($opt_nohdr == 0) {
+   for (my $i=0; $i<=$hdri; $i++) {
+      print $hdr[$i] . "\n";
+   }
+   print "\n";
 }
-print "\n";
 
 
 if ($advisori == -1) {
@@ -1892,7 +2011,7 @@ if ($opt_sr == 1) {
    }
 }
 
-print STDERR "Wrote $cnt lines\n";
+print STDERR "Wrote $cnt lines\n" if $opt_nohdr == 0;
 
 # all done
 
@@ -1982,7 +2101,7 @@ sub read_kib {
       $segcurr = $seg[$segp];
       open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
       print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
-      $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"';
+      $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"' if $opt_nohdr == 0;
       $segline = 0;
    }
    $segline ++;
@@ -1996,7 +2115,7 @@ sub read_kib {
    $segcurr = $seg[$segp];
    open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
    print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
-   $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"';
+   $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"' if $opt_nohdr == 0;
    $segline = 1;
    $inline = <KIB>;
 }
@@ -2086,3 +2205,4 @@ exit;
 # 1.23000 - handle z/OS better, especially for ProcessTable capture
 # 1.24000 - count action commands
 #         - Advisory when KGLCB_FSYNC_ENABLED=0
+# 1.25000 - count SQLs
