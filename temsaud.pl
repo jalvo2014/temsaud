@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.38000;
+my $gVersion = 1.39000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -201,6 +201,7 @@ my %advcx = (
               "TEMSAUDIT1027W" => "60",
               "TEMSAUDIT1028W" => "40",
               "TEMSAUDIT1029W" => "75",
+              "TEMSAUDIT1030W" => "50",
             );
 
 my %advtextx = ();
@@ -214,6 +215,18 @@ my $val_ref;
 my %valx;
 my $valkey;
 my %vcontx;
+
+my %atrwx;                        # collection of attribute warnings
+my $atrwx_ct = 0;                 # collection of attribute warnings
+my $atr_warn;
+my $atr_name;
+my $atr_app;
+my $atr_table;
+my $atr_column;
+my $atr_file;
+my $atr_ref;
+my $atrn_ref;
+my $atrf_ref;
 
 while (<main::DATA>)
 {
@@ -1199,6 +1212,94 @@ for(;;)
          }
       }
    }
+   # capture attribute file warnings - following is one example
+   #(56CB01BD.0001-1:kglatrvl.c,193,"add_to_index") Warning: attribute name conflict
+   #(56CB01BD.0002-1:kglatrvl.c,194,"add_to_index") Block <946C150> name <Diagnostic.Node> id <30001>
+   #(56CB01BD.0003-1:kglatrvl.c,194,"add_to_index")  app <KTU> table <TUDIAG> column <ORIGINNODE>
+   #(56CB01BD.0004-1:kglatrvl.c,194,"add_to_index")  file <KTU.ATR> timestamp <1121121120356000> line <8>
+   #(56CB01BD.0005-1:kglatrvl.c,194,"add_to_index")  data type <2> entry type <0> sample type <3>
+   #(56CB01BD.0006-1:kglatrvl.c,194,"add_to_index")  max <9223372036854775807> min <-9223372036854775808> str len <32> end codes <0>
+   #(56CB01BD.0007-1:kglatrvl.c,194,"add_to_index")  scale <0> prec <0> cost <0> order <-1>
+   #(56CB01BD.0008-1:kglatrvl.c,194,"add_to_index")  dooper <Y> atom <N> multi <N> noscale <N>
+   #(56CB01BD.0009-1:kglatrvl.c,194,"add_to_index")  slot <node>
+   #(56CB01BD.000A-1:kglatrvl.c,194,"add_to_index")  affinity <%IBM.KTU                000000000100000000> format <>
+   #(56CB01BD.000B-1:kglatrvl.c,194,"add_to_index")  enum count <0> required <N>
+   #(56CB01BD.000C-1:kglatrvl.c,195,"add_to_index") Block <844D560> name <Diagnostic.Node> id <30001>
+   #(56CB01BD.000D-1:kglatrvl.c,195,"add_to_index")  app <KTO> table <TODIAG> column <ORIGINNODE>
+   #(56CB01BD.000E-1:kglatrvl.c,195,"add_to_index")  file <PRE-TF0101-KTO.ATR> timestamp <1130220133051000> line <8>
+   #(56CB01BD.000F-1:kglatrvl.c,195,"add_to_index")  data type <2> entry type <0> sample type <3>
+   #(56CB01BD.0010-1:kglatrvl.c,195,"add_to_index")  max <9223372036854775807> min <-9223372036854775808> str len <32> end codes <0>
+   #(56CB01BD.0011-1:kglatrvl.c,195,"add_to_index")  scale <0> prec <0> cost <0> order <-1>
+   #(56CB01BD.0012-1:kglatrvl.c,195,"add_to_index")  dooper <Y> atom <N> multi <N> noscale <N>
+   #(56CB01BD.0013-1:kglatrvl.c,195,"add_to_index")  slot <node>
+   #(56CB01BD.0014-1:kglatrvl.c,195,"add_to_index")  affinity <%IBM.ITCAMfT_KTO        000000000100000000> format <>
+   #(56CB01BD.0015-1:kglatrvl.c,195,"add_to_index")  enum count <0> required <N>
+   if (substr($logunit,0,10) eq "kglatrvl.c") {
+      if ($logentry eq "add_to_index") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Warning: attribute name conflict
+         if (substr($rest,1,8) eq "Warning:") {
+            $rest =~ / Warning\: (.*)/;
+            $atr_warn = $1;
+            $atr_warn =~ s/\s+$//;                    # strip trailing blanks
+            $atr_ref = $atrwx{$atr_warn};
+            if (!defined $atr_ref) {
+               my %atrref = (
+                               atrname => {},
+                               count => 0,
+                            );
+               $atr_ref = \%atrref;
+               $atrwx{$atr_warn} = \%atrref;
+            }
+            $atr_ref->{count} += 1;
+            next;
+         }
+         #  Block <844D560> name <Diagnostic.Node> id <30001>
+         if (substr($rest,1,5) eq "Block") {
+            $rest =~ /name \<(\S+)\>/;
+            $atr_name = $1;
+
+         # app <KTO> table <TODIAG> column <ORIGINNODE>
+         } elsif (substr($rest,1,4) eq " app") {
+            $rest =~ /app \<(\S+)\> table \<(\S+)\> column \<(\S+)\>/;
+            $atr_app = $1;
+            $atr_table = $2;
+            $atr_column = $3;
+
+         #  file <KTU.ATR> timestamp <1121121120356000> line <8>
+         } elsif (substr($rest,1,5) eq " file") {
+            $rest =~ /file \<(\S+)\>/;
+            $atr_file = $1;
+            $atr_ref = $atrwx{$atr_warn};
+            $atrn_ref = $atr_ref->{atrname}{$atr_name};
+            if (!defined $atrn_ref) {
+               my %atrnref = (
+                                file => {},
+                                count => 0,
+                             );
+              $atrn_ref = \%atrnref;
+              $atr_ref->{atrname}{$atr_name} = \%atrnref;
+            }
+            $atrn_ref->{count} += 1;
+
+            $atrf_ref = $atrn_ref->{file}{$atr_file};
+            if (!defined $atrf_ref) {
+               my %atrfref = (
+                                app => $atr_app,
+                                table => $atr_table,
+                                column => $atr_column,
+                                count => 0,
+                             );
+              $atrf_ref = \%atrfref;
+              $atrn_ref->{file}{$atr_file} = \%atrfref;
+            }
+            $atrf_ref->{count} += 1;
+            $atrwx_ct += 1;
+         }
+         next;
+      }
+   }
+
    if (substr($logunit,0,12) eq "kpxreqds.cpp") {
       if ($logentry eq "buildThresholdsFilterObject") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -3107,6 +3208,36 @@ my $time_slag = 0;
    }
 }
 
+if ($atrwx_ct > 0) {
+   $advi++;$advonline[$advi] = "$atrwx_ct Attribute file warning messages";
+   $advcode[$advi] = "TEMSAUDIT1030W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "attribute";
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Attribute File Warning Report\n";
+   $cnt++;$oline[$cnt]="AttributeName,WarningType,\n";
+   $cnt++;$oline[$cnt]=",,filename,app,table,column,\n";
+   foreach $f ( sort { $a cmp $b } keys %atrwx) {
+      $atr_warn = $f;
+      $atr_ref = $atrwx{$f};
+      foreach $g ( sort { $a cmp $b } keys %{$atr_ref->{atrname}}) {
+         $atr_name = $g;
+         $atrn_ref = $atr_ref->{atrname}{$g};
+         $outl = $atr_warn . "," . $atr_name . ',';
+         $cnt++;$oline[$cnt]=$outl . "\n";
+         foreach $h ( sort { $a cmp $b } keys %{$atrn_ref->{file}}) {
+            $atr_file = $h;
+            $atrf_ref = $atrn_ref->{file}{$h};
+            $atr_app = $atrf_ref->{app};
+            $atr_table = $atrf_ref->{table};
+            $atr_column = $atrf_ref->{column};
+            $outl = ",," . $atr_file . "," . $atr_app . ",". $atr_table . ",". $atr_column . ",";
+            $cnt++;$oline[$cnt]=$outl . "\n";
+         }
+      }
+   }
+}
+
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
 open OH, ">$opt_o" or die "can't open $opt_o: $!";
@@ -3415,6 +3546,7 @@ exit;
 #         - add 1027W remote SQL timeouts
 #         - add 1028W concurrent action commands at TEMS
 #         - add 1029W for invalid nodes rejected
+# 1.39000 - add 1030W for attribute definition conflicts
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -3922,7 +4054,7 @@ Tracing: error
 Meaning: When an agent name attempts to register with illegal
 characters, by default the connection is refused.
 
-First character must not be blank or period or asterish or hash.
+First character must not be blank or period or asterisk or hash.
 After the first character, the following are legal
 
 A-Z
@@ -3938,4 +4070,22 @@ $
 .
 
 Recovery plan: Reconfigure agent with legal characters.
+--------------------------------------------------------------
+
+TEMSAUDIT1030W
+Text: num Attribute file warning messages
+
+Tracing: error
+
+Meaning: TEMS depends on attribute files to recognize the meaning
+and usage of agent defined attribute groups and variables. Occasionally
+the attribute files are self contradictory - with the same attrbute
+name defined in two different files. This can lead to incorrect
+processing.
+
+Usually this is caused by manual saving of old attribute files. It is
+important to know that all attribute files are processed, not just ones
+in the standard form.
+
+Recovery plan: Delete old attribute files or save them in another directory.
 --------------------------------------------------------------
