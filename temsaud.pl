@@ -16,9 +16,11 @@
 # tested on Windows Activestate 5.12.2
 #
 
-$gVersion = 0.75000;
+$gVersion = 0.80000;
 
 # $DB::single=2;   # remember debug breakpoint
+
+# 0.80000   Add history export report
 
 # CPAN packages used
 # none
@@ -83,6 +85,9 @@ $gVersion = 0.75000;
 # pick up parameters and process
 #??? make -z option auto-detect
 
+my $opt_z;
+my $opt_expslot;
+
 while (@ARGV) {
    if ($ARGV[0] eq "-h") {
       &GiveHelp;                        # print help and exit
@@ -90,6 +95,9 @@ while (@ARGV) {
    if ($ARGV[0] eq "-z") {
       $opt_z = 1;
       shift(@ARGV);
+   } elsif ($ARGV[0] eq "-expslot") {
+      shift(@ARGV);
+      $opt_expslot = shift(@ARGV);
    }
    else {
       $logfn = shift(@ARGV);
@@ -98,9 +106,13 @@ while (@ARGV) {
 }
 
 if (!defined $opt_z) {$opt_z = 0};
+if (!defined $opt_expslot) {$opt_expslot = 60;}
 
 #$gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
+die "-expslot [$opt_expslot] is not numeric" if  $opt_expslot !~ /^\d+$/;
+die "-expslot [$opt_expslot] is not positive number from 1 to 60" if  ($opt_expslot < 1) or ($opt_expslot > 60);
+die "-expslot [$opt_expslot] is not an even multiple of 60" if  (int(60/$opt_expslot) * $opt_expslot) != 60;
 
 open(KIB, "< $logfn") || die("Could not open log $logfn\n");
 
@@ -137,6 +149,8 @@ my $timestart = "";         # first time seen - z/OS
 my $timeend = "";           # last time seen - z/OS
 my $sx;                     # index
 my $insize;                 # calculated
+my $csvdata;
+my @words;
 
 my $mani = -1;              # count of managed systems
 my @man = ();               # managed system name
@@ -168,6 +182,59 @@ my @soapip;                 # last ip address seen in header
 my $soapip_lag = "";        # last ip address spotted
 my $soapct_tot;             # total count of SQLs
 
+
+my $inrowsize;
+my $inobject;
+my $intable;
+my $inappl;
+my $inrows;
+
+my $histcnt = 0;
+my $total_histrows = 0;
+my $total_histsecs = 0;
+
+
+my $hist_sec;
+my $hist_min;
+my $hist_hour;
+my $hist_day;
+my $hist_month;
+my $hist_year;
+
+my $hist_min_time = 0;
+my $hist_max_time = 0;
+my $hist_elapsed_time = 0;
+
+my $histi = -1;             # historical data export total, key by object name
+my $hx;
+my @hist = ();                  # object name - attribute group
+my %histx = ();                 # index to object name
+my @hist_table = ();            # table name
+my @hist_appl = ();             # appliaction name
+my @hist_rows = ();             # number of rows
+my @hist_rowsize = ();          # size of row
+my @hist_bytes = ();            # total size of rows
+
+my $histtimei = -1;             # historical data export hourly, yymmddhh
+my @histtime = ();              # key yymmddhh
+my %histtimex = ();             # index to yymmddhh
+my @histtime_rows = ();         # number of rows
+my @histtime_bytes = ();        # total size of rows
+my @histtime_min_time = ();     # minimum epcoh time
+my @histtime_max_time = ();     # maximum epcoh time
+
+my $histobjecti = -1;           # historical data export hourly, object_yymmddhh
+my @histobject = ();            # key object_yymmddhh
+my %histobjectx = ();           # index to object_yymmddhh
+my @histobject_object = ();     # object name
+my @histobject_time = ();       # time
+my @histobject_table = ();      # table name
+my @histobject_appl = ();       # appliaction name
+my @histobject_rows = ();       # number of rows
+my @histobject_rowsize = ();    # size of rows
+my @histobject_bytes = ();      # total size of rows
+
+
 my $state = 0;       # 0=look for offset, 1=look for zos initial record, 2=look for zos continuation, 3=distributed log
 my $partline = "";          # partial line for z/OS RKLVLOG
 my $dateline = "";          # date portion of timestamp
@@ -190,6 +257,8 @@ my $lagtime;
 my $laglocus;
 
 if ($opt_z == 0) {$state = 0}
+
+$inrowsize = 0;
 
 foreach $inline (<KIB>)
 {
@@ -375,6 +444,7 @@ foreach $inline (<KIB>)
    }
    if (substr($logunit,0,10) eq "kshreq.cpp") {
       if ($logentry eq "buildSQL") {
+         $histcnt++;
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Using pre-built SQL: SELECT NODE, AFFINITIES, PRODUCT, VERSION, RESERVED, O4ONLINE FROM O4SRV.INODESTS
                                            # Using SQL: SELECT CLCMD,CLCMD2,CREDENTIAL,CWD,KEY,MESSAGE,ACTSECURE,OPTIONS,RESPFILE
@@ -391,6 +461,102 @@ foreach $inline (<KIB>)
          $soapct[$sx] += 1;
          $soapct_tot += 1;
          $soapip[$sx] = $soapip_lag;
+      }
+      next;
+   }
+   if (substr($logunit,0,12) eq "khdxdacl.cpp") {
+      # (4E7CB4A4.0026-16A:khdxdacl.cpp,1985,"routeData") Rowsize = 1592, Rows per buffer = 20
+      if ($logentry eq "routeData") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Rowsize = 1592, Rows per buffer = 20
+         if (substr($rest,1,9) eq "Rowsize =") {
+            $rest =~ /Rowsize = (\d+),/;
+            $inrowsize = $1;
+         }
+      next;
+   }
+   if (substr($logunit,0,12) eq "khdxdacl.cpp") {
+      # (4E7CB4A9.0002-16A:khdxdacl.cpp,545,"routeExportRequest") Export request for object KLZ_Process_User_Info table KLZPUSR appl KLZ), 1001 rows, is successful.
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Export request for object KLZ_Process_User_Info table KLZPUSR appl KLZ), 1001 rows, is successful.
+         if (substr($rest,1,25) eq "Export request for object") {
+            if ($inrowsize != 0) {
+               $rest =~ / object (.*?) table (.*?) appl (.*?)\), (\d+) /;
+               $inobject = $1;
+               $intable = $2;
+               $inappl = $3;
+               $inrows = $4;
+               $hist_min = (localtime($logtime))[1];
+               $hist_min = int($hist_min/$opt_expslot) * $opt_expslot;
+               $hist_min = '00' . $hist_min;
+               $hist_hour = '00' . (localtime($logtime))[2];
+               $hist_day  = '00' . (localtime($logtime))[3];
+               $hist_month = (localtime($logtime))[4] + 1;
+               $hist_month = '00' . $hist_month;
+               $hist_year =  (localtime($logtime))[5] + 1900;
+               $hist_stamp = substr($hist_year,-2,2) . substr($hist_month,-2,2) . substr($hist_day,-2,2) .  substr($hist_hour,-2,2) .  substr($hist_min,-2,2);
+               if ($hist_min_time == 0) {
+                  $hist_min_time = $logtime;
+                  $hist_max_time = $logtime;
+               }
+               $hist_min_time = $logtime if $hist_min_time > $logtime;
+               $hist_max_time = $logtime if $hist_max_time < $logtime;
+
+               # first keep stats by object
+               $key = $inobject;
+               $hx = $histx{$key};
+               if (!defined $hx) {
+                  $histi++;
+                  $hx = $histi;
+                  $hist[$hx] = $key;
+                  $histx{$key} = $hx;
+                  $hist_table[$hx] = $intable;
+                  $hist_appl[$hx] = $inappl;
+                  $hist_rows[$hx] = 0;
+                  $hist_rowsize[$hx] = $inrowsize;
+                  $hist_bytes[$hx] = 0;
+               }
+               $hist_rows[$hx] += $inrows;
+               $hist_bytes[$hx] += $inrows * $inrowsize;
+
+               # next keep stats by time
+               $key = $hist_stamp;
+               $hx = $histtimex{$key};
+               if (!defined $hx) {
+                  $histtimei++;
+                  $hx = $histtimei;
+                  $histtime[$hx] = $key;
+                  $histtimex{$key} = $hx;
+                  $histtime_rows[$hx] = 0;
+                  $histtime_bytes[$hx] = 0;
+                  $histtime_min_time[$hx] = $logtime;
+                  $histtime_max_time[$hx] = $logtime;
+               }
+               $histtime_rows[$hx] += $inrows;
+               $histtime_bytes[$hx] += $inrows * $inrowsize;
+               $histtime_min_time[$hx] = $logtime if $histtime_min_time[$hx] > $logtime;
+               $histtime_max_time[$hx] = $logtime if $histtime_max_time[$hx] < $logtime;
+
+               # next keep stats by object_time
+               $key = $inobject . "_" . $hist_stamp;
+               $hx = $histobjectx{$key};
+               if (!defined $hx) {
+                  $histobjecti++;
+                  $hx = $histobjecti;
+                  $histobject[$hx] = $key;
+                  $histobjectx{$key} = $hx;
+                  $histobject_object[$hx] = $inobject;
+                  $histobject_table[$hx] = $intable;
+                  $histobject_appl[$hx] = $inappl;
+                  $histobject_time[$hx] = $hist_stamp;
+                  $histobject_rowsize[$hx] = $inrowsize;
+                  $histobject_rows[$hx] = 0;
+                  $histobject_bytes[$hx] = 0;
+               }
+               $histobject_rows[$hx] += $inrows;
+               $histobject_bytes[$hx] += $inrows * $inrowsize;
+            }
+         }
       }
       next;
    }
@@ -605,7 +771,6 @@ if ($soapi != -1) {
    print "SOAP SQL Summary Report\n";
    $cnt++;
    print "IP,Count,SQL\n";
-   my $csvdata;
    foreach $f ( sort { $soapct[$soapx{$b}] <=> $soapct[$soapx{$a}] } keys %soapx ) {
       $i = $soapx{$f};
       $cnt++;
@@ -621,6 +786,90 @@ if ($soapi != -1) {
    $outl .= $soapct_tot . ",";
    print $outl . "\n";
 }
+
+my $total_hist_rows = 0;
+my $total_hist_bytes = 0;
+$hist_elapsed_time = $hist_max_time - $hist_min_time;
+my $time_elapsed;
+
+if ($histi != -1) {
+   $cnt++;
+   print "\n";
+   print "Historical Export summary by object\n";
+   $cnt++;
+   print "Object,Table,Appl,Rowsize,Rows,Bytes,Bytes_Min\n";
+   foreach $f ( sort { $hist[$histx{$a}] <=> $hist[$histx{$b}] } keys %histx ) {
+      $i = $histx{$f};
+      $cnt++;
+      $outl = $hist[$i] . ",";
+      $outl .= $hist_table[$i] . ",";
+      $outl .= $hist_appl[$i] . ",";
+      $outl .= $hist_rowsize[$i] . ",";
+      $outl .= $hist_rows[$i] . ",";
+      $outl .= $hist_bytes[$i] . ",";
+      $outl .= int(($hist_bytes[$i]*60)/$hist_elapsed_time) . ",";
+      print $outl . "\n";
+      $total_hist_rows += $hist_rows[$i];
+      $total_hist_bytes += $hist_bytes[$i];
+   }
+   $cnt++;
+   $outl = "*total" . "," . "$hist_elapsed_time" . ",,,";
+   $outl .= $total_hist_rows . ",";
+   $outl .= $total_hist_bytes . ",";
+   print $outl . "\n";
+}
+
+
+if ($histi != -1) {
+   $cnt++;
+   print "\n";
+   print "Historical Export summary by time\n";
+   $cnt++;
+   print "Time,,,,Rows,Bytes,Secs,Bytes_min\n";
+   foreach $f ( sort { $histtime[$histtimex{$a}] <=> $histtime[$histtimex{$b}] } keys %histtimex ) {
+      $i = $histtimex{$f};
+      $cnt++;
+      $outl = $histtime[$i] . ",,,,";
+      $outl .= $histtime_rows[$i] . ",";
+      $outl .= $histtime_bytes[$i] . ",";
+      $time_elapsed = $histtime_max_time[$i] - $histtime_min_time[$i] + 1;
+      $outl .= $time_elapsed . ",";
+      $outl .= int(($histtime_bytes[$i]*60)/$time_elapsed) . ",";
+      print $outl . "\n";
+   }
+   $cnt++;
+   $outl = "*total" . "," . "$hist_elapsed_time" . ",,,";
+   $outl .= $total_hist_rows . ",";
+   $outl .= $total_hist_bytes . ",";
+   print $outl . "\n";
+}
+
+if ($histi != -1) {
+   $cnt++;
+   print "\n";
+   print "Historical Export summary by Object and time\n";
+   $cnt++;
+   print "Object,Table,Appl,Rowsize,Rows,Bytes,Time\n";
+   foreach $f ( sort { $histtime[$histobjectx{$a}] eq $histtime[$histobjectx{$b}] } keys %histobjectx ) {
+      $i = $histobjectx{$f};
+      $cnt++;
+      $outl = $histobject_object[$i] . ",";
+      $outl .= $histobject_table[$i] . ",";
+      $outl .= $histobject_appl[$i] . ",";
+      $outl .= $histobject_rowsize[$i] . ",";
+      $outl .= $histobject_rows[$i] . ",";
+      $outl .= $histobject_bytes[$i] . ",";
+      $outl .= $histobject_time[$i] . ",";
+      print $outl . "\n";
+   }
+   $cnt++;
+   $outl = "*total" . "," . "$hist_elapsed_time" . ",,,";
+   $outl .= $total_hist_rows . ",";
+   $outl .= $total_hist_bytes . ",";
+   print $outl . "\n";
+}
+
+
 
 print STDERR "Wrote $cnt lines\n";
 
@@ -659,4 +908,5 @@ exit;
 # 0.50000 - initial development
 # 0.60000 - too big report first, add managed system report
 # 0.70000 - convert RKLVLOG time stamps to Unix epoch seconds
-# 0.75000 - sort reports by number of ResultBytes column in descending order
+# 0.75000 - sort reports by number of ResultBytes column in descending order ,
+#         - add SOAP SQL report if trace entries present
