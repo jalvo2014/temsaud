@@ -25,7 +25,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-$gVersion = 1.28000;
+$gVersion = 1.29000;
 
 
 # CPAN packages used
@@ -109,6 +109,7 @@ my $opt_nofile = 0;                              # number of file descriptors, z
 my $opt_stack = 0;                               # Stack limit zero means not found
 my $opt_sr;                                      # Soap Report
 my $opt_cmdall;                                  # show all commands
+my $opt_noded = 0;                               # track inter-arrival times for results
 
 sub gettime;                             # get time
 
@@ -380,6 +381,7 @@ my @sittbl = ();            # situation table
 my @sitrmin = ();           # situation results minimum of result size
 my @sitrmax = ();           # situation results maximum of result size
 my @sitrmaxnode = ();       # situation node giving maximum of result size
+my @sitnoded = ();          # array of hashes about each node and arrival times etc
 my $sitct_tot = 0;          # total results
 my $sitrows_tot = 0;        # total rows
 my $sitres_tot = 0;         # total size
@@ -1690,6 +1692,7 @@ for(;;)
       $sitrmin[$sx] = $insize;
       $sitrmax[$sx] = $insize;
       $sitrmaxnode[$sx] = $inode;
+      $sitnoded[$sx] = {};
    }
    else {
       $sx = $sitx{$isit};
@@ -1738,7 +1741,30 @@ for(;;)
       }
    }
    $manres[$mx] += $insize;
+   # Following tracks inter-arrival time of results from agents concerning situations
+   # don't have good use case yet or exactly how to display data
+   # todo: ignore non-situations
+   #       ignore pure situations??
+   if ($opt_noded == 1) {
+      my $node_ref = $sitnoded[$sx]{$inode};
+      if (!defined $node_ref) {
+         my %noderef = (
+                          rarrive => $logtime,
+                          rcount => 0,
+                          inter_arrive => [],
+         );
+         $sitnoded[$sx]{$inode} = \%noderef;
+         $node_ref = \%noderef;
+      } else {
+         my $iarrive = $logtime - $node_ref->{rarrive};
+         $node_ref->{rarrive} = $logtime;
+         $node_ref->{rcount} += 1;
+         push(@{$node_ref->{inter_arrive}},$iarrive);
+      }
+   }
+
 }
+$DB::single=2 if $node_ref->{rcount} > 1;
    $dur = $sitetime - $sitstime;
    $tdur = $trcetime - $trcstime;
 
@@ -2086,30 +2112,21 @@ if ($pevt_size > 0) {
 
 my $agto_dur = $agto_etime - $agto_stime;
 if ($agto_mult > 0) {
-   foreach $f ( sort { $agto_ct[$agtox{$b}] <=> $agto_ct[$agtox{$a}] } keys %agtox) {
-      my $ai = $agtox{$f};
-      $agto_hr[$ai] = 0;
-      next if $agto_ct[$ai] < 2;
-      my $agto_rate = ($agto_ct[$ai]) / ($agto_dur /3600);
-      next if $agto_rate < 1;
-      $agto_hr[$ai] = $agto_rate;
-      $agto_mult_hr += 1;
-   }
-}
-
-if ($agto_mult_hr > 0) {
-   $advisori++;$advisor[$advisori] = "Advisory: $agto_mult_hr Agents with repeated showing unusual online pattern\n";
+   $advisori++;$advisor[$advisori] = "Advisory: $agto_mult Agents with repeated onlines\n";
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Multiple Agent online Report\n";
-   $cnt++;$oline[$cnt]="Node,Count,Rate/hr\n";
+   $cnt++;$oline[$cnt]="Multiple Agent online Report - top 20 max\n";
+   $cnt++;$oline[$cnt]="Node,Online_Count\n";
+   my $top_online = 20;
+   my $top_current = 0;
    foreach $f ( sort { $agto_ct[$agtox{$b}] <=> $agto_ct[$agtox{$a}] } keys %agtox) {
       my $ai = $agtox{$f};
-      next if $agto_hr[$ai] < 1;
+      $top_current += 1;
+      last if  $agto_ct[$ai] < 2;
+      last if $top_current > $top_online;
       $outl = $f . ",";
       $outl .= $agto_ct[$ai] . ",";
-      my $ppc = sprintf '%.2f', $agto_hr[$ai];
-      $outl .= $ppc . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
+      $agto_mult_hr += 1;
    }
    $cnt++;$oline[$cnt]="$agto_dur,$agto_mult,\n";
 }
@@ -2472,3 +2489,4 @@ exit;
 # 1.26000 - Track recursive locks
 # 1.27000 - KFA_PostEvent tracking
 # 1.28000 - Track duplicate agent online logs
+# 1.29000 - Show duplicate agent online better - top 20
