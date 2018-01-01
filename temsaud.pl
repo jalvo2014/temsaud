@@ -25,7 +25,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-$gVersion = 1.27000;
+$gVersion = 1.28000;
 
 
 # CPAN packages used
@@ -134,7 +134,8 @@ my $opt_nominal_listen    = 8;               # warn on high listen count
 my $opt_nominal_nofile    = 8192;            # warn on low nofile value
 my $opt_nominal_stack     = 10240;           # warn on high stack limit value
 my $opt_max_listen        = 16;              # maximum listen count allowed by default
-my $opt_nominal_soap_burst = 300;             # maximum burst of 300 per minute
+my $opt_nominal_soap_burst = 300;            # maximum burst of 300 per minute
+my $opt_nominal_agto_mult = 1;               # amount of allowed repeat onlines
 
 my $arg_start = join(" ",@ARGV);
 $hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
@@ -277,6 +278,7 @@ if (-e $opt_ini) {
       elsif ($words[0] eq "nofile") {$opt_nominal_nofile = $words[1];}
       elsif ($words[0] eq "stack") {$opt_nominal_stack = $words[1];}
       elsif ($words[0] eq "maxlisten") {$opt_max_listen = $words[1];}
+      elsif ($words[0] eq "agto_mult") {$opt_nominal_agto_mult = $words[1];}
       else {
          die "unknown control in temsaud.ini line $l unknown control $words[0]"
       }
@@ -526,6 +528,19 @@ my $pe_etime = 0;
 my $pe_stime = 0;
 
 
+my $agtoi = -1;                              # Agent online records
+my @agto = ();                               # array of agent onlines
+my %agtox = ();                              # index to agent onlines
+my @agto_ct = ();                            # count of agent onlines
+my @agto_hr = ();                            # rate of agent onlines per hour
+my $agto_mult = 0;                           # number of multiple onlines
+my $agto_mult_hr = 0;                        # number of multiple onlines with rate/hr >= 1;
+my $agto_etime = 0;                          # time of first agent online
+my $agto_stime = 0;                          # time of last agent online
+
+my %timex = ( count=> 0,);                   # Hash of Hashes for timeout cases
+
+
 my $inrowsize;
 my $inobject;
 my $intable;
@@ -627,7 +642,6 @@ for(;;)
       last;
    }
    $l++;
-#$DB::single=2 if $l >= 99999;
 #print STDERR "Working on $l\n";
 # following two lines are used to debug errors. First you flood the
 # output with the working on log lines, while merging stdout and stderr
@@ -924,6 +938,46 @@ for(;;)
          $toobigtbl[$tx] = $ifilttbl;
          $toobigct[$tx] = 1;
       }
+      # (54E64441.0000-12:kpxreqds.cpp,2832,"timeout") Timeout for wlp_chstart_gmqc_std <26221448> *.QMCHANS.
+      # (54E7D64D.0000-12:kpxreqds.cpp,2832,"timeout") Timeout for  <1389379034> *.KINAGT.
+      if ($logentry eq "timeout") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Timeout for wlp_chstart_gmqc_std <26221448> *.QMCHANS.
+                                           # Timeout for  <1389379034> *.KINAGT.
+         next if substr($rest,1,11) ne "Timeout for";
+         my $isitname = "";
+         my $itable = "";
+         if (substr($rest,14,1) eq "<") {
+            $rest =~ /\*\.(\S+)\./;
+            $itable = $1;
+         } else {
+            $rest =~ / Timeout for (\S+) .*\*\.(\S+)\./;
+            $isitname = $1;
+            $itable = $2;
+         }
+         $isitname = "*realtime" if $isitname eq "";
+         $timex{count} += 1;
+         my $time_table_ref = $timex{$itable};
+         if (!defined $time_table_ref) {
+            my %table_tableref = ( count => 0,);
+            $timex{$itable} = \%table_tableref;
+            $time_table_ref  = \%table_tableref;
+         }
+         $time_table_ref->{count} += 1;
+         my $time_sit_ref = $timex{$itable}->{sit};
+         if (!defined $time_sit_ref) {
+            my %time_sitref   = ();
+            $time_sit_ref = \%time_sitref;
+            $timex{$itable}->{sit} = \%time_sitref;
+         }
+         my $sit_ref = $timex{$itable}->{sit}{$isitname};
+         if (!defined $sit_ref) {
+            my %sitref = (count => 0);
+            $timex{$itable}->{sit}{$isitname} = \%sitref;
+            $sit_ref = \%sitref;
+         }
+         $sit_ref->{count} += 1;
+      }
       next;
    }
    if (substr($logunit,0,9) eq "kdsrqc1.c") {
@@ -953,6 +1007,43 @@ for(;;)
       next;
    }
    next if $skipzero;
+
+
+   # (54EA2C3A.0002-AD:kpxreqhb.cpp,924,"HeartbeatInserter") Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
+   if (substr($logunit,0,12) eq "kpxreqhb.cpp") {
+      if ($logentry eq "HeartbeatInserter") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
+         next if substr($rest,1,11) ne "Remote node";
+         next if substr($rest,-8,8) ne "ON-LINE.";
+         $rest =~ /.*\<(\S+)\>/;
+         $iagent = $1;
+         my $ax = $agtox{$iagent};
+         if (!defined $ax) {
+            $agtoi += 1;
+            $ax = $agtoi;
+            $agto[$ax] = $iagent;
+            $agtox{$iagent} = $ax;
+            $agto_ct[$ax] = 0;
+         }
+         $agto_ct[$ax] += 1;
+         $agto_mult += 1 if $agto_ct[$ax] == 2;
+         if ($agto_stime == 0) {
+             $agto_stime = $logtime;
+             $agto_etime = $logtime;
+         }
+         if ($logtime < $agto_stime) {
+            $agto_stime = $logtime;
+         }
+         if ($logtime > $agto_etime) {
+            $agto_etime = $logtime;
+         }
+      }
+      next;
+   }
+
+
+
    # first are two node status update type
    # (54DE6F7F.0008-15:kfastpst.c,902,"KFA_PostEvent") First status queue record <11FF82E54> for viewArea node <NULL> while processing event record      <1150213164119001PCXTA42:VA10PWPAPP036:MQ            YMQ07.00.03 9                V00040000000000000000000000000000200000qwaa7 REMOTE_va10p10023                 Windows~6.1-SP1                 ip.spipe:#30.128.132.150[16832]<NM>VA10PWPAPP036</NM>                                                                                                                                                                                                           A=00:WINNT;C=06.21.00.02:WINNT;G=06.21.00.02:WINNT;             >
    # (54DE6F7F.000E-15:kfastpst.c,868,"KFA_PostEvent") Additional status queue record <11FFC02F4> for viewArea node <NULL> while processing event record <1150213164119001PCXTA42:VA10PWPAPP036:MQ            YMQ07.00.03 9                V00040000000000000000000000000000200000qwaa7 REMOTE_va10p10023                 Windows~6.1-SP1                 ip.spipe:#30.128.132.150[16832]<NM>VA10PWPAPP036</NM>                                                                                                                                                                                                           A=00:WINNT;C=06.21.00.02:WINNT;G=06.21.00.02:WINNT;             >
@@ -1439,7 +1530,6 @@ for(;;)
    # +53FE31BA.0045     00000080   6973206F 66203938  2027                is.of.98.'
    # (53FE31BD.0000-61C:kglhc1c.c,862,"KGLHC1_Command") Exit: 0x0
 
-#$DB::single=2 if $l >= 21952;
    if (substr($logunit,0,9) eq "kglhc1c.c") {
       $oneline =~ /^\((\S+)\)(.+)$/;
       $rest = $2;
@@ -1943,15 +2033,44 @@ if ($soapi != -1) {
    }
 }
 
+if ($pti != -1) {
+   $pt_dur = $pt_etime - $pt_stime;
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Process Table Report\n";
+   $cnt++;$oline[$cnt]="Process Table Duration: $pt_dur seconds\n";
+   $cnt++;$oline[$cnt]="Table,Path,Insert,Query,Select,SelectPreFiltered,Delete,Total,Total/min,Error,Error/min,Errors\n";
+   foreach $f ( sort { $pt_total_ct[$ptx{$b}] <=> $pt_total_ct[$ptx{$a}] || $a cmp $b } keys %ptx) {
+      $i = $ptx{$f};
+      $outl = $pt_table[$i] . ",";
+      $outl .= $pt_path[$i] . ",";
+      $outl .= $pt_insert_ct[$i] . ",";
+      $outl .= $pt_query_ct[$i] . ",";
+      $outl .= $pt_select_ct[$i] . ",";
+      $outl .= $pt_selectpre_ct[$i] . ",";
+      $outl .= $pt_delete_ct[$i] . ",";
+      $outl .= $pt_total_ct[$i] . ",";
+      $respermin = int($pt_total_ct[$i] / ($pt_dur / 60));
+      $outl .= $respermin . ",";
+      $outl .= $pt_error_ct[$i] . ",";
+      $respermin = int($pt_error_ct[$i] / ($pt_dur / 60));
+      $outl .= $respermin . ",";
+      $outl .= $pt_errors[$i] . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+   $respermin = int($pt_total_total / ($pt_dur / 60));
+   $cnt++;$oline[$cnt]="*total*,,,,,,,$pt_total_total,$respermin,\n";
+}
+
 my $total_evt = 0;
 my $pe_dur;
-if (keys(%pevtx) != -1) {
+my $pevt_size = scalar (keys %pevtx);
+if ($pevt_size > 0) {
    $pe_dur = $pe_etime - $pe_stime;
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="PostEvent Report\n";
 #   $cnt++;$oline[$cnt]="Process Table Duration: $pt_dur seconds\n";
    $cnt++;$oline[$cnt]="Situation,Node,Count,AtomCount,Thrunodes,\n";
-   foreach $f ( sort { $pevtx{$b}->{count} <=> $pevtx{$a}->{count} || A4 cmp $b } keys %pevtx) {
+   foreach $f ( sort { $pevtx{$b}->{count} <=> $pevtx{$a}->{count} } keys %pevtx) {
       $outl = $pevtx{$f}->{sitname} . ",";
       $outl .= $pevtx{$f}->{node} . ",";
       $outl .= $pevtx{$f}->{count} . ",";
@@ -1963,6 +2082,56 @@ if (keys(%pevtx) != -1) {
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
    $cnt++;$oline[$cnt]="*total*,$pe_dur,$total_evt,\n";
+}
+
+my $agto_dur = $agto_etime - $agto_stime;
+if ($agto_mult > 0) {
+   foreach $f ( sort { $agto_ct[$agtox{$b}] <=> $agto_ct[$agtox{$a}] } keys %agtox) {
+      my $ai = $agtox{$f};
+      $agto_hr[$ai] = 0;
+      next if $agto_ct[$ai] < 2;
+      my $agto_rate = ($agto_ct[$ai]) / ($agto_dur /3600);
+      next if $agto_rate < 1;
+      $agto_hr[$ai] = $agto_rate;
+      $agto_mult_hr += 1;
+   }
+}
+
+if ($agto_mult_hr > 0) {
+   $advisori++;$advisor[$advisori] = "Advisory: $agto_mult_hr Agents with repeated showing unusual online pattern\n";
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Multiple Agent online Report\n";
+   $cnt++;$oline[$cnt]="Node,Count,Rate/hr\n";
+   foreach $f ( sort { $agto_ct[$agtox{$b}] <=> $agto_ct[$agtox{$a}] } keys %agtox) {
+      my $ai = $agtox{$f};
+      next if $agto_hr[$ai] < 1;
+      $outl = $f . ",";
+      $outl .= $agto_ct[$ai] . ",";
+      my $ppc = sprintf '%.2f', $agto_hr[$ai];
+      $outl .= $ppc . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+   $cnt++;$oline[$cnt]="$agto_dur,$agto_mult,\n";
+}
+
+
+
+if ($timex{count} > 0) {
+   $advisori++;$advisor[$advisori] = "Advisory: $timex{count} Agent time out messages\n";
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Agent Timeout Report\n";
+   $cnt++;$oline[$cnt]="Table,Situation,Count\n";
+   foreach $f ( sort { $timex{$b}->{count} <=> $timex{$a}->{count} } keys %timex) {
+      my $ptable = $f;
+      foreach my $g ( sort { $a cmp $b } keys %{$timex{$ptable}->{sit}} ) {
+         my $psitname = $g;
+         my $pcount = $timex{$ptable}->{sit}{$psitname}->{count};
+         $outl = $ptable . ',';
+         $outl .= $psitname . ",";
+         $outl .= $pcount . ",";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+      }
+   }
 }
 
 if ($histi != -1) {
@@ -2302,3 +2471,4 @@ exit;
 # 1.25000 - count SQLs
 # 1.26000 - Track recursive locks
 # 1.27000 - KFA_PostEvent tracking
+# 1.28000 - Track duplicate agent online logs
