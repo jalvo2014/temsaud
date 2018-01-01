@@ -13,10 +13,10 @@
 #  john alvord, IBM Corporation, 21 Mar 2011
 #  jalvord@us.ibm.com
 #
-# tested on Windows Activestate 5.12.2
+# tested on Windows Activestate 5.16.3
 #
 
-$gVersion = 0.95000;
+$gVersion = 0.99000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -88,6 +88,11 @@ $gVersion = 0.95000;
 
 my $opt_z;
 my $opt_expslot;
+my $opt_logpat;
+my $opt_logpath;
+my $opt_workpath;
+my $full_logfn;
+my $opt_v;
 
 while (@ARGV) {
    if ($ARGV[0] eq "-h") {
@@ -99,27 +104,137 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-b") {
       $opt_b = 1;
       shift(@ARGV);
+   } elsif ($ARGV[0] eq "-v") {
+      $opt_v = 1;
+      shift(@ARGV);
    } elsif ($ARGV[0] eq "-expslot") {
       shift(@ARGV);
       $opt_expslot = shift(@ARGV);
+   } elsif ($ARGV[0] eq "-logpath") {
+      shift(@ARGV);
+      $opt_logpath = shift(@ARGV);
+      die "logpath specified but no path found\n" if !defined $opt_logpath;
+   } elsif ($ARGV[0] eq "-workpath") {
+$DB::single=2;
+      shift(@ARGV);
+      $opt_workpath = shift(@ARGV);
+      die "workpath specified but no path found\n" if !defined $opt_workpath;
    }
    else {
       $logfn = shift(@ARGV);
-      if (!defined $logfn) {die "log file not defined\n"}
+      die "log file not defined\n" if !defined $logfn;
    }
 }
 
-if (!defined $opt_z) {$opt_z = 0};
-if (!defined $opt_b) {$opt_b = 0};
+
+die "logpath and -z must not be supplied together\n" if defined $opt_z and defined $opt_logpath;
+
+if (!defined $opt_logpath) {$opt_logpath = "";}
+if (!defined $logfn) {$logfn = "";}
+if (!defined $opt_z) {$opt_z = 0;}
+if (!defined $opt_b) {$opt_b = 0;}
+if (!defined $opt_v) {$opt_v = 0;}
 if (!defined $opt_expslot) {$opt_expslot = 60;}
 
-#$gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
+$gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
+
+if (!defined $opt_workpath) {
+   $opt_workpath = "c:/temp" if $gWin == 1;       # ??? %TEMP%
+   $opt_workpath = "/tmp" if $gWin == 0;
+}
+$opt_workpath .= '/';
+$opt_workpath =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+
+my $pwd;
+my $d_res;
+
+# logic below is to normalize the supplied logpath. For example  ../../logs  needs to be resulted to a proper path name.
+
+if ($gWin == 1) {
+   $pwd = `cd`;
+   chomp($pwd);
+   if ($opt_logpath eq "") {
+      $opt_logpath = $pwd;
+   }
+   $opt_logpath = `cd $opt_logpath & cd`;
+   chomp($opt_logpath);
+   chdir $pwd;
+} else {
+   $pwd = `pwd`;
+   chomp($pwd);
+   if ($opt_logpath eq "") {
+      $opt_logpath = $pwd;
+   } else {
+      $opt_logpath = `(cd $opt_logpath && pwd)`;
+      chomp($opt_logpath);
+   }
+   chdir $pwd;
+}
+
+
+$opt_logpath .= '/';
+$opt_logpath =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+
+die "logpath or logfn must be supplied\n" if !defined $logfn and !defined $opt_logpath;
+
+
+
+my $pattern;
+my @results = ();
+my $loginv;
+my $inline;
+my $logbase;
+my %todo = ();     # associative array of names and first identified timestamp
+my @seg = ();
+my $segi = -1;
+my $segp = -1;
+my $segcur = "";
+
+
+if ($logfn eq "") {
+   $pattern = "_ms\.inv";
+   @results = ();
+   opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n"); # get list of files
+   @results = grep {/$pattern/} readdir(DIR);
+   closedir(DIR);
+   die "No _ms.inv found\n" if $#results == -1;
+   if ($#results > 0) {         # more than one inv file - complain and exit
+      $invlist = join(" ",@results);
+      die "multiple invfiles [$invlist]\n";
+   }
+   $logfn =  $results[0];
+}
+
+$full_logfn = $opt_logpath . $logfn;
+if ($logfn =~ /.*\.inv$/) {
+   open(INV, "< $full_logfn") || die("Could not open inv  $full_logfn\n");
+   $inline = <INV>;
+   die "empty INV file $full_logfn\n" if !defined $inline;
+   $inline =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+   $pos = rindex($inline,'/');
+   $inline = substr($inline,$pos+1);
+   $inline =~ m/(.*)-\d\d\.log$/;
+   die "invalid log form $inline from $full_logfn\n" if !defined $1;
+   $logbase = $1;
+   $logfn = $1 . '-*.log';
+   close(INV);
+}
+
+
 
 die "-expslot [$opt_expslot] is not numeric" if  $opt_expslot !~ /^\d+$/;
 die "-expslot [$opt_expslot] is not positive number from 1 to 60" if  ($opt_expslot < 1) or ($opt_expslot > 60);
+
+#??? doubt the next line works
 die "-expslot [$opt_expslot] is not an even multiple of 60" if  (int(60/$opt_expslot) * $opt_expslot) != 60;
 
-open(KIB, "< $logfn") || die("Could not open log $logfn\n");
+sub open_kib;
+sub read_kib;
+
+my $pos;
+
+
+open_kib();
 
 $l = 0;
 
@@ -271,7 +386,6 @@ my $days;
 my $saveline;
 my $oplogid;
 
-my $inline;
 my $lagline;
 my $lagtime;
 my $laglocus;
@@ -280,8 +394,12 @@ if ($opt_z == 0) {$state = 0}
 
 $inrowsize = 0;
 
-foreach $inline (<KIB>)
+for(;;)
 {
+   read_kib();
+   if (!defined $inline) {
+      last;
+   }
    $l++;
 # following two lines are used to debug errors. First you flood the
 # output with the working on log lines, while merging stdout and stderr
@@ -516,7 +634,7 @@ foreach $inline (<KIB>)
             $rest =~ / row (\d+) for (.*)/;
             $inmetaobject = $2;
             if (defined $inmetatable) {
-               $histobjx{$inmetatable} = $inmetaobject if !defined $histobjx{$inmetatable} ;
+               $histobjx{$inmetatable} = $inmetaobject if !defined $histobjx{$inmetatable};
             }
          }
       }
@@ -812,7 +930,8 @@ foreach $inline (<KIB>)
 
    if ($opt_b == 0) {next if $isit eq "HEARTBEAT";}
 
-   if (!defined $manx{$inode}) {      # if newly observed node, set up initial values and associative array
+   $mx = $manx{$inode};
+   if (!defined $mx) {       # if newly observed node, set up initial values and associative array
       $mani++;
       $man[$mani] = $inode;
       $manx{$inode} = $mani;
@@ -825,24 +944,19 @@ foreach $inline (<KIB>)
       $manrmax[$mx] = $insize;
       $manrmaxsit[$mx] = $isit;
    }
-   else {
-      $mx = $manx{$inode};
-   }
    $manct[$mx] += 1;
    $manrows[$mx] += $irows;
    if ($insize != 0) {
       if ($insize < $manrmin[$mx]) {
          $manrmin[$mx] = $insize;
       }
-   }
-   if ($insize > $manrmax[$mx]) {
+      if ($insize > $manrmax[$mx]) {
          $manrmax[$mx] = $insize;
          $manrmaxsit[$mx] = $isit;
       }
+   }
    $manres[$mx] += $insize;
-
 }
-close(KIB);
 
 if ($opt_z == 0) {
    $dur = $sitetime - $sitstime;
@@ -912,7 +1026,6 @@ foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] } keys %sitx ) {
    $outl .= $sitres[$i] . ",";
    $respermin = int($sitres[$i] / ($dur / 60));
    $outl .= $respermin . ",";
-#$DB::single=2;
    my $fraction = ($respermin*100) / $trespermin;
    my $pfraction = sprintf "%.2f", $fraction;
    $outl .= $pfraction . "%,";
@@ -1078,6 +1191,73 @@ print STDERR "Wrote $cnt lines\n";
 
 exit 0;
 
+
+sub open_kib {
+   # get list of files
+   if (defined $logbase) {
+      $logpat = $logbase . '-.*\.log';
+   } else {
+      $logpat = $logfn
+   }
+   opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n");
+   @dlogfiles = grep {/$logpat/} readdir(DIR);
+   closedir(DIR);
+   die "no log files found with given specifcation\n" if $#dlogfiles == -1;
+
+   my $dlog;          # fully qualified name of diagnostic log
+   my $oneline;       # local variable
+   my $tlimit = 100;  # search this many times for a timestamp at begining of a log
+   my $t;
+   my $tgot;          # track if timestamp found
+   my $itime;
+
+   foreach $f (@dlogfiles) {
+      $dlog = $opt_logpath . $f;
+      open($dh, "< $dlog") || die("Could not open log $dlog\n");
+      for ($t=0;$t<$tlimit;$t++) {
+         $oneline = <$dh>;                      # read one line
+         next if $oneline !~ /^.(.*?)\./;       # see if distributed timestamp in position 1 ending with a period
+         $oneline =~ /^.(.*?)\./;               # extract value
+         $itime = $1;
+         next if length($itime) != 8;           # should be 8 characters
+         next if $itime !~ /^[0-9A-F]*/;            # should be upper cased hex digits
+         $tgot = 1;                             # flag gotten and quit
+         last;
+      }
+      if ($tgot == 0) {
+         print STDERR "the log $dlog ignored, did not have a timestamp in the first $tlimit lines.\n";
+         next;
+      }
+      $todo{$dlog} = hex($itime);               # Add to array of logs
+      close($dh);
+   }
+
+   foreach $f ( sort { $todo{$a} <=> $todo{$b} } keys %todo ) {
+      $segi += 1;
+      $seg[$segi] = $f;
+   }
+}
+
+sub read_kib {
+   if ($segp == -1) {
+      $segp = 0 if $segi < 4;
+      $segp = 1 if $segi == 4;
+      $segcurr = $seg[$segp];
+      open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
+      print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
+   }
+   $inline = <KIB>;
+   return if defined $inline;
+   close(KIB);
+   $segp += 1;
+   return if $segp > $segi;
+   $segcurr = $seg[$segp];
+   open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
+   print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
+   $inline = <KIB>;
+}
+
+
 #------------------------------------------------------------------------------
 sub GiveHelp
 {
@@ -1115,3 +1295,4 @@ exit;
 # 0.90000 - add -b option to break out HEARTBEAT sources
 #           add processing of agent export traces
 # 0.95000 - add move summary to top and add per cent column
+# 0.99000 - calculate the correct log segments
