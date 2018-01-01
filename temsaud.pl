@@ -20,8 +20,9 @@
 ## Watch for Override messages
 ## Take Action command function for high usage
 ## Add location and names of logs analyzed
+## add alert when maximum results exceeds 16meg-8k bytes - likely partial results returned
 
-$gVersion = 1.22000;
+$gVersion = 1.23000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -561,12 +562,14 @@ for(;;)
       last;
    }
    $l++;
+#$DB::single=2 if $l >= 99999;
+#print STDERR "Working on $l\n";
 # following two lines are used to debug errors. First you flood the
 # output with the working on log lines, while merging stdout and stderr
 # with  1>xxx 2>&1. From that you determine what the line number was
 # before the faulting processing. Next you turn that off and set the conditional
 # test for debugging and test away.
-#   print STDERR "working on log $segcurr at $l\n";
+#  print STDERR "working on log $segcurr at $l\n";
 #  if ($l > 10018) {$DB::single=2;}
 
    chomp($inline);
@@ -574,7 +577,7 @@ for(;;)
       if (length($inline) > 132) {
          $inline = substr($inline,0,132);
       }
-      next if length($inline) < 21;
+      next if length($inline) <= 21;
    }
    if (($segmax == 0) or ($segp > 0)) {
       if ($skipzero == 0) {
@@ -823,8 +826,11 @@ for(;;)
          $rest = $2;                       #     listen 16: PLE=11CE1F2B0, hMon=01900C3B, bal=152, thr=2432, pipes=2026
                                            # 6.3 listenCount 1: PLE=5C4E710, hMon=CE100369, bal=2, thr=2, pipes=0
 
+#$DB::single=2;
          next if substr($rest,1,6) ne "listen";
-         $rest =~ / (\d+):.*bal=(\d+).*thr=(\d+).*pipes=(\d+).*/;
+$DB::single=2;
+         $rest =~ /(\d+):.*?=\s*(\d+).*?=\s*(\d+).*?=(\d+).*/;
+$DB::single=2;
          $lp_high = $1;
          $lp_balance = $2;
          $lp_threads = $3;
@@ -920,15 +926,17 @@ for(;;)
          if ($logtime > $pt_etime) {
                $pt_etime = $logtime;
          }
-         $rest =~ /.*= (\S+)\,.*= (\S+)\,.*= (\S+)\,.*= (.*)\,.*=(.*)/;
+#$DB::single=2 if $l >= 99999;
+         $rest =~ /.*?= (\S+)\,.*?=\s+(\S+)\,.*?= (\S+)\,.*?=\s*(.*?)\,.*?=\s*(\S*)/;
+
+if (!defined $4) {$DB::single=2;}
          $ipt_status = $1;
          $ipt_rows = $2;
          $ipt_table = $3;
          $ipt_type = $4;
-#if (!defined $ipt_type) {$DB::single=2;}
+         $ipt_path  = $5;
          my $post = index($ipt_type,",");
          $ipt_type = substr($ipt_type,0,$post) if $post > 0;
-         $ipt_path  = $5;
          $ipt_path =~ s/(^\s+|\s+$)//g;
          $ipt_key = $ipt_table . "_" . $ipt_path;
          $ix = $ptx{$ipt_key};
@@ -1364,7 +1372,7 @@ if ($toobigi > -1) {
       my $ptoobigi = $toobigi + 1;
       $advisori++;$advisor[$advisori] = "Advisory: $ptoobigi Filter object too big situations and/or reports\n";
    }
-
+$DB::single=2;
 if ($lp_high > $opt_nominal_listen) {
    if ($lp_high >= $opt_max_listen) {
       $advisori++;$advisor[$advisori] = "Advisory: Listen Pipe Shortage at maximum - emergency!!\n";
@@ -1428,6 +1436,7 @@ if ($syncdist_early > -1) {
       $advisori++;$advisor[$advisori] = "Advisory: $syncdist_early early remote SQL failures\n";
    }
 
+$DB::single=2;
 if ($lp_high != -1) {
    $cnt++;$oline[$cnt] = "Listen Pipe Report listen=$lp_high balance=$lp_balance threads=$lp_threads pipes=$lp_pipes\n";
    $cnt++;$oline[$cnt]="\n";
@@ -1544,6 +1553,7 @@ if ($pti != -1) {
    $cnt++;$oline[$cnt]="Table,Path,Insert,Query,Select,SelectPreFiltered,Delete,Total,Total/min,Error,Error/min,Errors\n";
    foreach $f ( sort { $pt_total_ct[$ptx{$b}] <=> $pt_total_ct[$ptx{$a}] } keys %ptx) {
       $i = $ptx{$f};
+$DB::single=2;
       $outl = $pt_table[$i] . ",";
       $outl .= $pt_path[$i] . ",";
       $outl .= $pt_insert_ct[$i] . ",";
@@ -1671,7 +1681,7 @@ if ($opt_sr == 1) {
       open SOAP, ">$opt_sr_fn" or die "Unable to open SOAP Detail output file $opt_sr_fn\n";
       select SOAP;              # print will use SOAP instead of STDOUT
       print "Secs   Count Line   Log-segment\n";
-$DB::single=2;
+#$DB::single=2;
       for (my $i=0;$i<=$soap_burst_minute;$i++) {
          next if !defined $soap_burst_log[$i];
          next if $soap_burst[$i] == 0;
@@ -1683,10 +1693,10 @@ $DB::single=2;
          print "$oline\n";
       }
       close SOAP;
-$DB::single=2;
+#$DB::single=2;
    }
 }
-$DB::single=2;
+#$DB::single=2;
 
 print STDERR "Wrote $cnt lines\n";
 
@@ -1834,7 +1844,6 @@ sub GiveHelp
     -h              display help information
     -z              z/OS RKLVLOG log
     -b              Show HEARTBEATs in Managed System section
-    -sr             Create SOAP report minute by minute soap_detail.txt
     -expslot <mins> Historical export report slot size - default 60 mins
     -v              Produce limited progress messages in STDERR
     -inplace        [default and not used - see work parameter]
@@ -1879,4 +1888,5 @@ exit;
 # 1.20000 - add advisory for Stack more then 10M
 # 1.21000 - handle listen messages at ITM 630
 #         - add SOAP Burst calculation and advisory
-# 1.22000 - add -sr SOAP Report
+# 1.22000 - add -sr == soapreport
+# 1.23000 - handle z/OS better, especially for ProcessTable capture
