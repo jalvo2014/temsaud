@@ -10,13 +10,19 @@
 #  Create a report on agent row results from
 #  kpxrpcrq tracing
 #
-#  john alvord, IBM Corporation, 21 Mar 2011
+#  john alvord, IBM Corporation, 22 Jul 2011
 #  jalvord@us.ibm.com
 #
 # tested on Windows Activestate 5.16.3
 #
 
-$gVersion = 1.01000;
+## Todos
+## Needed - always read segment -01 for Too Big cases
+## Watch for Override messages
+## Watch for it01ram03sr02xm_ms_510994ca-01.log:(51099898.0000-7:kdsrqc1.c,2548,"AccessRowsets") Sync. Dist. request 11DFDE500 Timeout  Status ( 155 ) ntype 1 interval 0 state 0x1200000 parms 0x20 options 0x00
+## Take Action command function for high usage
+
+$gVersion = 1.05000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -94,6 +100,7 @@ my $opt_workpath;
 my $full_logfn;
 my $opt_v;
 my $workdel = "";
+my $opt_inplace = 0;
 
 while (@ARGV) {
    if ($ARGV[0] eq "-h") {
@@ -104,6 +111,9 @@ while (@ARGV) {
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-b") {
       $opt_b = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-inplace") {
+      $opt_inplace = 1;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-v") {
       $opt_v = 1;
@@ -138,17 +148,19 @@ if (!defined $opt_expslot) {$opt_expslot = 60;}
 
 $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
-if (!defined $opt_workpath) {
-   if ($gWin == 1) {
-      $opt_workpath = $ENV{TEMP};
-      $opt_workpath = "c:\temp" if !defined $opt_workpath;
-   } else {
-      $opt_workpath = $ENV{TMP};
-      $opt_workpath = "/tmp" if !defined $opt_workpath;
+if (!$opt_inplace) {
+   if (!defined $opt_workpath) {
+      if ($gWin == 1) {
+         $opt_workpath = $ENV{TEMP};
+         $opt_workpath = "c:\temp" if !defined $opt_workpath;
+      } else {
+         $opt_workpath = $ENV{TMP};
+         $opt_workpath = "/tmp" if !defined $opt_workpath;
+      }
    }
+   $opt_workpath =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+   $opt_workpath .= '/';
 }
-$opt_workpath =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
-$opt_workpath .= '/';
 
 my $pwd;
 my $d_res;
@@ -191,13 +203,16 @@ my $inline;
 my $logbase;
 my %todo = ();     # associative array of names and first identified timestamp
 my @seg = ();
+my @seg_time = ();
 my $segi = -1;
 my $segp = -1;
 my $segcur = "";
+my $segmax = "";
+my $skipzero = 0;
 
 
 if ($logfn eq "") {
-   $pattern = "_ms\.inv";
+   $pattern = "_ms(_kdsmain)?\.inv";
    @results = ();
    opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n"); # get list of files
    @results = grep {/$pattern/} readdir(DIR);
@@ -209,6 +224,7 @@ if ($logfn eq "") {
    }
    $logfn =  $results[0];
 }
+
 
 $full_logfn = $opt_logpath . $logfn;
 if ($logfn =~ /.*\.inv$/) {
@@ -223,6 +239,11 @@ if ($logfn =~ /.*\.inv$/) {
    $logbase = $1;
    $logfn = $1 . '-*.log';
    close(INV);
+}
+
+
+if (!defined $logbase) {
+   $logbase = $logfn if ! -e $logfn;
 }
 
 
@@ -270,6 +291,8 @@ my $sitrows_tot = 0;        # total rows
 my $sitres_tot = 0;         # total size
 my $sitstime = 0;           # smallest time seen - distributed
 my $sitetime = 0;           # largest time seen  - distributed
+my $trcstime = 0;           # trace smallest time seen - distributed
+my $trcetime = 0;           # trace largest time seen  - distributed
 my $timestart = "";         # first time seen - z/OS
 my $timeend = "";           # last time seen - z/OS
 my $sx;                     # index
@@ -294,10 +317,13 @@ my @toobigsit = ();         # array of toobig situation names
 my %toobigsitx = ();        # associative array from  situation to index
 my @toobigsize = ();        # size values
 my @toobigtbl = ();         # table name
+my @toobigct = ();          # Count of too bigs
 my $ifiltsize;              # input size
 my $ifilttbl;               # input table
 my $ifiltsit;               # input situation
 my $tx;                     # index
+
+my $syncdist = 0;           # count of sync. dist. error messages
 
 my $soapi = -1;             # count of soap SQLa
 my @soap = ();              # indexed array to SOAP SQLs
@@ -373,6 +399,9 @@ my @histobject_rows = ();       # number of rows
 my @histobject_rowsize = ();    # size of rows
 my @histobject_bytes = ();      # total size of rows
 
+my $trace_ct = 0;               # count of trace lines
+my $trace_sz = 0;               # total size of trace lines
+
 
 my $state = 0;       # 0=look for offset, 1=look for zos initial record, 2=look for zos continuation, 3=distributed log
 my $partline = "";          # partial line for z/OS RKLVLOG
@@ -412,8 +441,14 @@ for(;;)
 # before the faulting processing. Next you turn that off and set the conditional
 # test for debugging and test away.
 #   print STDERR "working on log $logfn at $l\n";
-# if ($l == 338) { $DB::single=2;}
+# if ($l == 20316) { $DB::single=2;}
 
+   if (($segmax == 0) or ($segp > 0)) {
+      if ($skipzero == 0) {
+         $trace_ct += 1;
+         $trace_sz += length($inline);
+      }
+   }
    chomp($inline);
    if ($state == 0) {                       # state = 0 distributed log - no filtering
       $oneline = $inline;
@@ -545,6 +580,20 @@ for(;;)
       $logthread = $2;
       $logunit = $3;
       $logentry = $4;
+      if ($skipzero == 0) {
+         if (($segmax == 0) or ($segp > 0)) {
+            if ($trcstime == 0) {
+               $trcstime = $logtime;
+               $trcetime = $logtime;
+            }
+            if ($logtime < $trcstime) {
+               $trcstime = $logtime;
+            }
+            if ($logtime > $trcetime) {
+               $trcetime = $logtime;
+            }
+         }
+      }
    }
    else {                            # z/OS has three pieces
       $locus =~ /\((.*):(.*)\,\"(.*)\"\)/;
@@ -565,16 +614,31 @@ for(;;)
          if ($ifiltsit eq "") {
             $ifiltsit = $ifilttbl . "-nosituation";
          }
-         next if defined $toobigsitx{$ifiltsit};
+         my $n2 = $toobigsitx{$ifiltsit};
+         if (defined $n2) {
+            $toobigct[$n2] += 1;
+            next;
+         }
          $toobigi++;
          $tx = $toobigi;
          $toobigsit[$tx] = $ifiltsit;
          $toobigsitx{$ifiltsit} = $tx;
          $toobigsize[$tx] = $ifiltsize;
          $toobigtbl[$tx] = $ifilttbl;
+         $toobigct[$tx] = 1;
       }
       next;
    }
+   if (substr($logunit,0,9) eq "kdsrqc1.c") {
+      if ($logentry eq "AccessRowsets") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Sync. Dist. request A9E5958 Timeout Status ( 155 ) ntype 1 ...
+         next if substr($rest,1,11) ne "Sync. Dist.";
+         $syncdist += 1;
+      }
+      next;
+   }
+   next if $skipzero;
    if (substr($logunit,0,11) eq "kshdhtp.cpp") {
       if ($logentry eq "getHeaderValue") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -965,6 +1029,7 @@ for(;;)
 
 if ($opt_z == 0) {
    $dur = $sitetime - $sitstime;
+   $tdur = $trcetime - $trcstime;
 }
 else {
    # calc based on $timestart/$timeend/$totsecs
@@ -983,6 +1048,10 @@ if ($dur == 0)  {
    print STDERR "Duration calculation is zero, setting to 1000\n";
    $dur = 1000;
 }
+if ($tdur == 0)  {
+   print STDERR "Trace Duration calculation is zero, setting to 1000\n";
+   $tdur = 1000;
+}
 
 
 # produce output report
@@ -993,17 +1062,20 @@ print "TEMS Audit report v$gVersion\n";
 $cnt++;
 print "\n";
 $cnt++;
-print "Too Big Report\n";
-$cnt++;
-print "Situation,Table,FilterSize\n";
-for ($i = 0; $i <= $toobigi; $i++) {
+if ($toobigi != -1) {
+   print "Too Big Report\n";
    $cnt++;
-   $outl = $toobigsit[$i] . ",";
-   $outl .= $toobigtbl[$i] . ",";
-   $outl .= $toobigsize[$i] . ",";
-   print $outl . "\n";
+   print "Situation,Table,FilterSize,Count\n";
+   for ($i = 0; $i <= $toobigi; $i++) {
+      $cnt++;
+      $outl = $toobigsit[$i] . ",";
+      $outl .= $toobigtbl[$i] . ",";
+      $outl .= $toobigsize[$i] . ",";
+      $outl .= $toobigct[$i] . ",";
+      print $outl . "\n";
+   }
+   $cnt++;print "\n";
 }
-$cnt++;print "\n";
 
 $cnt++;print "Summary Statistics\n";
 $cnt++;print "Duration (seconds),,,$dur\n";
@@ -1013,6 +1085,16 @@ $cnt++;print "Total Result (bytes),,,$sitres_tot\n";
 my $trespermin = int($sitres_tot / ($dur / 60));
 $cnt++;print "Total Results per minute,,,$trespermin\n";
 $cnt++;print "\n";
+$cnt++;print "Trace duration (seconds),,,$tdur\n";
+my $trace_lines_minute = int($trace_ct / ($tdur / 60));
+$cnt++;print "Trace Lines Per Minute,,,$trace_lines_minute\n";
+my $trace_size_minute = int($trace_sz / ($tdur / 60));
+$cnt++;print "Trace Bytes Per Minute,,,$trace_size_minute\n";
+$cnt++;print "\n";
+if ($syncdist > 0) {
+   $cnt++;print "Remote SQL time outs,,,$syncdist\n";
+   $cnt++;print "\n";
+}
 
 my $f;
 my $crespermin = 0;
@@ -1079,6 +1161,8 @@ print $outl . "\n";
 
 if ($soapi != -1) {
    $cnt++;
+   print "\n";
+   $cnt++;
    print "SOAP SQL Summary Report\n";
    $cnt++;
    print "IP,Count,SQL\n";
@@ -1111,6 +1195,7 @@ if ($histi != -1) {
    print "Object,Table,Appl,Rowsize,Rows,Bytes,Bytes_Min,Cycles,MinRows,MaxRows,AvgRows,LastRows\n";
    foreach $f ( sort { $hist[$histx{$a}] cmp $hist[$histx{$b}] } keys %histx ) {
       $i = $histx{$f};
+print "$f $i\n";
       my $rows_cycle = 0;
       $rows_cycle = int($hist_totrows[$i]/$hist_cycles[$i]) if $hist_cycles[$i] > 0;
       $cnt++;
@@ -1120,7 +1205,9 @@ if ($histi != -1) {
       $outl .= $hist_rowsize[$i] . ",";
       $outl .= $hist_rows[$i] . ",";
       $outl .= $hist_bytes[$i] . ",";
-      $outl .= int(($hist_bytes[$i]*60)/$hist_elapsed_time) . ",";
+      my $hist_bytes_min = 0;
+      $hist_bytes_min = int(($hist_bytes[$i]*60)/$hist_elapsed_time) if $hist_elapsed_time > 0;
+      $outl .= $hist_bytes_min . ",";
       $outl .= $hist_cycles[$i] . ",";
       $outl .= $hist_minrows[$i] . ",";
       $outl .= $hist_maxrows[$i] . ",";
@@ -1199,68 +1286,83 @@ exit 0;
 
 sub open_kib {
    # get list of files
-   if (defined $logbase) {
-      $logpat = $logbase . '-.*\.log';
-      my $cmd;
-      my $rc;
-      if ($gWin == 1) {
-         $cmd = "copy \"$opt_logpath$logbase-*.log\" \"$opt_workpath\"";
-         $cmd =~ s/\//\\/g;    # switch to backward slashes for Windows command
-         $rc = system($cmd);
-      } else {
-         $cmd = "cp $opt_logpath$logbase-*.log $opt_workpath.";
-         $rc = system($cmd);
+   $logpat = $logbase . '-.*\.log' if defined $logbase;
+   if (!$opt_inplace) {
+      if (defined $logbase) {
+         my $cmd;
+         my $rc;
+         if ($gWin == 1) {
+            $cmd = "copy \"$opt_logpath$logbase-*.log\" \"$opt_workpath\">nul";
+            $cmd =~ s/\//\\/g;    # switch to backward slashes for Windows command
+            $rc = system($cmd);
+         } else {
+            $cmd = "cp $opt_logpath$logbase-*.log $opt_workpath.>/dev/null";
+            $rc = system($cmd);
+         }
+         $opt_logpath = $opt_workpath;
+         $workdel = $logbase . "-*.log";
       }
-      $opt_logpath = $opt_workpath;
-      $workdel = $logbase . "-*.log";
+   }
+
+
+   if (defined $logpat) {
+      opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n");
+      @dlogfiles = grep {/$logpat/} readdir(DIR);
+      closedir(DIR);
+      die "no log files found with given specifcation\n" if $#dlogfiles == -1;
+
+      my $dlog;          # fully qualified name of diagnostic log
+      my $oneline;       # local variable
+      my $tlimit = 100;  # search this many times for a timestamp at begining of a log
+      my $t;
+      my $tgot;          # track if timestamp found
+      my $itime;
+
+      foreach $f (@dlogfiles) {
+         $f =~ /^.*-(\d+)\.log/;
+         $segmax = $1 if $segmax eq "";
+         $segmax = $1 if $segmax < $1;
+         $dlog = $opt_logpath . $f;
+         open($dh, "< $dlog") || die("Could not open log $dlog\n");
+         for ($t=0;$t<$tlimit;$t++) {
+            $oneline = <$dh>;                      # read one line
+            next if $oneline !~ /^.(.*?)\./;       # see if distributed timestamp in position 1 ending with a period
+            $oneline =~ /^.(.*?)\./;               # extract value
+            $itime = $1;
+            next if length($itime) != 8;           # should be 8 characters
+            next if $itime !~ /^[0-9A-F]*/;            # should be upper cased hex digits
+            $tgot = 1;                             # flag gotten and quit
+            last;
+         }
+         if ($tgot == 0) {
+            print STDERR "the log $dlog ignored, did not have a timestamp in the first $tlimit lines.\n";
+            next;
+         }
+         $todo{$dlog} = hex($itime);               # Add to array of logs
+         close($dh);
+      }
+
+      foreach $f ( sort { $todo{$a} <=> $todo{$b} } keys %todo ) {
+         $segi += 1;
+         $seg[$segi] = $f;
+         $seg_time[$segi] = $todo{$f};
+      }
    } else {
-      $logpat = $logfn
-   }
-
-
-   opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n");
-   @dlogfiles = grep {/$logpat/} readdir(DIR);
-   closedir(DIR);
-   die "no log files found with given specifcation\n" if $#dlogfiles == -1;
-
-   my $dlog;          # fully qualified name of diagnostic log
-   my $oneline;       # local variable
-   my $tlimit = 100;  # search this many times for a timestamp at begining of a log
-   my $t;
-   my $tgot;          # track if timestamp found
-   my $itime;
-
-   foreach $f (@dlogfiles) {
-      $dlog = $opt_logpath . $f;
-      open($dh, "< $dlog") || die("Could not open log $dlog\n");
-      for ($t=0;$t<$tlimit;$t++) {
-         $oneline = <$dh>;                      # read one line
-         next if $oneline !~ /^.(.*?)\./;       # see if distributed timestamp in position 1 ending with a period
-         $oneline =~ /^.(.*?)\./;               # extract value
-         $itime = $1;
-         next if length($itime) != 8;           # should be 8 characters
-         next if $itime !~ /^[0-9A-F]*/;            # should be upper cased hex digits
-         $tgot = 1;                             # flag gotten and quit
-         last;
-      }
-      if ($tgot == 0) {
-         print STDERR "the log $dlog ignored, did not have a timestamp in the first $tlimit lines.\n";
-         next;
-      }
-      $todo{$dlog} = hex($itime);               # Add to array of logs
-      close($dh);
-   }
-
-   foreach $f ( sort { $todo{$a} <=> $todo{$b} } keys %todo ) {
-      $segi += 1;
-      $seg[$segi] = $f;
+         $segi += 1;
+         $seg[$segi] = $logfn;
+         $segmax = 0;
    }
 }
 
 sub read_kib {
    if ($segp == -1) {
-      $segp = 0 if $segi < 4;
-      $segp = 1 if $segi == 4;
+      $segp = 0;
+      if ($segmax > 0) {
+         my $seg_diff_time = $seg_time[1] - $seg_time[0];
+         if ($seg_diff_time > 3600) {
+            $skipzero = 1;
+         }
+      }
       $segcurr = $seg[$segp];
       open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
       print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
@@ -1270,6 +1372,7 @@ sub read_kib {
    close(KIB);
    unlink $segcurr if $workdel ne "";
    $segp += 1;
+   $skipzero = 0;
    return if $segp > $segi;
    $segcurr = $seg[$segp];
    open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
@@ -1318,3 +1421,7 @@ exit;
 # 0.99000 - calculate the correct log segments
 # 1.00000 - Optional work directory when handling log segments
 # 1.01000 - erase work directory files when finished
+# 1.05000 - count trace lines and size per minute
+#         - inplace added, capture too big cases in hands off mode
+#         - Add count of remote SQL time out messages
+#         - Handle isolated historical data lines better
