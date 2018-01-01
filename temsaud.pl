@@ -22,7 +22,7 @@
 ## Add location and names of logs analyzed
 ## add alert when maximum results exceeds 16meg-8k bytes - likely partial results returned
 
-$gVersion = 1.15000;
+$gVersion = 1.17000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -235,7 +235,6 @@ if (-e $opt_ini) {
       if ($words[0] eq "results") {$opt_nominal_results = $words[1];}
       elsif ($words[0] eq "trace") {$opt_nominal_trace = $words[1];}
       elsif ($words[0] eq "workload") {$opt_nominal_workload = $words[1];}
-#     elsif ($words[0] eq "maxresult") {$opt_nominal_maxresult = $words[1];}
       elsif ($words[0] eq "remotesql") {$opt_nominal_remotesql = $words[1];}
       elsif ($words[0] eq "soap") {$opt_nominal_soap = $words[1];}
       elsif ($words[0] eq "listen") {$opt_nominal_listen = $words[1];}
@@ -509,7 +508,7 @@ my $lagline;
 my $lagtime;
 my $laglocus;
 
-if ($opt_z == 0) {$state = 0}
+if ($opt_z == 1) {$state = 1}
 
 $inrowsize = 0;
 
@@ -525,16 +524,21 @@ for(;;)
 # with  1>xxx 2>&1. From that you determine what the line number was
 # before the faulting processing. Next you turn that off and set the conditional
 # test for debugging and test away.
-#   print STDERR "working on log $logfn at $l\n";
-# if ($l == 20316) { $DB::single=2;}
+#   print STDERR "working on log $segcurr at $l\n";
+#  if ($l > 10018) {$DB::single=2;}
 
+   chomp($inline);
+   if ($opt_z == 1) {
+      if (length($inline) > 132) {
+         $inline = substr($inline,0,132);
+      }
+   }
    if (($segmax == 0) or ($segp > 0)) {
       if ($skipzero == 0) {
          $trace_ct += 1;
          $trace_sz += length($inline);
       }
    }
-   chomp($inline);
    if ($state == 0) {                       # state = 0 distributed log - no filtering
       $oneline = $inline;
    }
@@ -629,28 +633,35 @@ for(;;)
          $state = 3;
          # fall through and process $oneline
       }
-      # case 4 - look for operation log id, if not append to saved line and contiue
-      #          if not operations log id, emit and resume looking for next
+
+      # case 4 - Identify and ignore lines which appear to be z/OS operations log entries
       else {
-         $oplogid = substr($inline,21+$offset,8);
+
+         $oplogid = substr($inline,21+$offset,7);
          $oplogid =~ s/\s+$//;
-         if ((index($oplogid," ") != -1) ||
-             (substr($oplogid,0,1) ne "K")) {
-            $lagline .= substr($inline,21+$offset);
-            $state = 3;
-            next;
+         if (index($oplogid," ") == -1) {
+             if((substr($oplogid,0,1) eq "K") ||
+                (substr($oplogid,0,1) eq "O")) {
+                next;
+             }
          }
-         $oneline = $lagline;
-         $logtime = $lagtime;
-         $lagline = "";
-         $lagtime = 0;
-         $laglocus = "";
-         $state = 2;
-         # fall through and process $oneline
+         next if substr($oplogid,0,3) eq "OM2";
+#        if (index($oplogid," ") != -1) {
+         $lagline .= substr($inline,21+$offset);
+         $state = 3;
+         next;
+#        }
+#        $oneline = $lagline;
+#        $logtime = $lagtime;
+#        $lagline = "";
+#        $lagtime = 0;
+#        $laglocus = "";
+#        $state = 2;
+#        # fall through and process $oneline
       }
    }
    else {                   # should never happen
-      print $oneline . "\n";
+      print STDERR $oneline . "\n";
       die "Unknown state [$state] working on log $logfn at $l\n";
       next;
    }
@@ -665,26 +676,26 @@ for(;;)
       $logthread = $2;
       $logunit = $3;
       $logentry = $4;
-      if ($skipzero == 0) {
-         if (($segmax <= 1) or ($segp > 0)) {
-            if ($trcstime == 0) {
-               $trcstime = $logtime;
-               $trcetime = $logtime;
-            }
-            if ($logtime < $trcstime) {
-               $trcstime = $logtime;
-            }
-            if ($logtime > $trcetime) {
-               $trcetime = $logtime;
-            }
-         }
-      }
    }
    else {                            # z/OS has three pieces
       $locus =~ /\((.*):(.*)\,\"(.*)\"\)/;
       $logthread = $1;
       $logunit = $2;
       $logentry = $3;
+   }
+   if ($skipzero == 0) {
+      if (($segmax <= 1) or ($segp > 0)) {
+         if ($trcstime == 0) {
+            $trcstime = $logtime;
+            $trcetime = $logtime;
+         }
+         if ($logtime < $trcstime) {
+            $trcstime = $logtime;
+         }
+         if ($logtime > $trcetime) {
+            $trcetime = $logtime;
+         }
+      }
    }
    $syncdist_first_time = $logtime if !defined $syncdist_first_time;
    if (substr($logunit,0,12) eq "kpxreqds.cpp") {
@@ -794,6 +805,7 @@ for(;;)
          $ipt_rows = $2;
          $ipt_table = $3;
          $ipt_type = $4;
+#if (!defined $ipt_type) {$DB::single=2;}
          my $post = index($ipt_type,",");
          $ipt_type = substr($ipt_type,0,$post) if $post > 0;
          $ipt_path  = $5;
@@ -877,7 +889,7 @@ for(;;)
       if ($logentry eq "copyHistoryFile") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # 34030 read, 6359 skipped, 27671 written from "INTERACTN"
-         if (index($rest,"written from") != 0) {
+         if (index($rest,"written from") >= 0) {
             $rest =~ / (\d+) read, (\d+) skipped, (\d+) written from \"(.*?)\"/;
             $inreadct  = $1;
             $inskipct  = $2;
@@ -905,88 +917,90 @@ for(;;)
          undef $inmetatable;
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # /opt/Tivoli/ITM61/aix533/to/hist/INTERACTN - 1001 rows fetched, 0 skipped
-         if (substr($rest,0,1) eq " ") {
-            $rest =~ / (.*?) - (\d+) .* (\d+) skipped/;
-            $inrowsize = $table_rowsize{$1};
-            if ($inrowsize != 0) {
-               $intable = substr($1,rindex($1,"\/")+1);
-               $inappl = "Appl-" . $intable;
-               $inrows = $2-$3;
-               $inobject = "Object-" . $intable if !defined $histobjx{$intable};
-               $inobject = $histobjx{$intable} if defined $histobjx{$intable};
-               $hist_min = (localtime($logtime))[1];
-               $hist_min = int($hist_min/$opt_expslot) * $opt_expslot;
-               $hist_min = '00' . $hist_min;
-               $hist_hour = '00' . (localtime($logtime))[2];
-               $hist_day  = '00' . (localtime($logtime))[3];
-               $hist_month = (localtime($logtime))[4] + 1;
-               $hist_month = '00' . $hist_month;
-               $hist_year =  (localtime($logtime))[5] + 1900;
-               $hist_stamp = substr($hist_year,-2,2) . substr($hist_month,-2,2) . substr($hist_day,-2,2) .  substr($hist_hour,-2,2) .  substr($hist_min,-2,2);
-               if ($hist_min_time == 0) {
-                  $hist_min_time = $logtime;
-                  $hist_max_time = $logtime;
-               }
-               $hist_min_time = $logtime if $hist_min_time > $logtime;
-               $hist_max_time = $logtime if $hist_max_time < $logtime;
+         if (index($rest," rows ") >= 0) {
+            if (substr($rest,0,1) eq " ") {
+               $rest =~ / (.*?) - (\d+) .* (\d+) skipped/;
+               $inrowsize = $table_rowsize{$1};
+               if ($inrowsize != 0) {
+                  $intable = substr($1,rindex($1,"\/")+1);
+                  $inappl = "Appl-" . $intable;
+                  $inrows = $2-$3;
+                  $inobject = "Object-" . $intable if !defined $histobjx{$intable};
+                  $inobject = $histobjx{$intable} if defined $histobjx{$intable};
+                  $hist_min = (localtime($logtime))[1];
+                  $hist_min = int($hist_min/$opt_expslot) * $opt_expslot;
+                  $hist_min = '00' . $hist_min;
+                  $hist_hour = '00' . (localtime($logtime))[2];
+                  $hist_day  = '00' . (localtime($logtime))[3];
+                  $hist_month = (localtime($logtime))[4] + 1;
+                  $hist_month = '00' . $hist_month;
+                  $hist_year =  (localtime($logtime))[5] + 1900;
+                  $hist_stamp = substr($hist_year,-2,2) . substr($hist_month,-2,2) . substr($hist_day,-2,2) .  substr($hist_hour,-2,2) .  substr($hist_min,-2,2);
+                  if ($hist_min_time == 0) {
+                     $hist_min_time = $logtime;
+                     $hist_max_time = $logtime;
+                  }
+                  $hist_min_time = $logtime if $hist_min_time > $logtime;
+                  $hist_max_time = $logtime if $hist_max_time < $logtime;
 
-               # first keep stats by object
-               $key = $inobject;
-               $hx = $histx{$key};
-               if (!defined $hx) {
-                  $histi++;
-                  $hx = $histi;
-                  $hist[$hx] = $key;
-                  $histx{$key} = $hx;
-                  $hist_table[$hx] = $intable;
-                  $hist_appl[$hx] = $inappl;
-                  $hist_rows[$hx] = 0;
-                  $hist_rowsize[$hx] = $inrowsize;
-                  $hist_bytes[$hx] = 0;
-                  $hist_maxrows[$hx] = 0;
-                  $hist_minrows[$hx] = 0;
-                  $hist_totrows[$hx] = 0;
-                  $hist_lastrows[$hx] = 0;
-                  $hist_cycles[$hx] = 0;
-               }
-               $hist_rows[$hx] += $inrows;
-               $hist_bytes[$hx] += $inrows * $inrowsize;
+                  # first keep stats by object
+                  $key = $inobject;
+                  $hx = $histx{$key};
+                  if (!defined $hx) {
+                     $histi++;
+                     $hx = $histi;
+                     $hist[$hx] = $key;
+                     $histx{$key} = $hx;
+                     $hist_table[$hx] = $intable;
+                     $hist_appl[$hx] = $inappl;
+                     $hist_rows[$hx] = 0;
+                     $hist_rowsize[$hx] = $inrowsize;
+                     $hist_bytes[$hx] = 0;
+                     $hist_maxrows[$hx] = 0;
+                     $hist_minrows[$hx] = 0;
+                     $hist_totrows[$hx] = 0;
+                     $hist_lastrows[$hx] = 0;
+                     $hist_cycles[$hx] = 0;
+                  }
+                  $hist_rows[$hx] += $inrows;
+                  $hist_bytes[$hx] += $inrows * $inrowsize;
 
-               # next keep stats by time
-               $key = $hist_stamp;
-               $hx = $histtimex{$key};
-               if (!defined $hx) {
-                  $histtimei++;
-                  $hx = $histtimei;
-                  $histtime[$hx] = $key;
-                  $histtimex{$key} = $hx;
-                  $histtime_rows[$hx] = 0;
-                  $histtime_bytes[$hx] = 0;
-                  $histtime_min_time[$hx] = $logtime;
-                  $histtime_max_time[$hx] = $logtime;
+                  # next keep stats by time
+                  $key = $hist_stamp;
+                  $hx = $histtimex{$key};
+                  if (!defined $hx) {
+                     $histtimei++;
+                     $hx = $histtimei;
+                     $histtime[$hx] = $key;
+                     $histtimex{$key} = $hx;
+                     $histtime_rows[$hx] = 0;
+                     $histtime_bytes[$hx] = 0;
+                     $histtime_min_time[$hx] = $logtime;
+                     $histtime_max_time[$hx] = $logtime;
+                  }
+                  $histtime_rows[$hx] += $inrows;
+                  $histtime_bytes[$hx] += $inrows * $inrowsize;
+                  $histtime_min_time[$hx] = $logtime if $histtime_min_time[$hx] > $logtime;
+                  $histtime_max_time[$hx] = $logtime if $histtime_max_time[$hx] < $logtime;
+                  # next keep stats by object_time
+                  $key = $inobject . "_" . $hist_stamp;
+                  $hx = $histobjectx{$key};
+                  if (!defined $hx) {
+                     $histobjecti++;
+                     $hx = $histobjecti;
+                     $histobject[$hx] = $key;
+                     $histobjectx{$key} = $hx;
+                     $histobject_object[$hx] = $inobject;
+                     $histobject_table[$hx] = $intable;
+                     $histobject_appl[$hx] = $inappl;
+                     $histobject_time[$hx] = $hist_stamp;
+                     $histobject_rowsize[$hx] = $inrowsize;
+                     $histobject_rows[$hx] = 0;
+                     $histobject_bytes[$hx] = 0;
+                  }
+                  $histobject_rows[$hx] += $inrows;
+                  $histobject_bytes[$hx] += $inrows * $inrowsize;
                }
-               $histtime_rows[$hx] += $inrows;
-               $histtime_bytes[$hx] += $inrows * $inrowsize;
-               $histtime_min_time[$hx] = $logtime if $histtime_min_time[$hx] > $logtime;
-               $histtime_max_time[$hx] = $logtime if $histtime_max_time[$hx] < $logtime;
-               # next keep stats by object_time
-               $key = $inobject . "_" . $hist_stamp;
-               $hx = $histobjectx{$key};
-               if (!defined $hx) {
-                  $histobjecti++;
-                  $hx = $histobjecti;
-                  $histobject[$hx] = $key;
-                  $histobjectx{$key} = $hx;
-                  $histobject_object[$hx] = $inobject;
-                  $histobject_table[$hx] = $intable;
-                  $histobject_appl[$hx] = $inappl;
-                  $histobject_time[$hx] = $hist_stamp;
-                  $histobject_rowsize[$hx] = $inrowsize;
-                  $histobject_rows[$hx] = 0;
-                  $histobject_bytes[$hx] = 0;
-               }
-               $histobject_rows[$hx] += $inrows;
-               $histobject_bytes[$hx] += $inrows * $inrowsize;
             }
          }
       }
@@ -1117,7 +1131,7 @@ for(;;)
    $rest =~ /node <(\S+)>/;
    $inode = $1;
    $insize = $isize*$irows;
-   if ($opt_z == 0) {
+#   if ($opt_z == 0) {
       if ($sitstime == 0) {
          $sitstime = $logtime;
          $sitetime = $logtime;
@@ -1128,7 +1142,7 @@ for(;;)
       if ($logtime > $sitetime) {
          $sitetime = $logtime;
       }
-   }
+#   }
    if (!defined $sitx{$isit}) {      # if newly observed situation, set up initial values and associative array
       $siti++;
       $sit[$siti] = $isit;
@@ -1190,23 +1204,8 @@ for(;;)
    }
    $manres[$mx] += $insize;
 }
-
-if ($opt_z == 0) {
    $dur = $sitetime - $sitstime;
    $tdur = $trcetime - $trcstime;
-}
-else {
-   # calc based on $timestart/$timeend/$totsecs
-   $timestart =~ /(\d+):(\d+):(\d+)\./;
-   my $start_hour = $1;
-   my $start_min = $2;
-   my $start_sec = $3;
-   $timeend =~ /(\d+):(\d+):(\d+)\./;
-   my $end_hour = $1;
-   my $end_min = $2;
-   my $end_sec = $3;
-   $dur = ($end_hour-$start_hour)*3600 + ($end_min-$start_min)*60 + ($end_sec-$start_sec) + $totsecs;
-}
 
 if ($dur == 0)  {
    print STDERR "Results Duration calculation is zero, setting to 1000\n";
@@ -1637,8 +1636,16 @@ sub GiveHelp
     $0  <options> log_file
 
   Options
-    -h              Produce help message
-    -z              z/OS RKLVLOG logfile
+    -h              display help information
+    -z              z/OS RKLVLOG log
+    -b              Show HEARTBEATs in Managed System section
+    -expslot <mins> Historical export report slot size - default 60 mins
+    -v              Produce limited progress messages in STDERR
+    -inplace        [default and not used - see work parameter]
+    -logpath        Directory path to TEMS logs - default current directory
+    -work           Copy files to work directory before analyzing.
+    -workpath       Directory path to work directory, default is the system
+                    Environment variable Windows - TEMP, Linux/Unix tmp
 
   Examples:
     $0  logfile > results.csv
@@ -1668,3 +1675,5 @@ exit;
 #           Fix hands off logic with Windows logs
 # 1.15000 - Summary Dataserver ProcessTable trace
 #         - Add check for listen pipe shortage
+# 1.16000 - fix broken -z option
+# 1,17000 - handle z log interspersed MSG2 messages better
