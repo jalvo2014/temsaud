@@ -16,26 +16,12 @@
 # tested on Windows Activestate 5.12.2
 #
 
-$gVersion = 0.600000;
+$gVersion = 0.700000;
 
 # $DB::single=2;   # remember debug breakpoint
 
 # CPAN packages used
 # none
-
-foreach $f (@ARGV) {
-    if ($f eq '-h') { $opt_h = 1}
-    elsif ($f eq '-z') { $opt_z = 1}
-    else { $logfn = $f}
-}
-
-if (!defined $opt_h) {$opt_h = 0};
-if (!defined $opt_z) {$opt_z = 0};
-if (!defined $logfn) {die "log file not defined\n"}
-
-#$gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
-
-&GiveHelp if ( $opt_h );           # print help and exit
 
 # This is a typical log scraping program. The log data looks like this
 #
@@ -45,9 +31,6 @@ if (!defined $logfn) {die "log file not defined\n"}
 # Distributed without situation
 # (4D81D81A.0000-A1A:kpxrpcrq.cpp,749,"IRA_NCS_Sample") Rcvd 1 rows sz 816 tbl *.UNIXOS req  <418500981,1490027440> node <evoapcprd:KUX>
 #
-# Distributed "Too Big"
-# (4D6F5BC2.0004-F:kpxreqds.cpp,1695,"buildThresholdsFilterObject") Filter object too big (65888 + 15220),Table UNIXDISK Situation IBM_DBA_ArchiveMountPt_Critical.
-#
 # z/OS RKLVLOG lines contain the same information but often split into two lines
 # and the timestamp is in a different form.
 #  2011.080 14:53:59.78 (005E-D61DDF8B:kpxrpcrq.cpp,749,"IRA_NCS_Sample") Rcvd 1 rows sz 220 tbl *.RNODESTS req HEARTBEAT <565183706,5
@@ -55,13 +38,13 @@ if (!defined $logfn) {die "log file not defined\n"}
 #
 # the data is identical otherwise
 #
-# To manage the differences, a small state engine is used.
-#  When set to 3 based on absence of -z option, the lines are processed directly
+# To manage the differences, a state engine is used.
+#  When set to 0 based on absence of -z option, the lines are processed directly
 #
-#  For RKLVLOG case the state is set to 0 at outset.
-#  When 0, the first line is examined. RKLVLOGs can be in two forms. When
+#  For RKLVLOG case the state is set to 1 at outset.
+#  When 1, the first line is examined. RKLVLOGs can be in two forms. When
 #  collected as a SYSOUT file, there is an initial printer control character
-#  of "1", meaning skip to the top of page. In that case all the lines have
+#  of "1" or " ", a printer control character. In that case all the lines have
 #  a printer control character of blank. If recogonized a variable $offset
 #  is set to value o1.
 #
@@ -70,20 +53,44 @@ if (!defined $logfn) {die "log file not defined\n"}
 #  variable $offset is set to 0. When getting the data, $offset is used
 #  calculations.
 #
-#  After state 0, state 1 is entered.
+#  After state 1, state 2 is entered.
 #
-# When state=1, the input record is checked for the expected kpxrpcrq.cpp
-# value. If not, the next record is processed. If found, the partial line
-# is captured and the state is set to 2. The timestamp is also captured.
+# When state=2, the input record is checked for the expected form of trace.
+# If not, the next record is processed. If found, the partial line
+# is captured and the state is set to 3. The timestamp is also captured.
 # then the next record is processed.
 #
-# When state=2, the second part of the data is captured. The data is assembled
-# as if it was a distributed record - absent the distributed timestamp. The
-# state is set to 1 and then the record is processed.
+# When state=3, the second part of the data is captured. The data is assembled
+# as if it was a distributed record. The timestamp is converted to the
+# distributed timestamp. The state is set to 2 and then the record is processed.
+# Sometimes we don't know if there is a continuation or not. Thus we usually
+# keep the prior record and add to it if the next one is not in correct form.
 #
 # Processing is typical log scraping. The target is identified, an associative
 # array is used to look up prior cases, and the data is recorded. At the end
 # the accumulated data is printed to standard output.
+
+# pick up parameters and process
+#??? make -z option auto-detect
+
+while (@ARGV) {
+   if ($ARGV[0] eq "-h") {
+      &GiveHelp;                        # print help and exit
+   }
+   if ($ARGV[0] eq "-z") {
+      $opt_z = 1;
+      shift(@ARGV);
+   }
+   else {
+      $logfn = shift(@ARGV);
+      if (!defined $logfn) {die "log file not defined\n"}
+   }
+}
+
+if (!defined $opt_z) {$opt_z = 0};
+
+#$gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
+
 
 open(KIB, "< $logfn") || die("Could not open log $logfn\n");
 
@@ -150,9 +157,23 @@ my $timeline = "";          # time portion of timestamp
 my $offset = 0;             # track sysout print versus disk flavor of RKLVLOG
 my $totsecs = 0;            # added to when time boundary crossed
 
-if ($opt_z == 0) {$state = 3}
 
-foreach $oneline (<KIB>)
+my %epoch = ();             # convert year/day of year to Unix epoch seconds
+my $yyddd;
+my $yy;
+my $ddd;
+my $days;
+my $saveline;
+my $oplogid;
+
+my $inline;
+my $lagline;
+my $lagtime;
+my $laglocus;
+
+if ($opt_z == 0) {$state = 0}
+
+foreach $inline (<KIB>)
 {
    $l++;
 # following two lines are used to debug errors. First you flood the
@@ -163,47 +184,120 @@ foreach $oneline (<KIB>)
 #   print STDERR "working on log $logfn at $l\n";
 #  if ($l == 44) { $DB::single=2;}
 
-   chomp($oneline);
-   if ($state == 0) {                       # state 0 - detect print or disk version of sysout file
-      if (substr($oneline,0,1) eq "1") {
-         $offset = 1;
-      }
-      $state = 1;
-      $partline = "";
-      $timeline = "";
+   chomp($inline);
+   if ($state == 0) {                       # state = 0 distributed log - no filtering
+      $oneline = $inline;
+   }
+   elsif ($state == 1) {                       # state 1 - detect print or disk version of sysout file
+      $offset = (substr($inline,0,1) eq "1") || (substr($inline,0,1) eq " ");
+      $state = 2;
+      $lagline = "";
+      $lagtime = 0;
+      $laglocus = "";
       next;
    }
-   elsif ($state == 1) {                    # state 1 = look for part one of target lines
-      next if length($oneline) < 36+12+$offset;
-      if (substr($oneline,36+$offset,12) eq "kpxrpcrq.cpp") {
-         $dateline = substr($oneline,$offset,8);
-         $timeline = substr($oneline,9+$offset,11);
-         $partline = substr($oneline,21+$offset);
+   elsif ($state == 2) {                    # state 2 = look for part one of target lines
+      next if length($inline) < 36;
+      next if substr($inline,21+$offset,1) ne '(';
+      next if substr($inline,26+$offset,1) ne '-';
+      next if substr($inline,35+$offset,1) ne ':';
+      next if substr($inline,0+$offset,2) != '20';
+
+      # convert the yyyy.ddd hh:mm:ss:hh stamp into the epoch seconds form.
+      # The goal is to allow a common logic for z/OS and distributed logs.
+
+      # for year/month/day calculation is this:
+      #   if ($mo > 2) { $mo++ } else {$mo +=13;$yy--;}
+      #   $day=($yy*365)+int($yy/4)-int($yy/100)+int($yy/400)+int($mo*306001/10000)+$dd;
+      #   $days_since_epoch=$day-719591; # (which is Jan 1 1970)
+      #
+      # In this case we need the epoch days for begining of Jan 1 of current year and then add day of year
+      # Use an associative array part so the day calculation only happens once a day.
+      # The result is normalized to UTC 0 time [like GMT] but is fine for duration calculations.
+
+      $yyddd = substr($inline,0+$offset,8);
+      $timeline = substr($inline,9+$offset,11);
+      if (!defined $epoch{$yyddd}){
+         $yy = substr($yyddd,0,4);
+         $ddd = substr($yyddd,5,3);
+         $yy--;
+         $days=($yy*365)+int($yy/4)-int($yy/100)+int($yy/400)+int(14*306001/10000)+$ddd;
+         $epoch{$yyddd} = $days-719591;
+      }
+      $lagtime = $epoch{$yyddd}*86400 + substr($timeline,0,2)*3600 + substr($timeline,3,2)*60 + substr($timeline,6,2);
+      $lagline = substr($inline,21+$offset);
+      $lagline =~ /^\((.*?)\)/;
+      $laglocus = "(" . $1 . ")";
+      $state = 3;
+      next;
+   }
+
+   # continuation is without a locus
+   elsif ($state == 3) {                    # state 3 = potentially collect second part of line
+      # case 1 - look for the + sign which means a second line of trace output
+      #   emit data and resume looking for more
+      if (substr($inline,21+$offset,1) eq "+") {
+         next if $lagline eq "";
+         $oneline = $lagline;
+         $logtime = $lagtime;
+         $lagline = "";
+         $lagtime = 0;
+         $laglocus = "";
          $state = 2;
+         # fall through and process $oneline
       }
-#todo - need check for kpxrcds.cpp lines. Need test case to verify
-      next;
-   }
-   elsif ($state == 2) {                    # state 2 = collect second part of line
-      $partline .=  substr($oneline,21+$offset);
-      $oneline = $partline;
-
-      # accumulate first and last timestamps
-      if ($timestart eq "") {
-         $timestart = $timeline;
-      }
-      if ($timeend eq "") {
-         $timeend = $timeline;
+      # case 2 - line too short for a locus
+      #          Append data to lagline and move on
+      elsif (length($inline) < 35 + $offset) {
+         $lagline .= " " . substr($inline,21+$offset);
+         $state = 3;
+         next;
       }
 
-      # if timestamp wraps, that is a day boundary so add 24 hours of seconds
-      if ($timeend gt $timeline) {
-         $totsecs += 24*60*60;
+      # case 3 - line has an apparent locus, emit laggine line
+      #          and continue looking for data to append to this new line
+      elsif ((substr($inline,21+$offset,1) eq '(') &&
+             (substr($inline,26+$offset,1) eq '-') &&
+             (substr($inline,35+$offset,1) eq ':') &&
+             (substr($inline,0+$offset,2) eq '20')) {
+         $oneline = $lagline;
+         $logtime = $lagtime;
+         $yyddd = substr($inline,0+$offset,8);
+         $timeline = substr($inline,9+$offset,11);
+         if (!defined $epoch{$yyddd}){
+            $yy = substr($yyddd,0,4);
+            $ddd = substr($yyddd,5,3);
+            $yy--;
+            $days=($yy*365)+int($yy/4)-int($yy/100)+int($yy/400)+int(14*306001/10000)+$ddd;
+           $epoch{$yyddd} = $days-719591;
+
+         }
+         $lagtime = $epoch{$yyddd}*86400 + substr($timeline,0,2)*3600 + substr($timeline,3,2)*60 + substr($timeline,6,2);
+         $lagline = substr($inline,21+$offset);
+         $lagline =~ /^\((.*?)\)/;
+         $laglocus = "(" . $1 . ")";
+         $state = 3;
+         # fall through and process $oneline
       }
-      $timeend = $timeline;
-      $state = 1;
-   }
-   elsif ($state == 3) {                    # state = 3 distributed log - no filtering
+      # case 4 - look for operation log id, if not append to saved line and contiue
+      #          if not operations log id, emit and resume looking for next
+      else {
+         $oplogid = substr($inline,21+$offset,8);
+         $oplogid =~ s/\s+$//;
+         if ((index($oplogid," ") != -1) ||
+             (substr($oplogid,0,1) ne "K")) {
+            $lagline .= substr($inline,21+$offset);
+            $state = 3;
+            next;
+         }
+         $oneline = $lagline;
+         $logtime = $lagtime;
+         $lagline = "";
+         $lagtime = 0;
+         $laglocus = "";
+         $state = 2;
+         # fall through and process $oneline
+      }
    }
    else {                   # should never happen
       print $oneline . "\n";
@@ -262,7 +356,7 @@ foreach $oneline (<KIB>)
    $itbl = $4;
    $rest = $5;
    if (substr($rest,0,2) eq " <") {
-      $isit = "(NULL)";
+      $isit = "(NULL)" . "-" . $itbl;
    }
    else {
       $rest =~ /(\S+) <(.*)/;
@@ -482,3 +576,4 @@ exit;
 #------------------------------------------------------------------------------
 # 0.50000 - initial development
 # 0.60000 - too big report first, add managed system report
+# 0.70000 - convert RKLVLOG time stamps to Unix epoch seconds
