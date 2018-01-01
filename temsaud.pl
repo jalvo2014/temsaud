@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.37000;
+my $gVersion = 1.38000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -200,6 +200,7 @@ my %advcx = (
               "TEMSAUDIT1026E" => "90",
               "TEMSAUDIT1027W" => "60",
               "TEMSAUDIT1028W" => "40",
+              "TEMSAUDIT1029W" => "75",
             );
 
 my %advtextx = ();
@@ -207,6 +208,12 @@ my $advkey = "";
 my $advtext = "";
 my $advline;
 my %advgotx = ();
+
+my %valvx;
+my $val_ref;
+my %valx;
+my $valkey;
+my %vcontx;
 
 while (<main::DATA>)
 {
@@ -1060,6 +1067,15 @@ for(;;)
             $runref->{'cmd'} .= $cmd_frag;
          }
       }
+      my $val_ref = $vcontx{$contkey};
+      if (defined $val_ref) {
+         if ($val_ref->{'state'} == 2) {
+            my $val_frag = substr($oneline,30,36);
+            $val_frag =~ s/\ //g;
+            $val_frag =~ s/(([0-9a-f][0-9a-f])+)/pack('H*', $1)/ie;
+            $val_ref->{'val'} .= $val_frag;
+         }
+      }
    } elsif ( $opt_z == 1) {
       if (substr($oneline,21+$offset,1) eq "+") {    # convert hex string - ebcdic - to printable
          $contkey = $logtimehex . "." . "0";
@@ -1356,18 +1372,21 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # ***ERROR: for RRN <6076>, (oldest) Index TS <                > does not match TSITSTSH TS <1160209223543004>
          if (substr($rest,1,17) eq "***ERROR: for RRN") {
-            $rest =~/ does not match (.*?) /;
-            $rtable = $1;
-            next if !defined $rtable;        ## die
-            my $rtable_ref = $rtablex{$rtable};
-            if (!defined $rtable_ref) {
-               my %rtableref = (
-                                  count => 0,
-                               );
-               $rtablex{$rtable} = \%rtableref;
-               $rtable_ref = \%rtableref;
+            # ignore case where message is split on two lines
+            if (index($rest," does not match ") != -1) {
+               $rest =~/ does not match (.*?) /;
+               $rtable = $1;
+               next if !defined $rtable;        ## die
+               my $rtable_ref = $rtablex{$rtable};
+               if (!defined $rtable_ref) {
+                  my %rtableref = (
+                                     count => 0,
+                                  );
+                  $rtablex{$rtable} = \%rtableref;
+                  $rtable_ref = \%rtableref;
+               }
+               $rtable_ref->{count} += 1;
             }
-            $rtable_ref->{count} += 1;
             next;
          }
       }
@@ -2046,6 +2065,71 @@ for(;;)
          }
       }
    }
+   #(577D74E2.0000-1A:kfavalid.c,512,"validate") Invalid character discovered.  Integer value:<34> at position 0.
+   #(577D74E2.0001-1A:kfavalid.c,575,"ValidateNodeEntry") Validation for node failed.
+   #(577D74E2.0002-1A:kfavalid.c,1017,"KFA_InvalidNameMessage") Unsupported Nodelist or Node Status record.  Contents follow:
+   #(577D74E2.0003-1A:kfavalid.c,1020,"KFA_InvalidNameMessage") <0x2B483CE0BDF0,0x20> Nodelist/Node contents:
+   #+577D74E2.0003     00000000   22697463 616D2D70  6F6C6C65 722D766D   "itcam-poller-vm
+   #+577D74E2.0003     00000010   2D30322D 76656761  73223A54 36202020   -02-vegas":T6...
+   #(577D74E2.0004-1A:kfavalid.c,1028,"KFA_InvalidNameMessage") <0x2B483CE0BE5E,0x20> Node/Thrunode contents:
+   if (substr($logunit,0,10) eq "kfavalid.c") {
+      if ($logentry eq "validate") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,17) eq "Invalid character") {             # starting a new command capture
+             my %valref = (                                  # anonymous hash for command capture
+                             thread => $logthread,           # Thread id associated with command capture
+                             start => $logtime,              # Decimal time start
+                             state => 1,                     # state = 1 means looking for command text
+                             stamp => $logtimehex,           # stamp - hex time
+                             val => "",                      # collected command text
+                             val_type => "",                 # type of validation failure
+                          );
+             $valx{$logthread} = \%valref;
+             $valkey = $logtimehex . "." . $logline;
+             $vcontx{$valkey} = \%valref;
+         }
+      } elsif ($logentry eq "ValidateNodeEntry") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         $val_ref = $valx{$logthread};
+         if (defined $val_ref) {
+            $val_ref->{val_type} = $rest;
+         }
+      } elsif ($logentry eq "KFA_InvalidNameMessage") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,1) eq "<") {
+            if (index($rest,"Nodelist/Node contents:") >= 0) {
+               $contkey = $logtimehex . "." . $logline;
+               $vcontx{$contkey} = $runref;
+               $val_ref = $valx{$logthread};
+               if (defined $val_ref) {
+                  $val_ref->{state} = 2;
+                  $contkey = $logtimehex . "." . $logline;
+                  $vcontx{$contkey} = $val_ref;
+               }
+            } elsif (index($rest,"Node/Thrunode contents:") >= 0) {
+               $val_ref = $valx{$logthread};
+               if (defined $val_ref) {
+                  my $nodev = $val_ref->{val};
+                  my $valv_ref = $valvx{$nodev};
+                  if (!defined $valv_ref) {
+                     my %valvref = (
+                                      count => 0,
+                                      type => $val_ref->{val_type},
+                                   );
+                     $valvx{$nodev} = \%valvref;
+                     $valv_ref  = \%valvref;
+                  }
+                  $valv_ref->{count} += 1;
+                  delete $valx{$logthread};
+               }
+            }
+         }
+      }
+      next;
+   }
 
    if (substr($logunit,0,10) eq "kdssqprs.c") {
       if ($logentry eq "PRS_ParseSql") {
@@ -2412,7 +2496,7 @@ $et = scalar keys %rtablex;
 if ($et > 0) {
    foreach my $f (keys %rtablex) {
       my $etct = $rtablex{$f}->{count};
-      $advi++;$advonline[$advi] = "TEMS database table with $etct Relative Record Number errors";
+      $advi++;$advonline[$advi] = "TEMS database table $f with $etct Relative Record Number errors";
       $advcode[$advi] = "TEMSAUDIT1024E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = $f;
@@ -2706,6 +2790,23 @@ if ($agto_mult > 0) {
       $agto_mult_hr += 1;
    }
    $cnt++;$oline[$cnt]="$agto_dur,$agto_mult_hr,\n";
+}
+
+my $invi = keys %valvx;
+if ($invi > 0) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Invalid Node Name Report\n";
+   $cnt++;$oline[$cnt]="Node,Count,\n";
+   foreach $f (sort {$a cmp $b} keys %valvx) {
+# 1.37000 - add 1025E for send event failures, prepare for AOA usage
+      $outl = $f . ",";
+      $outl .= $valvx{$f}->{count} . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+   $advi++;$advonline[$advi] = "Illegal Node Names rejected - $invi";
+   $advcode[$advi] = "TEMSAUDIT1029W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "InvalidNodes";
 }
 
 my $agtsh_dur = $agtsh_etime - $agtsh_stime;
@@ -3310,6 +3411,10 @@ exit;
 # 1.36000 - rework advisories for impact, etc
 # 1.37000 - add 1025E for send event failures, prepare for AOA usage
 #         - add TEMS nodeid and type
+# 1.38000 - add 1026E for ulimit nofiles 1024 or lower
+#         - add 1027W remote SQL timeouts
+#         - add 1028W concurrent action commands at TEMS
+#         - add 1029W for invalid nodes rejected
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -3807,4 +3912,30 @@ the TEMS and even cause TEMS failures.
 Recovery plan: Avoid running action commands at the TEMS unless
 you can know for certain they will run infrequently and never
 many at the same time.
+--------------------------------------------------------------
+
+TEMSAUDIT1029W
+Text: Illegal Node Names rejected - num
+
+Tracing: error
+
+Meaning: When an agent name attempts to register with illegal
+characters, by default the connection is refused.
+
+First character must not be blank or period or asterish or hash.
+After the first character, the following are legal
+
+A-Z
+a-z
+0-9
+*
+  [blank]
+-
+:
+@
+$
+#
+.
+
+Recovery plan: Reconfigure agent with legal characters.
 --------------------------------------------------------------
