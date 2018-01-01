@@ -24,8 +24,11 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-$gVersion = 1.35000;
+my $gVersion = 1.36000;
 
+#use warnings::unused; # debug used to check for unused variables
+use strict;
+use warnings;
 
 # CPAN packages used
 use Data::Dumper;               # debug only
@@ -96,7 +99,7 @@ use Data::Dumper;               # debug only
 # following table is used in EBCDIC to ASCII conversion using ccsid 1047 - valid for z/OS
 # adapted from CPAN module Convert::EBCDIC;
 # the values are recorded in octol notation.
-$ccsid1047 =
+my $ccsid1047 =
 '\000\001\002\003\234\011\206\177\227\215\216\013\014\015\016\017' .
 '\020\021\022\023\235\012\010\207\030\031\222\217\034\035\036\037' .
 '\200\201\202\203\204\205\027\033\210\211\212\213\214\005\006\007' .
@@ -122,6 +125,7 @@ my $opt_logpat;
 my $opt_logpath;
 my $opt_workpath;
 my $full_logfn;
+my $logfn;
 my $opt_v;
 my $opt_o;
 my $opt_nohdr = 0;
@@ -134,11 +138,60 @@ my $opt_sr;                                      # Soap Report
 my $opt_cmdall;                                  # show all commands
 my $opt_jitall;                                  # show all jitter
 my $opt_noded = 0;                               # track inter-arrival times for results
+my $opt_b;
+my $opt_level = 0;                               # build level not found
+my $opt_driver = "";                             # Driver
+
+my @seg = ();
+my $segcurr;
+my $h;
+my $i;
+my $g;
+my $l;
+my $respermin;
+my $dur;
+my $tdur;
+my @syncdist_time;
+my $oneline;
+my $sql_frag;
+my $key;
+my $hist_stamp;
+my $iagent;
+my $pos;
+my $rc;
 
 sub gettime;                             # get time
 
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
+
+# allow user to set impact
+my %advcx = (
+              "TEMSAUDIT1001W" => "90",
+              "TEMSAUDIT1002W" => "80",
+              "TEMSAUDIT1003W" => "40",
+              "TEMSAUDIT1004W" => "20",
+              "TEMSAUDIT1005W" => "0",
+              "TEMSAUDIT1006E" => "100",
+              "TEMSAUDIT1007W" => "10",
+              "TEMSAUDIT1008E" => "100",
+              "TEMSAUDIT1009W" => "100",
+              "TEMSAUDIT1010W" => "80",
+              "TEMSAUDIT1011W" => "90",
+              "TEMSAUDIT1022E" => "100",
+              "TEMSAUDIT1023W" => "80",
+              "TEMSAUDIT1024E" => "100",
+              "TEMSAUDIT1012W" => "90",
+              "TEMSAUDIT1013W" => "85",
+              "TEMSAUDIT1014W" => "60",
+              "TEMSAUDIT1015W" => "60",
+              "TEMSAUDIT1016W" => "80",
+              "TEMSAUDIT1017W" => "90",
+              "TEMSAUDIT1018W" => "20",
+              "TEMSAUDIT1019W" => "10",
+              "TEMSAUDIT1020W" => "40",
+              "TEMSAUDIT1021W" => "50",
+            );
 
 $hdri++;$hdr[$hdri] = "TEMS Audit report v$gVersion";
 my $audit_start_time = gettime();       # formated current time for report
@@ -161,6 +214,7 @@ my $opt_nominal_stack     = 10240;           # warn on high stack limit value
 my $opt_max_listen        = 16;              # maximum listen count allowed by default
 my $opt_nominal_soap_burst = 300;            # maximum burst of 300 per minute
 my $opt_nominal_agto_mult = 1;               # amount of allowed repeat onlines
+my $opt_nominal_max_impact = 50;                     # Above this impact level, return exit code non-zero
 
 my $arg_start = join(" ",@ARGV);
 $hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
@@ -245,7 +299,7 @@ if (!defined $opt_v) {$opt_v = 0;}
 if (!defined $opt_o) {$opt_o = "temsaud.csv";}
 if (!defined $opt_expslot) {$opt_expslot = 60;}
 
-$gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
+my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 if (!$opt_inplace) {
    if (!defined $opt_workpath) {
@@ -325,7 +379,12 @@ if (-e $opt_ini) {
       elsif ($words[0] eq "stack") {$opt_nominal_stack = $words[1];}
       elsif ($words[0] eq "maxlisten") {$opt_max_listen = $words[1];}
       elsif ($words[0] eq "agto_mult") {$opt_nominal_agto_mult = $words[1];}
-      else {
+      elsif ($words[0] eq "max_impact") {$opt_nominal_max_impact = $words[1];}
+      elsif (substr($words[0],0,9) eq "TEMSAUDIT"){
+         die "unknown advisory code $words[0]" if !defined $advcx{$words[0]};
+         die "Advisory code with no advisory impact" if !defined $words[1];
+         $advcx{$words[0]} = $words[1];
+      } else {
          die "unknown control in temsaud.ini line $l unknown control $words[0]"
       }
    }
@@ -337,7 +396,6 @@ my $loginv;
 my $inline;
 my $logbase;
 my %todo = ();     # associative array of names and first identified timestamp
-my @seg = ();
 my @seg_time = ();
 my $segi = -1;
 my $segp = -1;
@@ -346,11 +404,26 @@ my $segline;
 my $segmax = "";
 my $skipzero = 0;
 
+
+my %etablex = ();
+my $etable;
+my %dtablex = ();
+my $dtable;
+my %rtablex = ();
+my $rtable;
+
+
 my %resx;        # hash of result details by minute
 my %res_stampx;  # hash of times to result minute stamps
 
-my $advisori = -1;
-my @advisor = ();
+my $advi = -1;
+my @advonline = ();
+my @advsit = ();
+my @advimpact = ();
+my @advcode = ();
+my %advx = ();
+
+my $max_impact = 0;
 
 if ($logfn eq "") {
    $pattern = "_ms(_kdsmain)?\.inv";
@@ -360,7 +433,7 @@ if ($logfn eq "") {
    closedir(DIR);
    die "No _ms.inv found\n" if $#results == -1;
    if ($#results > 0) {         # more than one inv file - complain and exit
-      $invlist = join(" ",@results);
+      my $invlist = join(" ",@results);
       die "multiple invfiles [$invlist] - only one expected\n";
    }
    $logfn =  $results[0];
@@ -399,7 +472,6 @@ die "-expslot [$opt_expslot] is not an even multiple of 60" if  (int(60/$opt_exp
 sub open_kib;
 sub read_kib;
 
-my $pos;
 
 
 open_kib();
@@ -714,7 +786,6 @@ for(;;)
 # print STDERR "working on log $segcurr at $l\n";
 
    chomp($inline);
-#$DB::single=2 if $l >= 30775;
    if ($opt_z == 1) {
       if (length($inline) > 132) {
          $inline = substr($inline,0,132);
@@ -858,7 +929,13 @@ for(;;)
              } else {
                 $pi = index($oneline,"Nofile Limit:");
                 if ($pi != -1) {
-                   ($opt_nofile) = substr($oneline,$pi+13) =~ /(\d+)/;
+                   $oneline =~ /Nofile Limit: (\d+)(.?)/;
+                   $opt_nofile = $1;
+                   my $modi = $2;
+                   if (defined $modi) {
+                      $opt_nofile *= 1024 if $modi eq "K";
+                      $opt_nofile *= 1024*1024 if $modi eq "M";
+                   }
                 }
              }
          }
@@ -878,14 +955,39 @@ for(;;)
              } else {
                 $pi = index($oneline,"Stack Limit:");
                 if ($pi != -1) {
-                   my $in_stack;
-                   ($in_stack) = substr($oneline,$pi+12) =~ /(\w+)/;
-                   my $stack_last_char = substr($in_stack,-1,1);
-                   my $stack_number = substr($in_stack,0,length($in_stack)-1);
-                   $stack_number *= 1024 if $stack_last_char eq 'M';
-                   $opt_stack = $stack_number;
+                   $oneline =~ /Stack Limit: (\d+)(.?)/;
+                   $opt_stack = $1;
+                   my $modi = $2;
+                   if (defined $modi) {
+                      $opt_stack *= 1024 if $modi eq "K";
+                      $opt_stack *= 1024*1024 if $modi eq "M";
+                   }
                 }
              }
+         }
+      }
+   }
+
+      # Extract the build level for TEMS
+      #(53EE63EA.0004-165C:kdsops1.c,358,"OPER_Initialize")
+      #+53EE63EA.0004      KDS Server   Version: 630  Build: 13245  Driver: 'tms630fp2:d3248'
+      #+53EE63EA.0004                   Date: Sep  5 2013  Time: 08:10:00  build date: 'Mon 09/02/13' info: kms/kds prod ne
+   if ($opt_level == 0) {
+      if (substr($oneline,0,1) eq "+") {
+         if (length($oneline) > 40) {
+            if (substr($oneline,20,10) eq "KDS Server") {
+               $opt_level = -1;
+               $opt_driver = "";
+               $oneline =~ /Version:.*?(\d+).*?Driver: \'(\S+)\'/;
+               $opt_level = $1 if defined $1;
+               $opt_driver = $2 if defined $2;
+               if ($opt_level >= 630) {
+                  if ($opt_driver ge 'tms630fp5:d5163a') {      # at FP5 service thread default changed to 63
+                     $opt_max_listen = 63;
+                     $opt_nominal_listen = 48;
+                  }
+               }
+            }
          }
       }
    }
@@ -1076,23 +1178,94 @@ for(;;)
       }
       next;
    }
-   if (substr($logunit,0,9) eq "kdebpli.c") {
-      if ($logentry eq "KDEBP_Listen") {
+
+   #(569D717B.007C-4A:kglkycbt.c,1212,"kglky1ar") iaddrec2 failed - status = -1, errno = 9,file = QA1CSTSC, index = PrimaryIndex, key = qbe_prd_ux_systembusy_c         TEMSP01
+   #(569C6BDD.001D-26:kglkycbt.c,1498,"kglky1dr") idelrec failed - status = -1, errno = 0,file = RKCFAPLN, index = PrimaryIndex
+   if (substr($logunit,0,10) eq "kglkycbt.c") {
+      if ($logentry eq "kglky1ar") {
          $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;                       #     listen 16: PLE=11CE1F2B0, hMon=01900C3B, bal=152, thr=2432, pipes=2026
-                                           # 6.3 listenCount 1: PLE=5C4E710, hMon=CE100369, bal=2, thr=2, pipes=0
-
-         next if substr($rest,1,6) ne "listen";
-         $rest =~ /(\d+):.*?=\s*(\d+).*?=\s*(\d+).*?=(\d+).*/;
-         $lp_high = $1;
-         $lp_balance = $2;
-         $lp_threads = $3;
-         $lp_pipes   = $4;
+         $rest = $2;                       # iaddrec2 failed - status = -1, errno = 9,file = QA1CSTSC, index = PrimaryIndex, key = qbe_prd_ux_systembusy_c
+         next if substr($rest,1,15) ne "iaddrec2 failed";
+         $rest =~ /file \= (\S+),/;
+         $etable = $1;
+         next if !defined $etable;
+         my $etable_ref = $etablex{$etable};
+         if (!defined $etable_ref) {
+            my %etableref = (
+                               count => 0,
+                            );
+            $etablex{$etable} = \%etableref;
+            $etable_ref = \%etableref;
+         }
+         $etable_ref->{count} += 1;
+         next;
       }
-      next;
+      if ($logentry eq "kglky1dr") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # idelrec failed - status = -1, errno = 0,file = RKCFAPLN, index = PrimaryIndex
+         if (substr($rest,1,14) eq "idelrec failed") {
+            $rest =~ /file \= (\S+),/;
+            $etable = $1;
+            next if !defined $etable;
+            my $etable_ref = $etablex{$etable};
+            if (!defined $etable_ref) {
+               my %etableref = (
+                                  count => 0,
+                               );
+               $etablex{$etable} = \%etableref;
+               $etable_ref = \%etableref;
+            }
+            $etable_ref->{count} += 1;
+            next;
+         }
+      }
    }
-   next if $skipzero;
 
+   #(568A71C2.0000-C5:kglisadd.c,219,"iaddrec2") Duplicate key for index PrimaryIndex,U in QA1CSITF.IDX
+   if (substr($logunit,0,10) eq "kglisadd.c") {
+      if ($logentry eq "iaddrec2") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Duplicate key for index PrimaryIndex,U in QA1CSITF.IDX
+         if (substr($rest,1,13) eq "Duplicate key") {
+            $rest =~ / in (\S+)\.IDX/;
+            $dtable = $1;
+            next if !defined $dtable;
+            my $dtable_ref = $dtablex{$dtable};
+            if (!defined $dtable_ref) {
+               my %dtableref = (
+                                  count => 0,
+                               );
+               $dtablex{$dtable} = \%dtableref;
+               $dtable_ref = \%dtableref;
+            }
+            $dtable_ref->{count} += 1;
+            next;
+         }
+      }
+   }
+
+   #(56BC3268.0000-15:kfastins.c,1391,"KFA_PutSitRecord") ***ERROR: for RRN <6076>, (oldest) Index TS <                > does not match TSITSTSH TS <1160209223543004>
+   if (substr($logunit,0,10) eq "kfastins.c") {
+      if ($logentry eq "KFA_PutSitRecord") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # ***ERROR: for RRN <6076>, (oldest) Index TS <                > does not match TSITSTSH TS <1160209223543004>
+         if (substr($rest,1,17) eq "***ERROR: for RRN") {
+            $rest =~/ does not match (.*?) /;
+            $rtable = $1;
+            next if !defined $rtable;        ## die
+            my $rtable_ref = $rtablex{$rtable};
+            if (!defined $rtable_ref) {
+               my %rtableref = (
+                                  count => 0,
+                               );
+               $rtablex{$rtable} = \%rtableref;
+               $rtable_ref = \%rtableref;
+            }
+            $rtable_ref->{count} += 1;
+            next;
+         }
+      }
+   }
 
    # (54EA2C3A.0002-AD:kpxreqhb.cpp,924,"HeartbeatInserter") Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
    if (substr($logunit,0,12) eq "kpxreqhb.cpp") {
@@ -1126,7 +1299,6 @@ for(;;)
       }
       next;
    }
-
    # (5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
    if (substr($logunit,0,10) eq "kfaprpst.c") {
       if ($logentry eq "HandleSimpleHeartbeat") {
@@ -1268,7 +1440,7 @@ for(;;)
                                            # Using SQL: SELECT CLCMD,CLCMD2,CREDENTIAL,CWD,KEY,MESSAGE,ACTSECURE,OPTIONS,RESPFILE
          next if ((substr($rest,1,20) ne "Using pre-built SQL:" ) && (substr($rest,1,10) ne "Using SQL:" ));
          $rest =~ /: (.*)$/;
-         $isql = $1;
+         my $isql = $1;
          $sx = $soapx{$isql};
          if (!defined $sx) {
             $soapi++;
@@ -1875,7 +2047,7 @@ for(;;)
          my $res_min = (localtime($logstime))[1];
          $res_min = '00' . $res_min;
          my $res_hour = '00' . (localtime($logstime))[2];
-         $res_day  = '00' . (localtime($logstime))[3];
+         my $res_day  = '00' . (localtime($logstime))[3];
          my $res_month = (localtime($logstime))[4] + 1;
          $res_month = '00' . $res_month;
          my $res_year =  (localtime($logstime))[5] + 1900;
@@ -1949,7 +2121,6 @@ for(;;)
          $node_ref->{rcount} += 1;
          push(@{$node_ref->{inter_arrive}},$iarrive);
       }
-      #$DB::single=2 if $node_ref->{rcount} > 1;
    }
 
 }
@@ -1985,22 +2156,37 @@ if ($toobigi != -1) {
 }
 if ($toobigi > -1) {
       my $ptoobigi = $toobigi + 1;
-      $advisori++;$advisor[$advisori] = "Advisory: $ptoobigi Filter object too big situations and/or reports\n";
+      $advi++;$advonline[$advi] = "$ptoobigi Filter object(s) too big situations and/or reports";
+      $advcode[$advi] = "TEMSAUDIT1001W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TooBig";
    }
-if ($lp_high > $opt_nominal_listen) {
+if ($lp_high >= $opt_nominal_listen) {
    if ($lp_high >= $opt_max_listen) {
-      $advisori++;$advisor[$advisori] = "Advisory: Listen Pipe Shortage at maximum - emergency!!\n";
+      $advi++;$advonline[$advi] = "Listen Pipe Usage at maximum [$opt_max_listen]";
+      $advcode[$advi] = "TEMSAUDIT1002W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "Pipes";
    }
-   $advisori++;$advisor[$advisori] = "Advisory: Listen Pipe above nominal[$opt_nominal_listen] listen=$lp_high balance=$lp_balance threads=$lp_threads pipes=$lp_pipes\n";
+   $advi++;$advonline[$advi] = "Listen Pipe above nominal[$opt_nominal_listen] listen=$lp_high balance=$lp_balance threads=$lp_threads pipes=$lp_pipes";
+   $advcode[$advi] = "TEMSAUDIT1003W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Pipes";
 }
 if ($opt_nofile > 0) {
    if ($opt_nofile < $opt_nominal_nofile) {
-      $advisori++;$advisor[$advisori] = "Advisory: ulimit nofile [$opt_nofile] is below nominal [$opt_nominal_nofile]\n";
+      $advi++;$advonline[$advi] = "ulimit nofile [$opt_nofile] is below nominal [$opt_nominal_nofile]";
+      $advcode[$advi] = "TEMSAUDIT1004W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "Nofile";
    }
 }
 if ($opt_stack > 0) {
    if ($opt_stack > $opt_nominal_stack) {
-      $advisori++;$advisor[$advisori] = "Advisory: ulimit stack [$opt_stack] is above nominal [$opt_nominal_stack] (kbytes)\n";
+      $advi++;$advonline[$advi] = "ulimit stack [$opt_stack] is above nominal [$opt_nominal_stack] (kbytes)";
+      $advcode[$advi] = "TEMSAUDIT1005W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "Stack";
    }
 }
 
@@ -2020,7 +2206,10 @@ $cnt++;$oline[$cnt]="Total Results per minute,,,$trespermin\n";
 if ($trespermin > $opt_nominal_results) {
    $res_pc = int((($trespermin - $opt_nominal_results)*100)/$opt_nominal_results);
    my $ppc = sprintf '%.0f%%', $res_pc;
-   $advisori++;$advisor[$advisori] = "Advisory: Results bytes per minute $ppc higher then nominal [$opt_nominal_results]\n";
+   $advi++;$advonline[$advi] = "Results bytes per minute $ppc higher then nominal [$opt_nominal_results]";
+   $advcode[$advi] = "TEMSAUDIT1006E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Results";
    $res_max = 1;
 }
 
@@ -2034,7 +2223,10 @@ $cnt++;$oline[$cnt]="\n";
 if ($trace_size_minute > $opt_nominal_trace) {
    $trc_pc = int((($trace_size_minute - $opt_nominal_trace)*100)/$opt_nominal_trace);
    my $ppc = sprintf '%.0f%%', $trc_pc;
-   $advisori++;$advisor[$advisori] = "Advisory: Trace bytes per minute $ppc higher then nominal $opt_nominal_trace\n";
+   $advi++;$advonline[$advi] = "Trace bytes per minute $ppc higher then nominal $opt_nominal_trace";     ;
+   $advcode[$advi] = "TEMSAUDIT1007W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Trace";
 }
 my $syncdist_early = -1;
 if ($syncdist > 0) {
@@ -2047,11 +2239,17 @@ if ($syncdist > 0) {
 }
 
 if ($syncdist_early > -1) {
-      $advisori++;$advisor[$advisori] = "Advisory: $syncdist_early early remote SQL failures\n";
+      $advi++;$advonline[$advi] = "$syncdist_early early remote SQL failures";
+      $advcode[$advi] = "TEMSAUDIT1008E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "Sync";
    }
 
 if ($fsync_enabled == 0) {
-      $advisori++;$advisor[$advisori] = "Advisory: KGLCB_FSYNC_ENABLED set to 0 - risky for TEMS database files\n";
+      $advi++;$advonline[$advi] = "KGLCB_FSYNC_ENABLED set to 0 - risky for TEMS database files";
+      $advcode[$advi] = "TEMSAUDIT1009W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "fsync";
    }
 
 if ($lp_high != -1) {
@@ -2062,11 +2260,50 @@ if ($lp_high != -1) {
 if ($nmr_total > 0) {
    $cnt++;$oline[$cnt]="Sample No Matching Request count,,,$nmr_total,\n";
    $cnt++;$oline[$cnt]="\n";
-   $advisori++;$advisor[$advisori] = "Advisory: $nmr_total \"No Matching Request\" samples\n";
+   $advi++;$advonline[$advi] = "$nmr_total \"No Matching Request\" samples";
+   $advcode[$advi] = "TEMSAUDIT1010W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "NMR";
 }
 
 foreach my $f (keys %miss_tablex) {
-   $advisori++;$advisor[$advisori] = "Advisory: Application.table $f missing $miss_tablex{$f} times\n";
+   $advi++;$advonline[$advi] = "Application.table $f missing $miss_tablex{$f} times";
+   $advcode[$advi] = "TEMSAUDIT1011W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Miss";
+}
+
+my $et = scalar keys %etablex;
+if ($et > 0) {
+   foreach my $f (keys %etablex) {
+      my $etct = $etablex{$f}->{count};
+      $advi++;$advonline[$advi] = "TEMS database table with $etct errors";
+      $advcode[$advi] = "TEMSAUDIT1022E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = $f;
+   }
+}
+
+$et = scalar keys %dtablex;
+if ($et > 0) {
+   foreach my $f (keys %dtablex) {
+      my $etct = $dtablex{$f}->{count};
+      $advi++;$advonline[$advi] = "TEMS database table with $etct Duplicate Record errors";
+      $advcode[$advi] = "TEMSAUDIT1023W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = $f;
+   }
+}
+
+$et = scalar keys %rtablex;
+if ($et > 0) {
+   foreach my $f (keys %rtablex) {
+      my $etct = $rtablex{$f}->{count};
+      $advi++;$advonline[$advi] = "TEMS database table with $etct Relative Record Number errors";
+      $advcode[$advi] = "TEMSAUDIT1024E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = $f;
+   }
 }
 
 my $f;
@@ -2094,7 +2331,10 @@ foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] ||
    $fraction = ($crespermin*100) / $trespermin;
    if ($res_max == 1) {
       if ($lag_fraction < $opt_nominal_workload) {
-         $advisori++;$advisor[$advisori] = "Advisory: $sit[$i] high rate $respermin [$pfraction%]\n";
+         $advi++;$advonline[$advi] = "Situation high rate $respermin [$pfraction%]";
+         $advcode[$advi] = "TEMSAUDIT1012W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = $sit[$i];
       }
    }
    $pfraction = sprintf "%.2f", $fraction;
@@ -2102,7 +2342,10 @@ foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] ||
    $outl .= $sitrmin[$i] . ",";
    $outl .= $sitrmax[$i] . ",";
    if ($sitrmax[$i] >= $opt_max_results){
-         $advisori++;$advisor[$advisori] = "Advisory: $sit[$i] possible truncated results - max result $sitrmax[$i]\n";
+         $advi++;$advonline[$advi] = "Situation possible truncated results - max result $sitrmax[$i]";
+         $advcode[$advi] = "TEMSAUDIT1013W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = $sit[$i];
    }
    $outl .= $sitrmaxnode[$i];
    $cnt++;$oline[$cnt]=$outl . "\n";
@@ -2202,6 +2445,8 @@ if ($acti != -1) {
 }
 
 my $sqlt_duration;
+my $sql_ct_total = 0;
+my $sql_duration;
 
 if ($sqli != -1) {
    $sql_duration = $sql_end - $sql_start;
@@ -2242,12 +2487,18 @@ if ($soapi != -1) {
    if ($soap_rate > $opt_nominal_soap) {
       $soap_pc = int((($soap_rate - $opt_nominal_soap)*100)/$opt_nominal_soap);
       my $ppc = sprintf '%.0f%%', $soap_pc;
-      $advisori++;$advisor[$advisori] = "Advisory: SOAP requests per minute $ppc higher then nominal $opt_nominal_soap\n";
+      $advi++;$advonline[$advi] = "SOAP requests per minute $ppc higher then nominal $opt_nominal_soap";
+      $advcode[$advi] = "TEMSAUDIT1014W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "SOAP";
    }
    if ($soap_burst_max > $opt_nominal_soap_burst) {
       $soap_pc = int((($soap_burst_max - $opt_nominal_soap_burst)*100)/$opt_nominal_soap_burst);
       my $ppc = sprintf '%.0f%%', $soap_pc;
-      $advisori++;$advisor[$advisori] = "\"Advisory: SOAP Burst requests per minute $ppc higher then nominal $opt_nominal_soap_burst at line $soap_burst_max_l in $soap_burst_max_log\"\n";
+      $advi++;$advonline[$advi] = "\"SOAP Burst requests per minute $ppc higher then nominal $opt_nominal_soap_burst at line $soap_burst_max_l in $soap_burst_max_log\"";
+      $advcode[$advi] = "TEMSAUDIT1015W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "SOAP";
    }
 }
 
@@ -2304,7 +2555,10 @@ if ($pevt_size > 0) {
 
 my $agto_dur = $agto_etime - $agto_stime;
 if ($agto_mult > 0) {
-   $advisori++;$advisor[$advisori] = "Advisory: $agto_mult_hr Agents with repeated onlines\n";
+   $advi++;$advonline[$advi] = "$agto_mult Agents with repeated onlines";
+   $advcode[$advi] = "TEMSAUDIT1016W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Onlines";
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Multiple Agent online Report - top 20 max\n";
    $cnt++;$oline[$cnt]="Node,Online_Count\n";
@@ -2319,12 +2573,11 @@ if ($agto_mult > 0) {
       $cnt++;$oline[$cnt]=$outl . "\n";
       $agto_mult_hr += 1;
    }
-   $cnt++;$oline[$cnt]="$agto_dur,$agto_mult,\n";
+   $cnt++;$oline[$cnt]="$agto_dur,$agto_mult_hr,\n";
 }
 
 my $agtsh_dur = $agtsh_etime - $agtsh_stime;
 if ($agtsh_dur > 0) {
-#  $advisori++;$advisor[$advisori] = "Advisory: $agto_mult_hr Agents with repeated onlines\n";
    my $agtsh_total_multi = 0;
    my $agtsh_jitter_major = 0;
    my $agtsh_jitter_minor = 0;
@@ -2360,16 +2613,25 @@ if ($agtsh_dur > 0) {
          $pdur .= $agtsh_iat[$ai]{$g}{count} . ";";
       }
       if (4*$dur_vary_ct > $agtsh_ct[$ai]) {
-         $advisori++;$advisor[$advisori] = "Advisory: agent $f indication of duplicate agent names on same system: $pdur\n";
+         $advi++;$advonline[$advi] = "agent $f indication of duplicate agent names on same system: $pdur";
+         $advcode[$advi] = "TEMSAUDIT1017W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "Duplicates";
          $agtsh_total_multi += 1;
          $multi_agent{$f} = 1;
       } elsif ($dur_vary_sum > $agtsh_ct[$ai]){
-         $advisori++;$advisor[$advisori] = "Advisory: agent $f indication of occasional high level jitter: $pdur\n";
+         $advi++;$advonline[$advi] = "agent $f indication of occasional high level jitter: $pdur";
+         $advcode[$advi] = "TEMSAUDIT1018W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "High_Jitter";
          $agtsh_jitter_major += 1;
       } else  {
          $agtsh_jitter_minor += 1;
          if ($opt_jitall == 1){
-            $advisori++;$advisor[$advisori] = "Advisory: agent $f indication of occasional low level jitter: $pdur\n";
+            $advi++;$advonline[$advi] = "agent $f indication of occasional low level jitter: $pdur";
+            $advcode[$advi] = "TEMSAUDIT1019W";
+            $advimpact[$advi] = $advcx{$advcode[$advi]};
+            $advsit[$advi] = "Low Jitter";
          }
       }
       $outl = $f . ",";
@@ -2381,7 +2643,10 @@ if ($agtsh_dur > 0) {
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
    $cnt++;$oline[$cnt]="$agtsh_dur,\n";
-   $advisori++;$advisor[$advisori] = "Advisory: Simple agent Heartbeat total[$agtshi] multi_agent[$agtsh_total_multi] jitter_major[$agtsh_jitter_major] jitter_minor[$agtsh_jitter_minor]\n";
+   $advi++;$advonline[$advi] = "Simple agent Heartbeat total[$agtshi] multi_agent[$agtsh_total_multi] jitter_major[$agtsh_jitter_major] jitter_minor[$agtsh_jitter_minor]";
+   $advcode[$advi] = "TEMSAUDIT1020W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Sum Jitter";
 
    # If major jitters, correlate large jitter events over time
 
@@ -2422,7 +2687,7 @@ if ($agtsh_dur > 0) {
                                substr("00" . $min,-2,2) .
                                substr("00" . $sec,-2,2) .
                                "000";
-               $minkey = substr("00" . $min,-2,2);
+               my $minkey = substr("00" . $min,-2,2);
                $jitter_correlate{$minkey}{count} += 1;
                my $gdiff = $g-$dur_mode;
                my $prec = $f . "|" . $gdiff . "|" . $itm_stamp;
@@ -2447,7 +2712,10 @@ if ($agtsh_dur > 0) {
 
 my $timex_ct = scalar keys %timex;
 if ($timex_ct > 0) {
-   $advisori++;$advisor[$advisori] = "Advisory: $timex_ct Agent time out messages\n";
+   $advi++;$advonline[$advi] = "$timex_ct Agent time out messages";
+   $advcode[$advi] = "TEMSAUDIT1021W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "timeout";
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Agent Timeout Report\n";
    $cnt++;$oline[$cnt]="Table,Situation,Count\n";
@@ -2617,13 +2885,26 @@ if ($opt_nohdr == 0) {
    print OH "\n";
 }
 
-
-if ($advisori == -1) {
-   print OH "No Expert Advisory messages\n";
-} else {
-   for (my $i=0;$i<=$advisori;$i++){
-      print OH $advisor[$i];
+if ($advi != -1) {
+   print OH "\n";
+   print OH "Impact,Advisory Code,Object,Advisory\n";
+   for (my $a=0; $a<=$advi; $a++) {
+       my $mysit = $advsit[$a];
+       my $myimpact = $advimpact[$a];
+       my $mykey = $mysit . "|" . $a;
+       $advx{$mykey} = $a;
    }
+   foreach my $f ( sort { $advimpact[$advx{$b}] <=> $advimpact[$advx{$a}] ||
+                          $advcode[$advx{$a}] cmp $advcode[$advx{$b}] ||
+                          $advsit[$advx{$a}] cmp $advsit[$advx{$b}] ||
+                          $advonline[$advx{$a}] cmp $advonline[$advx{$b}]
+                        } keys %advx ) {
+      my $j = $advx{$f};
+      print OH "$advimpact[$j],$advcode[$j],$advsit[$j],$advonline[$j]\n";
+      $max_impact = $advimpact[$j] if $advimpact[$j] > $max_impact;
+   }
+} else {
+   print OH "No Expert Advisory messages\n";
 }
 print OH "\n";
 
@@ -2655,16 +2936,20 @@ print STDERR "Wrote $cnt lines\n";
 
 # all done
 
-exit 0;
+$rc = 0;
+$rc = 1 if $max_impact >= $opt_nominal_max_impact;
+
+#print STDERR "exit code 1 $max_impact $opt_max_impact\n" if $rc == 1;
+
+exit $rc;
 
 
 sub open_kib {
    # get list of files
-   $logpat = $logbase . '-.*\.log' if defined $logbase;
+   my $logpat = $logbase . '-.*\.log' if defined $logbase;
    if (!$opt_inplace) {
       if (defined $logbase) {
          my $cmd;
-         my $rc;
          if ($gWin == 1) {
             $cmd = "copy \"$opt_logpath$logbase-*.log\" \"$opt_workpath\">nul";
             $cmd =~ s/\//\\/g;    # switch to backward slashes for Windows command
@@ -2680,7 +2965,7 @@ sub open_kib {
 
    if (defined $logpat) {
       opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n");
-      @dlogfiles = grep {/$logpat/} readdir(DIR);
+      my @dlogfiles = grep {/$logpat/} readdir(DIR);
       closedir(DIR);
       die "no log files found with given specifcation\n" if $#dlogfiles == -1;
 
@@ -2696,6 +2981,7 @@ sub open_kib {
          $segmax = $1 if $segmax eq "";
          $segmax = $1 if $segmax < $1;
          $dlog = $opt_logpath . $f;
+         my $dh;
          open($dh, "< $dlog") || die("Could not open log $dlog\n");
          for ($t=0;$t<$tlimit;$t++) {
             $oneline = <$dh>;                      # read one line
@@ -2856,3 +3142,4 @@ exit;
 #         - Add results interval count report
 # 1.34000 - Add advisory for missing application.table cases
 # 1.35000 - Correct some logic on incoming PostEvent messages
+# 1.36000 - rework advisories for impact, etc
