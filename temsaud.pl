@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.36000;
+my $gVersion = 1.37000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -128,6 +128,7 @@ my $full_logfn;
 my $logfn;
 my $opt_v;
 my $opt_o;
+my $opt_odir;                                    # directory for all output files
 my $opt_nohdr = 0;
 my $workdel = "";
 my $opt_inplace = 1;
@@ -141,6 +142,9 @@ my $opt_noded = 0;                               # track inter-arrival times for
 my $opt_b;
 my $opt_level = 0;                               # build level not found
 my $opt_driver = "";                             # Driver
+my $opt_sum;                                     # Summary text
+my $opt_nodeid = "";                             # TEMS nodeid
+my $opt_tems = "";                               # *HUB or *REMOTE
 
 my @seg = ();
 my $segcurr;
@@ -153,6 +157,7 @@ my $dur;
 my $tdur;
 my @syncdist_time;
 my $oneline;
+my $sumline;
 my $sql_frag;
 my $key;
 my $hist_stamp;
@@ -175,7 +180,7 @@ my %advcx = (
               "TEMSAUDIT1006E" => "100",
               "TEMSAUDIT1007W" => "10",
               "TEMSAUDIT1008E" => "100",
-              "TEMSAUDIT1009W" => "100",
+              "TEMSAUDIT1009E" => "100",
               "TEMSAUDIT1010W" => "80",
               "TEMSAUDIT1011W" => "90",
               "TEMSAUDIT1022E" => "100",
@@ -191,7 +196,39 @@ my %advcx = (
               "TEMSAUDIT1019W" => "10",
               "TEMSAUDIT1020W" => "40",
               "TEMSAUDIT1021W" => "50",
+              "TEMSAUDIT1025E" => "90",
+              "TEMSAUDIT1026E" => "90",
+              "TEMSAUDIT1027W" => "60",
+              "TEMSAUDIT1028W" => "40",
             );
+
+my %advtextx = ();
+my $advkey = "";
+my $advtext = "";
+my $advline;
+my %advgotx = ();
+
+while (<main::DATA>)
+{
+  $advline = $_;
+  if ($advkey eq "") {
+     chomp $advline;
+     $advkey = $advline;
+     next;
+  }
+  if (length($advline) >= 15) {
+     if (substr($advline,0,9) eq "TEMSAUDIT") {
+        $advtextx{$advkey} = $advtext;
+        chomp $advline;
+        $advkey = $advline;
+        $advtext = "";
+        next;
+     }
+  }
+  $advtext .= $advline;
+}
+$advtextx{$advkey} = $advtext;
+
 
 $hdri++;$hdr[$hdri] = "TEMS Audit report v$gVersion";
 my $audit_start_time = gettime();       # formated current time for report
@@ -239,6 +276,9 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-b") {
       $opt_b = 1;
       shift(@ARGV);
+   } elsif ($ARGV[0] eq "-sum") {
+      $opt_sum = 1;
+      shift(@ARGV);
    } elsif ($ARGV[0] eq "-sr") {
       $opt_sr = 1;
       shift(@ARGV);
@@ -271,10 +311,14 @@ while (@ARGV) {
       shift(@ARGV);
       $opt_o = shift(@ARGV);
       die "-o output specified but no path found\n" if !defined $opt_o;
+   } elsif ($ARGV[0] eq "-odir") {
+      shift(@ARGV);
+      $opt_odir = shift(@ARGV);
+      die "odir specified but no path found\n" if !defined $opt_odir;
    } elsif ($ARGV[0] eq "-workpath") {
       shift(@ARGV);
       $opt_workpath = shift(@ARGV);
-      $opt_inplace = 0;
+#     $opt_inplace = 0;
       die "workpath specified but no path found\n" if !defined $opt_workpath;
    }
    else {
@@ -282,6 +326,8 @@ while (@ARGV) {
       die "log file not defined\n" if !defined $logfn;
    }
 }
+
+
 
 
 die "logpath and -z must not be supplied together\n" if defined $opt_z and defined $opt_logpath;
@@ -292,11 +338,13 @@ if (!defined $opt_z) {$opt_z = 0;}
 if (!defined $opt_ri) {$opt_ri = 0;}
 if (!defined $opt_ri_sec) {$opt_ri_sec = 60;}
 if (!defined $opt_b) {$opt_b = 0;}
+if (!defined $opt_sum) {$opt_sum = 0;}
 if (!defined $opt_sr) {$opt_sr = 0;}
 if (!defined $opt_cmdall) {$opt_cmdall = 0;}
 if (!defined $opt_jitall) {$opt_jitall = 0;}
 if (!defined $opt_v) {$opt_v = 0;}
 if (!defined $opt_o) {$opt_o = "temsaud.csv";}
+if (!defined $opt_odir) {$opt_odir = "";}
 if (!defined $opt_expslot) {$opt_expslot = 60;}
 
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
@@ -313,6 +361,10 @@ if (!$opt_inplace) {
    }
    $opt_workpath =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
    $opt_workpath .= '/';
+}
+if ($opt_odir ne "") {
+   $opt_odir =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+   $opt_odir .= '/' if substr($opt_odir,-1,1) ne '/';
 }
 
 my $pwd;
@@ -409,6 +461,8 @@ my %etablex = ();
 my $etable;
 my %dtablex = ();
 my $dtable;
+my %derrorx = ();
+my $derror;
 my %rtablex = ();
 my $rtable;
 
@@ -448,11 +502,9 @@ if ($logfn =~ /.*\.inv$/) {
    $inline =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
    $pos = rindex($inline,'/');
    $inline = substr($inline,$pos+1);
-   $inline =~ m/(.*)-\d\d\.log$/;
-   $inline =~ m/(.*)-\d\.log$/ if !defined $1;
-   die "invalid log form $inline from $full_logfn\n" if !defined $1;
-   $logbase = $1;
-   $logfn = $1 . '-*.log';
+   $pos = rindex($inline,"-");
+   $logbase = substr($inline,0,$pos);
+   $logfn = $logbase . '-*.log';
    close(INV);
 }
 
@@ -968,10 +1020,10 @@ for(;;)
       }
    }
 
-      # Extract the build level for TEMS
-      #(53EE63EA.0004-165C:kdsops1.c,358,"OPER_Initialize")
-      #+53EE63EA.0004      KDS Server   Version: 630  Build: 13245  Driver: 'tms630fp2:d3248'
-      #+53EE63EA.0004                   Date: Sep  5 2013  Time: 08:10:00  build date: 'Mon 09/02/13' info: kms/kds prod ne
+   # Extract the build level for TEMS
+   #(53EE63EA.0004-165C:kdsops1.c,358,"OPER_Initialize")
+   #+53EE63EA.0004      KDS Server   Version: 630  Build: 13245  Driver: 'tms630fp2:d3248'
+   #+53EE63EA.0004                   Date: Sep  5 2013  Time: 08:10:00  build date: 'Mon 09/02/13' info: kms/kds prod ne
    if ($opt_level == 0) {
       if (substr($oneline,0,1) eq "+") {
          if (length($oneline) > 40) {
@@ -991,6 +1043,7 @@ for(;;)
          }
       }
    }
+
    # (53FE31BA.0045-61C:kglhc1c.c,601,"KGLHC1_Command") <0x190B4CFB,0x8A> Command String
    # +53FE31BA.0045     00000000   443A5C73 63726970  745C756E 69782031   D:\script\unix.1
    # +53FE31BA.0045     00000010   31343038 32373134  31353038 30303020   140827141508000.
@@ -1100,6 +1153,36 @@ for(;;)
       $sql_state = 0;
    }
    $syncdist_first_time = $logtime if !defined $syncdist_first_time;
+
+   # Extract the TEMS nodeid
+   #(53EE63EB.0000-165C:kbbssge.c,52,"BSS1_GetEnv") CMS_NODEID="HUB_TEPTEMS"
+   if ($opt_nodeid eq "") {
+      if (substr($logunit,0,9) eq "kbbssge.c") {
+         if ($logentry eq "BSS1_GetEnv") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # CMS_NODEID="HUB_TEPTEMS"
+            if (substr($rest,1,11) eq "CMS_NODEID=") {
+               $rest =~ /CMS_NODEID=\"(\S+)\"/;
+               $opt_nodeid = $1;
+            }
+         }
+      }
+   }
+
+   # Extract the TEMS type
+   #(53EE63EA.000B-165C:kbbssge.c,52,"BSS1_GetEnv") KDS_HUB="*LOCAL"
+   if ($opt_tems eq "") {
+      if (substr($logunit,0,9) eq "kbbssge.c") {
+         if ($logentry eq "BSS1_GetEnv") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # KDS_HUB="*LOCAL"
+            if (substr($rest,1,8) eq "KDS_HUB=") {
+               $rest =~ /KDS_HUB=\"(\S+)\"/;
+               $opt_tems = $1;
+            }
+         }
+      }
+   }
    if (substr($logunit,0,12) eq "kpxreqds.cpp") {
       if ($logentry eq "buildThresholdsFilterObject") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -1239,6 +1322,29 @@ for(;;)
                $dtable_ref = \%dtableref;
             }
             $dtable_ref->{count} += 1;
+            next;
+         }
+      }
+   }
+
+   #(5754ECFD.0022-A:kfaotmgr.c,91,"KFAOT_EIF_Manager") Event send to destination <0> failed. status <8>
+   if (substr($logunit,0,10) eq "kfaotmgr.c") {
+      if ($logentry eq "KFAOT_EIF_Manager") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Event send to destination <0> failed. status <8>
+         if (substr($rest,1,10) eq "Event send") {
+            $rest =~ / \<(\d+)\> failed\./;
+            $derror = $1;
+            next if !defined $derror;
+            my $derror_ref = $derrorx{$derror};
+            if (!defined $derror_ref) {
+               my %derrorref = (
+                                  count => 0,
+                               );
+               $derrorx{$derror} = \%derrorref;
+               $derror_ref = \%derrorref;
+            }
+            $derror_ref->{count} += 1;
             next;
          }
       }
@@ -2136,6 +2242,8 @@ if ($tdur == 0)  {
    $tdur = 1000;
 }
 
+$hdri++;$hdr[$hdri] = "$opt_nodeid $opt_tems";
+
 
 # produce output report
 my @oline = ();
@@ -2177,6 +2285,7 @@ if ($opt_nofile > 0) {
    if ($opt_nofile < $opt_nominal_nofile) {
       $advi++;$advonline[$advi] = "ulimit nofile [$opt_nofile] is below nominal [$opt_nominal_nofile]";
       $advcode[$advi] = "TEMSAUDIT1004W";
+      $advcode[$advi] = "TEMSAUDIT1026E" if $opt_nofile <= 1024;
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "Nofile";
    }
@@ -2236,6 +2345,10 @@ if ($syncdist > 0) {
    for (my $i = 0; $i >= $syncdist; $i++) {
       $syncdist_early += 1 if $syncdist_time[$i] < $opt_nominal_remotesql;
    }
+   $advi++;$advonline[$advi] = "Remote SQL Time Outs - $syncdist";
+   $advcode[$advi] = "TEMSAUDIT1027W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "RemoteSQL";
 }
 
 if ($syncdist_early > -1) {
@@ -2247,7 +2360,7 @@ if ($syncdist_early > -1) {
 
 if ($fsync_enabled == 0) {
       $advi++;$advonline[$advi] = "KGLCB_FSYNC_ENABLED set to 0 - risky for TEMS database files";
-      $advcode[$advi] = "TEMSAUDIT1009W";
+      $advcode[$advi] = "TEMSAUDIT1009E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "fsync";
    }
@@ -2301,6 +2414,17 @@ if ($et > 0) {
       my $etct = $rtablex{$f}->{count};
       $advi++;$advonline[$advi] = "TEMS database table with $etct Relative Record Number errors";
       $advcode[$advi] = "TEMSAUDIT1024E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = $f;
+   }
+}
+
+$et = scalar keys %derrorx;
+if ($et > 0) {
+   foreach my $f (keys %derrorx) {
+      my $etct = $derrorx{$f}->{count};
+      $advi++;$advonline[$advi] = "TEMS Event Destination experienced $etct send errors";
+      $advcode[$advi] = "TEMSAUDIT1025E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = $f;
    }
@@ -2441,6 +2565,13 @@ if ($acti != -1) {
          $outl = "$i,$runref->{cmd},";
          $cnt++;$oline[$cnt]=$outl . "\n";
       }
+      if ($#act_max_cmds > 1) {
+         my $pmax = $#act_max_cmds;
+         $advi++;$advonline[$advi] = "Concurrent Action Commands - $pmax";
+         $advcode[$advi] = "TEMSAUDIT1028W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "ActionCMDs";
+      }
    }
 }
 
@@ -2568,6 +2699,7 @@ if ($agto_mult > 0) {
       my $ai = $agtox{$f};
       $top_current += 1;
       last if $top_current > $top_online;
+      last if $agto_ct[$ai] == 1;
       $outl = $f . ",";
       $outl .= $agto_ct[$ai] . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
@@ -2874,6 +3006,7 @@ my $time_slag = 0;
    }
 }
 
+$opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
 open OH, ">$opt_o" or die "can't open $opt_o: $!";
 
@@ -2887,7 +3020,8 @@ if ($opt_nohdr == 0) {
 
 if ($advi != -1) {
    print OH "\n";
-   print OH "Impact,Advisory Code,Object,Advisory\n";
+   print OH "Advisory Message Report - *NOTE* See advisory notes at report end\n";
+   print OH "Impact,Advisory Code,Object,Advisory,\n";
    for (my $a=0; $a<=$advi; $a++) {
        my $mysit = $advsit[$a];
        my $myimpact = $advimpact[$a];
@@ -2902,6 +3036,7 @@ if ($advi != -1) {
       my $j = $advx{$f};
       print OH "$advimpact[$j],$advcode[$j],$advsit[$j],$advonline[$j]\n";
       $max_impact = $advimpact[$j] if $advimpact[$j] > $max_impact;
+      $advgotx{$advcode[$j]} = 1;
    }
 } else {
    print OH "No Expert Advisory messages\n";
@@ -2911,9 +3046,20 @@ print OH "\n";
 for (my $i = 0; $i<=$cnt; $i++) {
    print OH $oline[$i];
 }
+
+if ($advi != -1) {
+   print OH "\n";
+   print OH "Advisory Trace, Meaning and Recovery suggestions follow\n\n";
+   foreach my $f ( sort { $a cmp $b } keys %advgotx ) {
+      print OH "Advisory code: " . $f . "\n";
+      print OH $advtextx{$f};
+   }
+}
+print OH "\n";
+
 if ($opt_sr == 1) {
    if ($soap_burst_minute != -1) {
-      my $opt_sr_fn = "soap_detail.txt";
+      my $opt_sr_fn = $opt_odir . "soap_detail.txt";
       open SOAP, ">$opt_sr_fn" or die "Unable to open SOAP Detail output file $opt_sr_fn\n";
       select SOAP;              # print will use SOAP instead of STDOUT
       print "Secs   Count Line   Log-segment\n";
@@ -2932,7 +3078,26 @@ if ($opt_sr == 1) {
 }
 close(OH);
 
-print STDERR "Wrote $cnt lines\n";
+
+if ($opt_sum != 0) {
+# REFIC 90 910 77.83% 06.30.05 chub-gt6-mw1 13532 https://ibm.biz/BdFrJL
+# 20160701190930 REFIC 12 /ecurep/pmr/4/5/45555,442,000/2016-07-01/45555.442.000.pdcollect-lxpm1042-DUP0004.tar.Z_unpack/
+   $sumline = "TEMSAUDIT ";
+   my $padvi = $advi + 1;
+   $sumline .= $max_impact . " ";
+   $sumline .= $padvi . " ";
+   $sumline .= $opt_nodeid . " ";
+   $sumline .= $opt_tems . " ";
+   $sumline .= "$opt_level ";
+   $sumline .= "$opt_driver ";
+   $sumline .= "$trespermin ";
+   my $sumfn = $opt_odir . "temsaud.txt";
+   open SUM, ">$sumfn" or die "Unable to open SOAP Detail output file $sumfn\n";
+   print SUM "$sumline\n";
+   close(SUM);
+}
+
+print STDERR "Wrote $cnt lines\n" if $opt_odir eq "";
 
 # all done
 
@@ -3087,7 +3252,7 @@ sub GiveHelp
     -inplace        [default and not used - see work parameter]
     -logpath        Directory path to TEMS logs - default current directory
     -work           Copy files to work directory before analyzing.
-    -workpath       Directory path to work directory, default is the system
+    -workpath       Where output files get stored
                     Environment variable Windows - TEMP, Linux/Unix tmp
 
   Examples:
@@ -3143,3 +3308,503 @@ exit;
 # 1.34000 - Add advisory for missing application.table cases
 # 1.35000 - Correct some logic on incoming PostEvent messages
 # 1.36000 - rework advisories for impact, etc
+# 1.37000 - add 1025E for send event failures, prepare for AOA usage
+#         - add TEMS nodeid and type
+
+# Following is the embedded "DATA" file used to explain
+# advisories the the report. It replicates text in
+# Appendix 2 of TEMS Audit Users Guide.docx
+__END__
+TEMSAUDIT1001W
+Text: num Filter object(s) too big situations and/or reports
+
+Tracing: error
+Diag Log: (53CD5BBD.0000-1B:kpxreqds.cpp,1723,"buildThresholdsFilterObject") Filter object too big (60320 + 24958),Table NTEVTLOG Situation KQ5_EVTLog_CA_Cluster2_C.
+
+Meaning: When a situation formula is compiled by the TEMS
+SQL processor two binary objects are created: Filter Object
+and Pool Object. If either is more than 32767 bytes, they
+are not transmitted to the agent. The agent runs with a
+null filter which means sending all data to the TEMS for
+filtering. This can result in severe workload issues and
+cause high CPU and sometimes TEMS instability.
+
+This message will also be seen from a real time data request
+as from a TEP workspace or some SOAP SQL.
+
+Recovery plan: Change the situation to have less logic.
+Edit the TEMS_Alert product provided situation, distribute
+to *ALL_CMS, set to Run at Startup and start it. The next
+time there is a situation with filter object too big, an
+alert will be seen in the TEPS Enterprise level.
+
+For TEP workspaces and other real time data request, change
+the request to limit the size of the formula and do
+post-retrieval filtering if necessary. If the real time data
+request does no filtering anyway, consider changing the
+request to do filtering. Retrieving thousands of rows for
+personal TEP viewing is rarely very useful or practical.
+
+In addition, the Agent side has a limit and will never send
+more than 16megs of data to any single request. So you may
+be getting far less data than you expect anyway.
+--------------------------------------------------------------
+
+TEMSAUDIT1002W
+Text: Listen Pipe Usage at maximum
+
+Tracing: error
+Meaning: ITM communications uses Listen Pipes. When there is
+more communications than can be handled by the number of
+listen pipes, ITM processing may be degraded.
+
+Recovery plan: You can increase the number of service threads
+by adding this to KBBENV
+
+KDEP_SERVICETHREADS=63
+
+and recycling the TEMS involved.
+The number 63 is the default from ITM 630 FP5.
+--------------------------------------------------------------
+
+TEMSAUDIT1003W
+Text: Listen Pipe above nominal[num] listen=num balance=num threads=num  pipes=num
+
+Tracing: error
+
+Meaning: ITM communications uses Listen Pipes. When there
+are a lot of listen pipes, that may indicate the TEMS is
+nearing capacity.
+
+Recovery plan: You should study TEMS workload and see if the
+system is approaching communications capacity. If so workload
+can be reduced or the workload can be divided between
+multiple TEMSes.
+--------------------------------------------------------------
+
+TEMSAUDIT1004W
+Text: ulimit nofile [num] is below nominal [num]
+
+Tracing: error
+Diag Log: +52BE1DCC.0000     Nofile Limit: None                       Stack Limit: 32M
+
+Meaning: This is a Linux/Unix concern. A TEMS needs 400 file
+descriptors for normal processing and an additional file
+descriptor for each agent that makes a TCP Socket connection.
+The ITM installation guide documents that a TEMS [and WPA
+and KDE_Gateway] should specify at least 8192.
+
+Recovery plan: The process of setting this is platform
+dependent. For example on Linux this is in /etc/security/limits.conf.
+
+When you do a ulimit -n on the userid where the TEMS will be
+running, that should be at least 8192.
+--------------------------------------------------------------
+
+TEMSAUDIT1005W
+Text: ulimit stack [num] is above nominal [num] (kbytes)
+
+Tracing: error
+Diag Log: +52BE1DCC.0000     Nofile Limit: None                       Stack Limit: 32M
+
+Meaning: This is a Linux/Unix concern. Most well running TEMS
+show a stack of 10meg or 10240K. In some cases having a
+larger value can waste virtual storage capacity.
+
+Recovery plan: It is not certain this makes a gigantic
+difference, however you might consider tuning the value
+for better virtual storage utilization. It may also be
+less of a concern in 64-bit platforms.
+--------------------------------------------------------------
+
+TEMSAUDIT1006E
+Text: Results bytes per minute num higher then nominal [num]
+
+Tracing: error (unit:kpxrpcrq,Entry="IRA_NCS_Sample" state er)
+Diag Log: (53CD5B6E.0000-3A:kpxrpcrq.cpp,852,"IRA_NCS_Sample") Rcvd 0 rows sz 192 tbl *.NTPROCSSR req NTWOS_BP_CPUBusyCritical_95_C <3570423672,3385852696> node <Primary:LACCOLBOGVAS082:NT>
+
+Meaning: Much of TEMS activity is driven by situations
+sending results from situations, real time data and sometimes
+historical collection data. If this is too high the TEMS may
+become unstable. The default nominal value is 500K
+bytes/minute. However your own testing and experience may
+allow you to set a higher or lower alert value in temsaud.ini.
+
+Recovery plan: There are several ways to proceed:
+1) reduce workload by stopping or rewriting situations or
+other impactors;
+2) create another remote TEMS and split the agents between
+the two TEMSes;
+3) host the remote TEMS on a more powerful system.
+
+There is no absolute limit for number of agents per remote
+TEMS. The Installation Guide states a tested upper limit of
+1500 agents. However I have seen cases where a remote TEMS
+could handle up to 3000 agents or less than 800 agents.
+It depends on workload and system capacity [CPU and Memory
+and I/O system and communications].
+
+Experience is always the best guide.
+--------------------------------------------------------------
+
+TEMSAUDIT1007W
+Text: Trace bytes per minute num higher then nominal num
+
+Tracing: error (unit:kpxrpcrq,Entry="IRA_NCS_Sample" state er)
+Diag Log: (53CD5B6E.0000-3A:kpxrpcrq.cpp,852,"IRA_NCS_Sample") Rcvd 0 rows sz 192 tbl *.NTPROCSSR req NTWOS_BP_CPUBusyCritical_95_C <3570423672,3385852696> node <Primary:LACCOLBOGVAS082:NT>
+
+Meaning: ITM tracing is generally very low impact. This
+reports the rare case where tracing may be impacting
+performance. The key case for this advisory was a site
+that accidentally left a remote TEMS with KBB_RAS1=ALL. That
+produced 10 megabytes a second of data and that actually
+overwhelmed the system and things ran very slowly.
+
+Recovery plan: Do less tracing unless you are specifically
+instructed by IBM Support. You should especially avoid setting
+communications tracing [KDC_DEBUG=Y,KDE_DEBUG=Y,KBS_DEBUG=Y]
+unless specifically requested by IBM Support.
+--------------------------------------------------------------
+
+TEMSAUDIT1008E
+Text: num early remote SQL failures
+
+Tracing: error
+
+Meaning: During remote TEMS connection processing, three
+potentially large tables are synchronized from the hub TEMS
+to the remote TEMS. This is accomplished by remote SQL.
+
+The above message means that a table was not retrieved in
+the default 600 second limit. The "early remote" means the
+condition happened during startup. In that case remote TEMS
+runs with incomplete information and the results are very
+poor, with not all situations getting distributed.
+
+Recovery plan: There is an environment variable
+KDS_SYNDRQ_TIMEOUT which can increase the default seconds.
+Typical is to change to 1800 seconds or 30 minutes.
+
+This typically occurs when the hub/remote communications link
+is high latency, say 200+ milliseconds measure by ping. This
+type of link is often problematical and leads the TEMS
+instability: remotes going offline and online randomly. Best
+practice is to avoid such cases and place hub TEMS such that
+hub/remotes latency is low - perhaps 25 milliseconds or lower.
+--------------------------------------------------------------
+
+TEMSAUDIT1009E
+Text: KGLCB_FSYNC_ENABLED set to 0 - risky for TEMS database files
+
+Tracing: error
+Diag Log: (54DDA359.0015-1:kbbssge.c,72,"BSS1_GetEnv") KGLCB_FSYNC_ENABLED="0"
+
+Meaning: When data is written to a TEMS database file, default
+processing is to pause until the data is confirmed on disk.
+The environment variable KGLCB_FSYNC_ENABLED defaults to 1.
+If this is changed to 0, processing is faster but far riskier.
+On any interruption the disk contents may be inconsistent or
+missing data.
+
+Recovery plan:  Remove the setting to 0 and let the default
+processing take place.
+--------------------------------------------------------------
+
+TEMSAUDIT1010W
+Text: num "No Matching Request" samples
+
+Tracing: error
+Diag Log: (53CD5B2F.0000-4:kpxrpcrq.cpp,897,"IRA_NCS_Sample") Sample <3163560266,2001733381> arrived with no matching request.
+
+Meaning: This counts cases where a request for data to an
+agent has timed out and later the data was delivered late.
+The message means the late arriving data was discarded. This
+can mean that the agent is overloaded, there are communication
+issues, or the remote TEMS is overloaded.
+
+Recovery plan:  If this occurs a lot, work with IBM support
+to identify the underlying cause and eliminate it. If there
+are just a few, the impact is probably not that important.
+--------------------------------------------------------------
+
+TEMSAUDIT1011W
+Text: Application.table table missing num times
+
+Tracing: error
+Diag Log: (56F2B983.0007-1F:kdspmcat.c,449,"CompilerCatalog") Table name TAPPLPROPS for  Application O4SRV Not Found.
+
+Meaning: This usually means some application support is
+missing from the TEMS. As a result monitoring related to that
+table is not performed.
+
+Recovery plan:  Work with IBM support to identify the
+underlying cause and eliminate it.
+--------------------------------------------------------------
+
+TEMSAUDIT1012W
+Text: Situation high rate num [num%]
+
+Tracing: error (unit:kpxrpcrq,Entry="IRA_NCS_Sample" state er)
+Diag Log: (53CD5B2F.0000-4:kpxrpcrq.cpp,897,"IRA_NCS_Sample") Sample <3163560266,2001733381> arrived with no matching request.
+
+Meaning: If the overall result rate is high, this advisory
+identifies the situations contributing the most to the result
+rate. Situations totaling the top 50% are presented.
+
+Recovery plan:  Change or stop the situation to reduce the
+result workload.
+--------------------------------------------------------------
+
+TEMSAUDIT1013W
+Text: Situation possible truncated results - max result num
+
+Tracing: error (unit:kpxrpcrq,Entry="IRA_NCS_Sample" state er)
+Diag Log: (53CD5B2F.0000-4:kpxrpcrq.cpp,897,"IRA_NCS_Sample") Sample <3163560266,2001733381> arrived with no matching request.
+
+Meaning: If the maximum result is near 16 megabytes, the
+chances are likely the results have been truncated at the
+agent.
+
+Recovery plan:  Change the situation to reduce the amount of
+data returned.
+--------------------------------------------------------------
+
+TEMSAUDIT1014W
+Text: SOAP requests per minute num% higher then nominal num
+
+Tracing: error (unit:kshdhtp,Entry="getHeaderValue"  all) (unit:kshreq,Entry="buildSQL" all)
+
+Meaning: SOAP requests can be very impactful at the hub TEMS.
+This shows you how many are being processed.
+
+Recovery plan:  Change the SOAP usage to reduce impact. These
+can be tacmd functions, many of which use SOAP.
+--------------------------------------------------------------
+
+
+TEMSAUDIT1015W
+Text: SOAP Burst requests per minute num% higher then nominal num at line lineno in soap_burst_max_log
+
+Tracing: error (unit:kshdhtp,Entry="getHeaderValue"  all) (unit:kshreq,Entry="buildSQL" all)
+
+Meaning: This requires using the -sr option to create the
+detailed SOAP log file. Sometimes SOAPs come in a high burst
+that can destabilize the hub TEMS.
+
+Recovery plan:  Change the SOAP usage to reduce impact.
+These can be tacmd functions, many of which use SOAP.
+--------------------------------------------------------------
+
+
+TEMSAUDIT1016W
+Text: num Agents with repeated onlines
+
+Tracing: error
+Diag Log: (54EA2C3A.0002-AD:kpxreqhb.cpp,924,"HeartbeatInserter") Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
+
+Meaning: Agents sometimes come online over and over. This
+usually means there are duplicate agent name cases. This
+causes many problems including TEMS and TEPS performance issues.
+
+Recovery plan:  Work to eliminate the duplicate agent name
+cases. One project that can be used for this purpose is
+Sitworld: TEPS Audit https://ibm.biz/BdXNvy.
+
+There are several other techniques that require IBM Support
+help. Those detect agents with duplicate names that connect
+to the same remote TEMS and have the same version number will
+not be seen by TEPS but still affect TEMS and degrade
+monitoring.
+--------------------------------------------------------------
+
+TEMSAUDIT1017W
+Text: agent name indication of duplicate agent names on same system: time
+
+Tracing: error (UNIT:kfaprpst ER ST)
+Diag Log: (5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+
+Meaning: Agents send node status updates to a TEMS. This agent
+name might reflect duplicate agents on the same system.
+
+Recovery plan:  Work to eliminate the duplicate agent name
+cases. One project that can be used for this purpose is
+Sitworld: TEPS Audit https://ibm.biz/BdXNvy.
+
+There are several other techniques that require IBM Support
+help. Those detect agents with duplicate names that connect
+to the same remote TEMS and have the same version number will
+not be seen by TEPS but still affect TEMS and degrade
+monitoring.
+--------------------------------------------------------------
+
+TEMSAUDIT1018W
+Text: agent name indication of occasional high level jitter: time
+
+Tracing: error (UNIT:kfaprpst ER ST)
+Diag Log: (54EA2C3A.0002-AD:kpxreqhb.cpp,924,"HeartbeatInserter") Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
+
+Meaning: Agents send node status updates to a TEMS. This
+indicates a wide variation in the inter-arrival time.
+
+Recovery plan:  This can mean the TEMS, the communications
+or the Agent is under heavy stress. That might or might be
+important. Check for other advisory messages.
+--------------------------------------------------------------
+
+TEMSAUDIT1019W
+Text: agent name indication of occasional low level jitter: time
+Diag Log: (5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+
+Tracing: error (UNIT:kfaprpst ER ST)
+
+Meaning: Agents send node status updates to a TEMS. This
+indicates a small variation in the inter-arrival time.
+
+Recovery plan:  This means the TEMS is under a small amount
+of stress.
+--------------------------------------------------------------
+
+TEMSAUDIT1020W
+Text: Simple agent Heartbeat total[num] multi_agent[num] jitter_major[num] jitter_minor[num]
+
+Tracing: error (UNIT:kfaprpst ER ST)
+Diag Log: (54EA2C3A.0002-AD:kpxreqhb.cpp,924,"HeartbeatInserter") Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
+
+Meaning: Summary of inter-arrival node status times
+
+Recovery plan:  see other advisory messages and reports
+--------------------------------------------------------------
+
+TEMSAUDIT1021W
+Text: num Agent time out messages
+
+Tracing: error
+Diag Log: (54E64441.0000-12:kpxreqds.cpp,2832,"timeout") Timeout for wlp_chstart_gmqc_std <26221448> *.QMCHANS.
+          (54E7D64D.0000-12:kpxreqds.cpp,2832,"timeout") Timeout for  <1389379034> *.KINAGT.
+
+Meaning: How many times attempted communication with an agent
+timed out. This needs addition diagnostic tracing to clarify.
+It does suggest a problem with communications or with the
+agent.
+
+Recovery plan:  Work with IBM Support.
+--------------------------------------------------------------
+
+TEMSAUDIT1022E
+Text: TEMS database table with num errors
+
+Tracing: error
+Diag Log: (569D717B.007C-4A:kglkycbt.c,1212,"kglky1ar") iaddrec2 failed - status = -1, errno = 9,file = QA1CSTSC, index = PrimaryIndex, key = qbe_prd_ux_systembusy_c         TEMSP01
+          (569C6BDD.001D-26:kglkycbt.c,1498,"kglky1dr") idelrec failed - status = -1, errno = 0,file = RKCFAPLN, index = PrimaryIndex
+
+Meaning: Count of TEMS database errors.
+
+Recovery plan:  Work with IBM Support. The issue is severe
+and needs prompt attention.
+--------------------------------------------------------------
+
+
+TEMSAUDIT1023W
+Text: TEMS database table with num Duplicate Record errors
+
+Tracing: error
+Diag Log: (568A71C2.0000-C5:kglisadd.c,219,"iaddrec2") Duplicate key for index PrimaryIndex,U in QA1CSITF.IDX
+
+Meaning: Count of TEMS database duplicate record errors.
+On a remote TEMS this usually means a workload issue is
+causing the remote TEMS to lose contact with hub TEMS and
+then make contact again. On a hub TEMS this means a TEMS
+database error.
+
+This is often paired with TEMSAUDIT1022E messages and when
+both occur together, the duplicate error is what counts.
+
+Recovery plan:  Work with IBM Support. It isn't as bad as
+other sorts of database errors, but ITM monitoring is usually
+severely degraded.
+--------------------------------------------------------------
+
+TEMSAUDIT1024E
+Text: TEMS database table with num Relative Record Number errors
+
+Tracing: error
+Diag Log: (56BC3268.0000-15:kfastins.c,1391,"KFA_PutSitRecord") ***ERROR: for RRN <6076>, (oldest) Index TS <                > does not match TSITSTSH TS <1160209223543004>
+
+Meaning: Count of TEMS database errors of the
+Relative Record Number type.
+
+Recovery plan:  Work with IBM Support. The issue is severe
+and needs prompt attention.
+--------------------------------------------------------------
+
+TEMSAUDIT1025E
+Text: TEMS Event Destination experienced num send errors
+
+Tracing: error
+Diag Log: (5754ECFD.0022-A:kfaotmgr.c,91,"KFAOT_EIF_Manager") Event send to destination <0> failed. status <8>
+
+Meaning: Event Integration Facility send event processing failed.
+This could mean the om_tec.config is wrong if event destination is 0.
+It could also mean the event receiver process is not running.
+
+Recovery plan:  Correct issue. Work with IBM Support if needed.
+--------------------------------------------------------------
+
+TEMSAUDIT1026E
+Text: ulimit nofile [num] is below nominal [num]
+
+Tracing: error
+Diag Log: +52BE1DCC.0000     Nofile Limit: None                       Stack Limit: 32M
+
+Meaning: This is a Linux/Unix concern. A TEMS needs 400 file
+descriptors for normal processing and an additional file
+descriptor for each agent that makes a TCP Socket connection.
+The ITM installation guide documents that a TEMS [and WPA
+and KDE_Gateway] should specify at least 8192.
+
+In this case the limit is set to 1024 or below. This often
+means a serious problem since only 500-600 agents can connect.
+
+Recovery plan: The process of setting this is platform
+dependent. For example on Linux this is in /etc/security/limits.conf.
+
+When you do a ulimit -n on the userid where the TEMS will be
+running, that should be at least 8192.
+--------------------------------------------------------------
+
+TEMSAUDIT1027W
+Text: Remote SQL Time Outs - num
+
+Tracing: error
+
+Meaning: During TEMS processing, remote SQL processing
+is used to update tables. The above message means that a
+remote SQL exceeded the default 600 second limit.
+
+This is not the very serious TEMSAUDIT1008E case. However
+such cases are abnormal and can result in incorrect monitoring.
+
+Recovery plan: There is an environment variable
+KDS_SYNDRQ_TIMEOUT which can increase the default seconds.
+Typical is to change to 1800 seconds or 30 minutes.
+
+The computing environment and capacity should be studied
+carefully. Perhaps the TEMS needs to have fewer agents, the
+system running the TEMS needs more cpu or memory. In any case
+it should be studied and eliminated.
+--------------------------------------------------------------
+
+TEMSAUDIT1028W
+Text: Concurrent Action Commands - num
+
+Tracing: error (UNIT:kraafira,Entry="runAutomationCommand" all) (UNIT:kglhc1c all)
+
+Meaning: When an action command is processed at the TEMS,
+that occurs in the same process space as the TEMS and as a
+subprocess. When there are many running, this can de-stabilize
+the TEMS and even cause TEMS failures.
+
+Recovery plan: Avoid running action commands at the TEMS unless
+you can know for certain they will run infrequently and never
+many at the same time.
+--------------------------------------------------------------
