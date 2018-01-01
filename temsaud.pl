@@ -1,4 +1,3 @@
-
 #!/usr/local/bin/perl -w
 #------------------------------------------------------------------------------
 # Licensed Materials - Property of IBM (C) Copyright IBM Corp. 2010, 2010
@@ -25,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-$gVersion = 1.32000;
+$gVersion = 1.33000;
 
 
 # CPAN packages used
@@ -116,6 +115,8 @@ $ccsid1047 =
 '\060\061\062\063\064\065\066\067\070\071\263\333\334\331\332\237' ;
 
 my $opt_z;
+my $opt_ri;
+my $opt_ri_sec;
 my $opt_expslot;
 my $opt_logpat;
 my $opt_logpath;
@@ -171,6 +172,16 @@ while (@ARGV) {
    if ($ARGV[0] eq "-z") {
       $opt_z = 1;
       shift(@ARGV);
+   } elsif  ($ARGV[0] eq "-ri") {
+      $opt_ri = 1;
+      shift(@ARGV);
+      if (defined $ARGV[0]) {
+         if (substr($ARGV[0],0,1) ne "-") {
+            if ($ARGV[0] =~ m/^\d+$/) {
+               $opt_ri_sec = shift(@ARGV);
+            }
+         }
+      }
    } elsif ($ARGV[0] eq "-b") {
       $opt_b = 1;
       shift(@ARGV);
@@ -224,6 +235,8 @@ die "logpath and -z must not be supplied together\n" if defined $opt_z and defin
 if (!defined $opt_logpath) {$opt_logpath = "";}
 if (!defined $logfn) {$logfn = "";}
 if (!defined $opt_z) {$opt_z = 0;}
+if (!defined $opt_ri) {$opt_ri = 0;}
+if (!defined $opt_ri_sec) {$opt_ri_sec = 60;}
 if (!defined $opt_b) {$opt_b = 0;}
 if (!defined $opt_sr) {$opt_sr = 0;}
 if (!defined $opt_cmdall) {$opt_cmdall = 0;}
@@ -332,6 +345,9 @@ my $segcur = "";
 my $segline;
 my $segmax = "";
 my $skipzero = 0;
+
+my %resx;        # hash of result details by minute
+my %res_stampx;  # hash of times to result minute stamps
 
 my $advisori = -1;
 my @advisor = ();
@@ -583,7 +599,7 @@ my $agtsh_total_ct = 0;                       # number of multiple S-Hs with rat
 my $agtsh_etime = 0;                         # time of first agent S-H
 my $agtsh_stime = 0;                         # time of last agent S-H
 
-my %timex = ( count=> 0,);                   # Hash of Hashes for timeout cases
+my %timex = ();                   # Hash of Hashes for timeout cases
 
 
 my $inrowsize;
@@ -1019,7 +1035,6 @@ for(;;)
             $itable = $2;
          }
          $isitname = "*realtime" if $isitname eq "";
-         $timex{count} += 1;
          my $time_table_ref = $timex{$itable};
          if (!defined $time_table_ref) {
             my %table_tableref = ( count => 0,);
@@ -1821,6 +1836,41 @@ for(;;)
       }
    $sitres[$sx] += $insize;
    $sitres_tot  += $insize;
+   if ($opt_ri == 1) {
+      my $res_stamp = $res_stampx{$logtime};
+      my $logstime;
+      if (!defined $res_stamp) {
+         $logstime = int($logtime/$opt_ri_sec)*$opt_ri_sec;
+         my $res_sec = (localtime($logstime))[0];
+         $res_sec = '00' . $res_sec;
+         my $res_min = (localtime($logstime))[1];
+         $res_min = '00' . $res_min;
+         my $res_hour = '00' . (localtime($logstime))[2];
+         $res_day  = '00' . (localtime($logstime))[3];
+         my $res_month = (localtime($logstime))[4] + 1;
+         $res_month = '00' . $res_month;
+         my $res_year =  (localtime($logstime))[5] + 1900;
+         $res_stamp = substr($res_year,-2,2) . substr($res_month,-2,2) . substr($res_day,-2,2) .  substr($res_hour,-2,2) .  substr($res_min,-2,2) .  substr($res_sec,-2,2);
+         $res_stampx{$logtime} = $res_stamp;
+      }
+      my $res_ref = $resx{$res_stamp};
+      if (!defined $res_ref) {
+         my %resref = (
+                         stime => $logstime,
+                         count => 0,
+                         rows  => 0,
+                         bytes => 0,
+                         sitx => {},
+                      );
+         $resx{$res_stamp} = \%resref;
+         $res_ref = \%resref;
+      }
+      $res_ref->{count} += 1;
+      $res_ref->{rows} += $irows;
+      $res_ref->{bytes} += $insize;
+      ${$res_ref->{sitx}}{$isit} = 0 if !defined ${$res_ref->{sitx}}{$isit};
+      ${$res_ref->{sitx}}{$isit} += 1;
+   }
 
    if ($opt_b == 0) {next if $isit eq "HEARTBEAT";}
 
@@ -1870,10 +1920,10 @@ for(;;)
          $node_ref->{rcount} += 1;
          push(@{$node_ref->{inter_arrive}},$iarrive);
       }
+      #$DB::single=2 if $node_ref->{rcount} > 1;
    }
 
 }
-$DB::single=2 if $node_ref->{rcount} > 1;
    $dur = $sitetime - $sitstime;
    $tdur = $trcetime - $trcstime;
 
@@ -2249,7 +2299,10 @@ if ($agtsh_dur > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Fast Simple Heartbeat report\n";
    $cnt++;$oline[$cnt]="Node,Count,RatePerHour,NonModeCount,NonModeSum,InterArrivalTimes\n";
-   foreach $f ( sort { $agsh_ct[$agtshx{$b}] <=> $agtsh_ct[$agtshx{$a}] } keys %agtshx) {
+#     foreach $f ( keys %agtshx) {
+#$DB::single=2 if !defined  $agsh_ct[$agtshx{$f}];
+#      }
+   foreach $f ( sort { $agtsh_ct[$agtshx{$b}] <=> $agtsh_ct[$agtshx{$a}] } keys %agtshx) {
       my $ai = $agtshx{$f};
       next if $agtsh_ct[$ai] == 1;
       my $avg = ($agtsh_ct[$ai]*3600)/($agtsh_dur);
@@ -2306,7 +2359,10 @@ if ($agtsh_dur > 0) {
          $ptime = substr("00" . $i,-2,2);
          $jitter_correlate{$ptime}{count} = 0;
       }
-      foreach $f ( sort { $agsh_ct[$agtshx{$b}] <=> $agtsh_ct[$agtshx{$a}] } keys %agtshx) {
+#      foreach $f ( keys %agtshx) {
+#$DB::single=2 if !defined  $agsh_ct[$agtshx{$f}];
+#      }
+      foreach $f ( sort { $agtsh_ct[$agtshx{$b}] <=> $agtsh_ct[$agtshx{$a}] } keys %agtshx) {
          my $ai = $agtshx{$f};
          next if $agtsh_ct[$ai] == 1;
          next if defined $multi_agent{$f};
@@ -2355,8 +2411,10 @@ if ($agtsh_dur > 0) {
    }
 }
 
-if ($timex{count} > 0) {
-   $advisori++;$advisor[$advisori] = "Advisory: $timex{count} Agent time out messages\n";
+
+my $timex_ct = scalar keys %timex;
+if ($timex_ct > 0) {
+   $advisori++;$advisor[$advisori] = "Advisory: $timex_ct Agent time out messages\n";
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Agent Timeout Report\n";
    $cnt++;$oline[$cnt]="Table,Situation,Count\n";
@@ -2372,6 +2430,11 @@ if ($timex{count} > 0) {
       }
    }
 }
+
+my $total_hist_rows = 0;
+my $total_hist_bytes = 0;
+$hist_elapsed_time = $hist_max_time - $hist_min_time;
+my $time_elapsed;
 
 if ($histi != -1) {
    $cnt++;$oline[$cnt]="\n";
@@ -2392,11 +2455,6 @@ if ($histi != -1) {
    $outl .= $total_hist_bytes . ",";
    $cnt++;$oline[$cnt]=$outl . "\n";
 }
-
-my $total_hist_rows = 0;
-my $total_hist_bytes = 0;
-$hist_elapsed_time = $hist_max_time - $hist_min_time;
-my $time_elapsed;
 
 
 if ($histi != -1) {
@@ -2473,13 +2531,55 @@ if ($histi != -1) {
    $outl .= $total_hist_bytes . ",";
    $cnt++;$oline[$cnt]=$outl . "\n";
 }
+my %time_slot;
+if ($opt_ri == 1) {
+my $time_slag = 0;
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Time Slot Result workload\n";
+   $cnt++;$oline[$cnt]="Time,Count,Rows,Bytes,MaxSituation,MaxCount\n";
+   foreach $f ( sort { $a <=> $b } keys %resx ) {
+      my $res_ref = $resx{$f};
+      $outl = "=\"" . $f . "\",";
+      $outl .= $res_ref->{count} .",";
+      $outl .= $res_ref->{rows} .",";
+      $outl .= $res_ref->{bytes} .",";
+      foreach $g ( sort { $res_ref->{sitx}{$b}  <=> $res_ref->{sitx}{$a}} keys %{$res_ref->{sitx}} ) {
+         $outl .= $g .",";
+         $outl .= $res_ref->{sitx}{$g} .",";
+         last;
+      }
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      if ($time_slag == 0) {
+         $time_slag = $res_ref->{stime};
+         next;
+      }
+      my $slotkey = 0;
+      for (my $k=$time_slag+$opt_ri_sec;$k < $res_ref->{stime}; $k+=$opt_ri_sec) {
+         $time_slot{$slotkey} += 1;
+      }
+      $slotkey = $res_ref->{count};
+      $time_slot{$slotkey} += 1;
+      $time_slag = $res_ref->{stime};
+   }
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Slot Results Frequency\n";
+   $cnt++;$oline[$cnt]="Results,Count,\n";
+   foreach $f ( sort { $a <=> $b } keys %time_slot ) {
+         $outl = $f .",";
+         $outl .= $time_slot{$f} .",";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+}
+
+
+open OH, ">$opt_o" or die "can't open $opt_o: $!";
 
 
 if ($opt_nohdr == 0) {
    for (my $i=0; $i<=$hdri; $i++) {
-      print $hdr[$i] . "\n";
+      print OH $hdr[$i] . "\n";
    }
-   print "\n";
+   print OH "\n";
 }
 
 
@@ -2487,13 +2587,13 @@ if ($advisori == -1) {
    print OH "No Expert Advisory messages\n";
 } else {
    for (my $i=0;$i<=$advisori;$i++){
-      print $advisor[$i];
+      print OH $advisor[$i];
    }
 }
-print "\n";
+print OH "\n";
 
 for (my $i = 0; $i<=$cnt; $i++) {
-   print $oline[$i];
+   print OH $oline[$i];
 }
 if ($opt_sr == 1) {
    if ($soap_burst_minute != -1) {
@@ -2514,6 +2614,7 @@ if ($opt_sr == 1) {
       close SOAP;
    }
 }
+close(OH);
 
 print STDERR "Wrote $cnt lines\n";
 
@@ -2716,3 +2817,5 @@ exit;
 # 1.30000 - Add SimpleHeartbeat report - finds another type of duplicate agent
 # 1.31000 - Add Major Jitter correlation report
 # 1.32000 - Make command capture logic work on z/OS logs
+# 1.33000 - Add result interval report
+#         - Add results interval count report
