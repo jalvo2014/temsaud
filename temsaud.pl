@@ -20,9 +20,8 @@
 ## Watch for Override messages
 ## Take Action command function for high usage
 ## Add location and names of logs analyzed
-## add alert when maximum results exceeds 16meg-8k bytes - likely partial results returned
 
-$gVersion = 1.20000;
+$gVersion = 1.22000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -104,6 +103,7 @@ my $opt_inplace = 1;
 my $opt_work    = 0;
 my $opt_nofile = 0;                              # number of file descriptors, zero means not found
 my $opt_stack = 0;                               # Stack limit zero means not found
+my $opt_sr;                                      # Soap Report
 
 sub gettime;                             # get time
 
@@ -129,6 +129,7 @@ my $opt_nominal_listen    = 8;               # warn on high listen count
 my $opt_nominal_nofile    = 8192;            # warn on low nofile value
 my $opt_nominal_stack     = 10240;           # warn on high stack limit value
 my $opt_max_listen        = 16;              # maximum listen count allowed by default
+my $opt_nominal_soap_burst = 300;             # maximum burst of 300 per minute
 
 my $arg_start = join(" ",@ARGV);
 $hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
@@ -142,6 +143,9 @@ while (@ARGV) {
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-b") {
       $opt_b = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-sr") {
+      $opt_sr = 1;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-inplace") {
 #     $opt_inplace = 1;                # ignore as unused
@@ -178,6 +182,7 @@ if (!defined $opt_logpath) {$opt_logpath = "";}
 if (!defined $logfn) {$logfn = "";}
 if (!defined $opt_z) {$opt_z = 0;}
 if (!defined $opt_b) {$opt_b = 0;}
+if (!defined $opt_sr) {$opt_sr = 0;}
 if (!defined $opt_v) {$opt_v = 0;}
 if (!defined $opt_expslot) {$opt_expslot = 60;}
 
@@ -254,6 +259,7 @@ if (-e $opt_ini) {
       elsif ($words[0] eq "workload") {$opt_nominal_workload = $words[1];}
       elsif ($words[0] eq "remotesql") {$opt_nominal_remotesql = $words[1];}
       elsif ($words[0] eq "soap") {$opt_nominal_soap = $words[1];}
+      elsif ($words[0] eq "soap_burst") {$opt_nominal_soap_burst = $words[1];}
       elsif ($words[0] eq "nmr") {$opt_nominal_nmr = $words[1];}
       elsif ($words[0] eq "listen") {$opt_nominal_listen = $words[1];}
       elsif ($words[0] eq "nofile") {$opt_nominal_nofile = $words[1];}
@@ -276,6 +282,7 @@ my @seg_time = ();
 my $segi = -1;
 my $segp = -1;
 my $segcur = "";
+my $segline;
 my $segmax = "";
 my $skipzero = 0;
 
@@ -407,6 +414,19 @@ my @soapct;                 # count of soap SQLs
 my @soapip;                 # last ip address seen in header
 my $soapip_lag = "";        # last ip address spotted
 my $soapct_tot;             # total count of SQLs
+
+my $soap_burst_start = 0;   # start of SOAP burst calculation
+my $soap_bursti = -1;       # count of SOAP call minutes
+my @soap_burst = ();        # SOAP calls in each minute
+my $soap_burst_minute;      # current minute from start
+my $soap_burst_count;       # current minute count
+my $soap_burst_max = 0;     # Maximum SOAP count in a minute
+my $soap_burst_max_log = ""; # Maximum SOAP - log segment
+my $soap_burst_max_l = 0;   # Maximum SOAP - log segment line
+my @soap_burst_time = ();   # time being worked on since first one
+my @soap_burst_log = ();    # log being worked on
+my @soap_burst_l = ();      # log line being worked on
+my $soap_burst_next;        # time for begining of next SOAP call minute
 
 my $pti = -1;               # count of process table records
 my @pt  = ();               # pt keys - table_path
@@ -800,9 +820,11 @@ for(;;)
    if (substr($logunit,0,9) eq "kdebpli.c") {
       if ($logentry eq "KDEBP_Listen") {
          $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;                       # listen 16: PLE=11CE1F2B0, hMon=01900C3B, bal=152, thr=2432, pipes=2026
+         $rest = $2;                       #     listen 16: PLE=11CE1F2B0, hMon=01900C3B, bal=152, thr=2432, pipes=2026
+                                           # 6.3 listenCount 1: PLE=5C4E710, hMon=CE100369, bal=2, thr=2, pipes=0
+
          next if substr($rest,1,6) ne "listen";
-         $rest =~ / listen (\d+):.*bal=(\d+).*thr=(\d+).*pipes=(\d+).*/;
+         $rest =~ / (\d+):.*bal=(\d+).*thr=(\d+).*pipes=(\d+).*/;
          $lp_high = $1;
          $lp_balance = $2;
          $lp_threads = $3;
@@ -840,6 +862,44 @@ for(;;)
          $soapct[$sx] += 1;
          $soapct_tot += 1;
          $soapip[$sx] = $soapip_lag;
+         if ($soap_burst_start == 0) {   # first time recording burst
+             $soap_burst_start = $logtime;
+             $soap_burst_next = $soap_burst_start + 60; # start of next at 60 seconds
+             $soap_burst_minute = 0;
+             if ($opt_sr == 1) {
+                $soap_burst_time[$soap_burst_minute] = 0;
+                $soap_burst_log[$soap_burst_minute] = $segcurr;
+                $soap_burst_l[$soap_burst_minute] = $segline;
+             }
+             $soap_burst_count = 0;
+         }
+         if ($logtime >= $soap_burst_next) {
+             $soap_burst[$soap_burst_minute] = $soap_burst_count;
+             if ($opt_sr == 1) {
+                $soap_burst_time[$soap_burst_minute] = $logtime - $soap_burst_start;
+                $soap_burst_log[$soap_burst_minute] = $segcurr;
+                $soap_burst_l[$soap_burst_minute] = $segline;
+             }
+             if ($soap_burst_max < $soap_burst_count) {
+                $soap_burst_max = $soap_burst_count;
+                $soap_burst_max_log = $segcurr;
+                $soap_burst_max_l = $segline;
+             }
+             $soap_burst_minute += 1;
+             $soap_burst_count = 0;
+             $soap_burst_next += 60;
+             while ($logtime > $soap_burst_next) {
+                $soap_burst[$soap_burst_minute] = $soap_burst_count;
+                if ($opt_sr == 1) {
+                   $soap_burst_time[$soap_burst_minute] = $logtime - $soap_burst_start;
+                   $soap_burst_log[$soap_burst_minute] = $segcurr;
+                   $soap_burst_l[$soap_burst_minute] = $segline;
+                }
+                $soap_burst_next += 60;
+                $soap_burst_minute += 1;
+             }
+         }
+         $soap_burst_count++;
       }
       next;
    }
@@ -1470,6 +1530,11 @@ if ($soapi != -1) {
       my $ppc = sprintf '%.0f%%', $soap_pc;
       $advisori++;$advisor[$advisori] = "Advisory: SOAP requests per minute $ppc higher then nominal $opt_nominal_soap\n";
    }
+   if ($soap_burst_max > $opt_nominal_soap_burst) {
+      $soap_pc = int((($soap_burst_max - $opt_nominal_soap_burst)*100)/$opt_nominal_soap_burst);
+      my $ppc = sprintf '%.0f%%', $soap_pc;
+      $advisori++;$advisor[$advisori] = "\"Advisory: SOAP Burst requests per minute $ppc higher then nominal $opt_nominal_soap_burst at line $soap_burst_max_l in $soap_burst_max_log\"\n";
+   }
 }
 if ($pti != -1) {
    $pt_dur = $pt_etime - $pt_stime;
@@ -1597,7 +1662,31 @@ print "\n";
 for (my $i = 0; $i<=$cnt; $i++) {
    print $oline[$i];
 }
-
+#$DB::single=2;
+if ($opt_sr == 1) {
+#$DB::single=2;
+   if ($soap_burst_minute != -1) {
+#$DB::single=2;
+      my $opt_sr_fn = "soap_detail.txt";
+      open SOAP, ">$opt_sr_fn" or die "Unable to open SOAP Detail output file $opt_sr_fn\n";
+      select SOAP;              # print will use SOAP instead of STDOUT
+      print "Secs   Count Line   Log-segment\n";
+$DB::single=2;
+      for (my $i=0;$i<=$soap_burst_minute;$i++) {
+         next if !defined $soap_burst_log[$i];
+         next if $soap_burst[$i] == 0;
+         my $oline =  "";
+         $oline .= sprintf("%6d",$soap_burst_time[$i]) . " ";
+         $oline .= sprintf("%5d",$soap_burst[$i]) . " ";
+         $oline .= sprintf("%7d",$soap_burst_l[$i]) . " ";
+         $oline .= sprintf("%s",$soap_burst_log[$i]);
+         print "$oline\n";
+      }
+      close SOAP;
+$DB::single=2;
+   }
+}
+$DB::single=2;
 
 print STDERR "Wrote $cnt lines\n";
 
@@ -1690,7 +1779,9 @@ sub read_kib {
       open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
       print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
       $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"';
+      $segline = 0;
    }
+   $segline ++;
    $inline = <KIB>;
    return if defined $inline;
    close(KIB);
@@ -1702,6 +1793,7 @@ sub read_kib {
    open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
    print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
    $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"';
+   $segline = 1;
    $inline = <KIB>;
 }
 
@@ -1742,6 +1834,7 @@ sub GiveHelp
     -h              display help information
     -z              z/OS RKLVLOG log
     -b              Show HEARTBEATs in Managed System section
+    -sr             Create SOAP report minute by minute soap_detail.txt
     -expslot <mins> Historical export report slot size - default 60 mins
     -v              Produce limited progress messages in STDERR
     -inplace        [default and not used - see work parameter]
@@ -1784,3 +1877,6 @@ exit;
 # 1.18000 - add counts of No Matching Requests
 # 1.19000 - add advisory for Nofile less then 8192
 # 1.20000 - add advisory for Stack more then 10M
+# 1.21000 - handle listen messages at ITM 630
+#         - add SOAP Burst calculation and advisory
+# 1.22000 - add -sr SOAP Report
