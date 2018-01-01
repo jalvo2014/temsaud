@@ -17,12 +17,12 @@
 #
 
 ## Todos
-## Needed - always read segment -01 for Too Big cases
 ## Watch for Override messages
-## Watch for it01ram03sr02xm_ms_510994ca-01.log:(51099898.0000-7:kdsrqc1.c,2548,"AccessRowsets") Sync. Dist. request 11DFDE500 Timeout  Status ( 155 ) ntype 1 interval 0 state 0x1200000 parms 0x20 options 0x00
 ## Take Action command function for high usage
+## Add location and names of logs analyzed
+## add alert when maximum results exceeds 16meg-8k bytes - likely partial results returned
 
-$gVersion = 1.05000;
+$gVersion = 1.15000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -100,7 +100,21 @@ my $opt_workpath;
 my $full_logfn;
 my $opt_v;
 my $workdel = "";
-my $opt_inplace = 0;
+my $opt_inplace = 1;
+my $opt_work    = 0;
+
+#  following are the nominal values. These are used to generate an advisories section
+#  that can guide usage of the Workload report. These can be overridden by the temsaud.ini file.
+
+my $opt_nominal_results   = 500000;          # result bytes per minute
+my $opt_nominal_trace     = 1000000;         # trace bytes per minute
+my $opt_nominal_workload  = 50;              # When results high, what sits to show
+#my $opt_nominal_maxresult = 128000;          # Maximum result size
+my $opt_nominal_remotesql = 1200;            # Startup seconds, remote SQL failures during this time may be serious
+my $opt_nominal_soap      = 30;              # SOAP results per minute
+my $opt_max_results       = 16*1024*1024 - 8192; # When max results this high, possible truncated results
+my $opt_nominal_listen    = 8;               # warn on high listen count
+my $opt_max_listen        = 16;              # maximum listen count allowed by default
 
 while (@ARGV) {
    if ($ARGV[0] eq "-h") {
@@ -113,7 +127,10 @@ while (@ARGV) {
       $opt_b = 1;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-inplace") {
-      $opt_inplace = 1;
+#     $opt_inplace = 1;                # ignore as unused
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-work") {
+      $opt_inplace = 0;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-v") {
       $opt_v = 1;
@@ -128,6 +145,7 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-workpath") {
       shift(@ARGV);
       $opt_workpath = shift(@ARGV);
+      $opt_inplace = 0;
       die "workpath specified but no path found\n" if !defined $opt_workpath;
    }
    else {
@@ -194,7 +212,39 @@ $opt_logpath =~ s/\\/\//g;    # switch to forward slashes, less confusing when p
 
 die "logpath or logfn must be supplied\n" if !defined $logfn and !defined $opt_logpath;
 
+# Establish nominal values for the Advice Summary section
 
+my $opt_ini = "temsaud.ini";
+
+if (-e $opt_ini) {
+   open( FILE, "< $opt_ini" ) or die "Cannot open ini file $opt_ini : $!";
+   my @ips = <FILE>;
+   close FILE;
+
+   # typical ini file scraping.
+   my $l = 0;
+   foreach my $oneline (@ips)
+   {
+      $l++;
+      chomp($oneline);
+      next if (substr($oneline,0,1) eq "#");  # skip comment line
+      my @words = split(" ",$oneline);
+      next if $#words == -1;                  # skip blank line
+
+      # two word controls - option and value
+      if ($words[0] eq "results") {$opt_nominal_results = $words[1];}
+      elsif ($words[0] eq "trace") {$opt_nominal_trace = $words[1];}
+      elsif ($words[0] eq "workload") {$opt_nominal_workload = $words[1];}
+#     elsif ($words[0] eq "maxresult") {$opt_nominal_maxresult = $words[1];}
+      elsif ($words[0] eq "remotesql") {$opt_nominal_remotesql = $words[1];}
+      elsif ($words[0] eq "soap") {$opt_nominal_soap = $words[1];}
+      elsif ($words[0] eq "listen") {$opt_nominal_listen = $words[1];}
+      elsif ($words[0] eq "maxlisten") {$opt_max_listen = $words[1];}
+      else {
+         die "unknown control in temsaud.ini line $l unknown control $words[0]"
+      }
+   }
+}
 
 my $pattern;
 my @results = ();
@@ -210,6 +260,8 @@ my $segcur = "";
 my $segmax = "";
 my $skipzero = 0;
 
+my $advisori = -1;
+my @advisor = ();
 
 if ($logfn eq "") {
    $pattern = "_ms(_kdsmain)?\.inv";
@@ -235,6 +287,7 @@ if ($logfn =~ /.*\.inv$/) {
    $pos = rindex($inline,'/');
    $inline = substr($inline,$pos+1);
    $inline =~ m/(.*)-\d\d\.log$/;
+   $inline =~ m/(.*)-\d\.log$/ if !defined $1;
    die "invalid log form $inline from $full_logfn\n" if !defined $1;
    $logbase = $1;
    $logfn = $1 . '-*.log';
@@ -324,6 +377,9 @@ my $ifiltsit;               # input situation
 my $tx;                     # index
 
 my $syncdist = 0;           # count of sync. dist. error messages
+my $syncdist_first_time;    # First noted time in log
+my $syncdist_timei = -1;    # count of sync. dist. time counts
+my $syncdist_time = ();     # count of sync. dist.
 
 my $soapi = -1;             # count of soap SQLa
 my @soap = ();              # indexed array to SOAP SQLs
@@ -333,6 +389,35 @@ my @soapip;                 # last ip address seen in header
 my $soapip_lag = "";        # last ip address spotted
 my $soapct_tot;             # total count of SQLs
 
+my $pti = -1;               # count of process table records
+my @pt  = ();               # pt keys - table_path
+my %ptx = ();               # associative array from from pt key to index
+my @pt_table = ();          # pt table
+my @pt_path = ();           # pt path
+my @pt_insert_ct = ();      # Count of insert
+my @pt_query_ct = ();       # Count of query
+my @pt_select_ct = ();      # Count of select
+my @pt_selectpre_ct = ();   # Count of select prefiltered
+my @pt_delete_ct = ();      # Count of delete
+my @pt_total_ct = ();       # Total Count
+my @pt_error_ct = ();       # error count
+my @pt_errors   = ();       # string of different error status types
+my $pt_etime = 0;
+my $pt_stime = 0;
+my $pt_dur   = 0;
+my $ipt_status = "";
+my $ipt_rows = "";
+my $ipt_table = "";
+my $ipt_type = "";
+my $ipt_path  = "";
+my $ipt_key = "";
+my $ix;
+my $pt_total_total = 0;
+
+my $lp_high = -1;
+my $lp_balance = -1;
+my $lp_threads = -1;
+my $lp_pipes   = -1;
 
 my $inrowsize;
 my $inobject;
@@ -581,7 +666,7 @@ for(;;)
       $logunit = $3;
       $logentry = $4;
       if ($skipzero == 0) {
-         if (($segmax == 0) or ($segp > 0)) {
+         if (($segmax <= 1) or ($segp > 0)) {
             if ($trcstime == 0) {
                $trcstime = $logtime;
                $trcetime = $logtime;
@@ -601,6 +686,7 @@ for(;;)
       $logunit = $2;
       $logentry = $3;
    }
+   $syncdist_first_time = $logtime if !defined $syncdist_first_time;
    if (substr($logunit,0,12) eq "kpxreqds.cpp") {
       if ($logentry eq "buildThresholdsFilterObject") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -635,6 +721,21 @@ for(;;)
          $rest = $2;                       # Sync. Dist. request A9E5958 Timeout Status ( 155 ) ntype 1 ...
          next if substr($rest,1,11) ne "Sync. Dist.";
          $syncdist += 1;
+         $syncdist_timei += 1;
+         $syncdist_time[$syncdist_timei] = $logtime - $syncdist_first_time;
+      }
+      next;
+   }
+   if (substr($logunit,0,9) eq "kdebpli.c") {
+      if ($logentry eq "KDEBP_Listen") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # listen 16: PLE=11CE1F2B0, hMon=01900C3B, bal=152, thr=2432, pipes=2026
+         next if substr($rest,1,6) ne "listen";
+         $rest =~ / listen (\d+):.*bal=(\d+).*thr=(\d+).*pipes=(\d+).*/;
+         $lp_high = $1;
+         $lp_balance = $2;
+         $lp_threads = $3;
+         $lp_pipes   = $4;
       }
       next;
    }
@@ -668,6 +769,69 @@ for(;;)
          $soapct[$sx] += 1;
          $soapct_tot += 1;
          $soapip[$sx] = $soapip_lag;
+      }
+      next;
+   }
+
+   #(52051207.0004-42:kdsstc1.c,2097,"ProcessTable") Table Status = 74, Rowcount = 0, TableName = WTMEMORY, Query Type = Select, TablePath = WTMEMORY
+   if (substr($logunit,0,9) eq "kdsstc1.c") {
+      if ($logentry eq "ProcessTable") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Table Status = 74, Rowcount = 0, TableName = WTMEMORY, Query Type = Select, TablePath = WTMEMORY
+         next if substr($rest,1,14) ne "Table Status =";
+         if ($pt_stime == 0) {
+             $pt_stime = $logtime;
+             $pt_etime = $logtime;
+         }
+         if ($logtime < $pt_stime) {
+            $pt_stime = $logtime;
+         }
+         if ($logtime > $pt_etime) {
+               $pt_etime = $logtime;
+         }
+         $rest =~ /.*= (\S+)\,.*= (\S+)\,.*= (\S+)\,.*= (.*)\,.*= (.*)/;
+         $ipt_status = $1;
+         $ipt_rows = $2;
+         $ipt_table = $3;
+         $ipt_type = $4;
+         my $post = index($ipt_type,",");
+         $ipt_type = substr($ipt_type,0,$post) if $post > 0;
+         $ipt_path  = $5;
+         $ipt_path =~ s/(^\s+|\s+$)//g;
+         $ipt_key = $ipt_table . "_" . $ipt_path;
+         $ix = $ptx{$ipt_key};
+         if (!defined $ix) {
+            $pti += 1;
+            $ix = $pti;
+            $pt[$ix] = $ipt_key;
+            $ptx{$ipt_key} = $ix;
+            $pt_table[$ix] = $ipt_table;
+            $pt_path[$ix] = $ipt_path;
+            $pt_insert_ct[$ix] = 0;
+            $pt_query_ct[$ix] = 0;
+            $pt_select_ct[$ix] = 0;
+            $pt_selectpre_ct[$ix] = 0;
+            $pt_delete_ct[$ix] = 0;
+            $pt_total_ct[$ix] = 0;
+            $pt_error_ct[$ix] = 0;
+            $pt_errors[$ix] = "";
+         }
+         $pt_total_ct[$ix] += 1;
+         $pt_total_total += 1;
+         $pt_insert_ct[$ix] += 1 if $ipt_type eq "Insert";
+         $pt_query_ct[$ix] += 1 if $ipt_type eq "Query";
+         $pt_select_ct[$ix] += 1 if $ipt_type eq "Select";
+         $pt_selectpre_ct[$ix] += 1 if $ipt_type eq "Select PreFiltered";
+         $pt_delete_ct[$ix] += 1 if $ipt_type eq "Delete";
+         if ($ipt_type eq "Insert") {
+           if (($ipt_status != 74) and ($ipt_status != 0) ) {
+              $pt_error_ct[$ix] += 1;
+              $pt_errors[$ix] = $pt_errors[$ix] . " " . $ipt_status if index($pt_errors[$ix],$ipt_status) == -1;
+           }
+         } elsif ($ipt_status != 0) {
+           $pt_error_ct[$ix] += 1;
+           $pt_errors[$ix] = $pt_errors[$ix] . " " . $ipt_status if index($pt_errors[$ix],$ipt_status) == -1;
+         }
       }
       next;
    }
@@ -1045,7 +1209,7 @@ else {
 }
 
 if ($dur == 0)  {
-   print STDERR "Duration calculation is zero, setting to 1000\n";
+   print STDERR "Results Duration calculation is zero, setting to 1000\n";
    $dur = 1000;
 }
 if ($tdur == 0)  {
@@ -1055,57 +1219,93 @@ if ($tdur == 0)  {
 
 
 # produce output report
+my @oline = ();
 
-$cnt = 0;
-$cnt++;
-print "TEMS Audit report v$gVersion\n";
-$cnt++;
-print "\n";
-$cnt++;
+my $cnt = -1;
+
 if ($toobigi != -1) {
-   print "Too Big Report\n";
-   $cnt++;
-   print "Situation,Table,FilterSize,Count\n";
+   $cnt++;$oline[$cnt]="Too Big Report\n";
+   $cnt++;$oline[$cnt]="Situation,Table,FilterSize,Count\n";
    for ($i = 0; $i <= $toobigi; $i++) {
-      $cnt++;
       $outl = $toobigsit[$i] . ",";
       $outl .= $toobigtbl[$i] . ",";
       $outl .= $toobigsize[$i] . ",";
       $outl .= $toobigct[$i] . ",";
-      print $outl . "\n";
+      $cnt++;$oline[$cnt]=$outl . "\n";
    }
-   $cnt++;print "\n";
+   $cnt++;$oline[$cnt]="\n";
+}
+if ($toobigi > -1) {
+      my $ptoobigi = $toobigi + 1;
+      $advisori++;$advisor[$advisori] = "Advisory: $ptoobigi Filter object too big situations and/or reports\n";
+   }
+
+if ($lp_high > $opt_nominal_listen) {
+   if ($lp_high >= $opt_max_listen) {
+      $advisori++;$advisor[$advisori] = "Advisory: Listen Pipe Shortage at maximum - emergency!!\n";
+   }
+   $advisori++;$advisor[$advisori] = "Advisory: Listen Pipe above nominal[$opt_nominal_listen] listen=$lp_high balance=$lp_balance threads=$lp_threads pipes=$lp_pipes\n";
 }
 
-$cnt++;print "Summary Statistics\n";
-$cnt++;print "Duration (seconds),,,$dur\n";
-$cnt++;print "Total Count,,,$sitct_tot\n";
-$cnt++;print "Total Rows,,,$sitrows_tot\n";
-$cnt++;print "Total Result (bytes),,,$sitres_tot\n";
+
+my $res_pc = 0;
+my $trc_pc = 0;
+my $soap_pc = 0;
+my $res_max = 0;
+
+$cnt++;$oline[$cnt]="Summary Statistics\n";
+$cnt++;$oline[$cnt]="Duration (seconds),,,$dur\n";
+$cnt++;$oline[$cnt]="Total Count,,,$sitct_tot\n";
+$cnt++;$oline[$cnt]="Total Rows,,,$sitrows_tot\n";
+$cnt++;$oline[$cnt]="Total Result (bytes),,,$sitres_tot\n";
 my $trespermin = int($sitres_tot / ($dur / 60));
-$cnt++;print "Total Results per minute,,,$trespermin\n";
-$cnt++;print "\n";
-$cnt++;print "Trace duration (seconds),,,$tdur\n";
-my $trace_lines_minute = int($trace_ct / ($tdur / 60));
-$cnt++;print "Trace Lines Per Minute,,,$trace_lines_minute\n";
-my $trace_size_minute = int($trace_sz / ($tdur / 60));
-$cnt++;print "Trace Bytes Per Minute,,,$trace_size_minute\n";
-$cnt++;print "\n";
-if ($syncdist > 0) {
-   $cnt++;print "Remote SQL time outs,,,$syncdist\n";
-   $cnt++;print "\n";
+$cnt++;$oline[$cnt]="Total Results per minute,,,$trespermin\n";
+if ($trespermin > $opt_nominal_results) {
+   $res_pc = int((($trespermin - $opt_nominal_results)*100)/$opt_nominal_results);
+   my $ppc = sprintf '%.0f%%', $res_pc;
+   $advisori++;$advisor[$advisori] = "Advisory: Results bytes per minute $ppc higher then nominal [$opt_nominal_results]\n";
+   $res_max = 1;
 }
+
+$cnt++;$oline[$cnt]="\n";
+$cnt++;$oline[$cnt]="Trace duration (seconds),,,$tdur\n";
+my $trace_lines_minute = int($trace_ct / ($tdur / 60));
+$cnt++;$oline[$cnt]="Trace Lines Per Minute,,,$trace_lines_minute\n";
+my $trace_size_minute = int($trace_sz / ($tdur / 60));
+$cnt++;$oline[$cnt]="Trace Bytes Per Minute,,,$trace_size_minute\n";
+$cnt++;$oline[$cnt]="\n";
+if ($trace_size_minute > $opt_nominal_trace) {
+   $trc_pc = int((($trace_size_minute - $opt_nominal_trace)*100)/$opt_nominal_trace);
+   my $ppc = sprintf '%.0f%%', $trc_pc;
+   $advisori++;$advisor[$advisori] = "Advisory: Trace bytes per minute $ppc higher then nominal $opt_nominal_trace\n";
+}
+my $syncdist_early = -1;
+if ($syncdist > 0) {
+   my $synctime_print = join("/",@syncdist_time);
+   $cnt++;$oline[$cnt]="Remote SQL time outs,,,$syncdist,$synctime_print\n";
+   $cnt++;$oline[$cnt]="\n";
+   for (my $i = 0; $i >= $syncdist; $i++) {
+      $syncdist_early += 1 if $syncdist_time[$i] < $opt_nominal_remotesql;
+   }
+}
+
+if ($syncdist_early > -1) {
+      $advisori++;$advisor[$advisori] = "Advisory: $syncdist_early early remote SQL failures\n";
+   }
+
+$cnt++;$oline[$cnt] = "Listen Pipe Report listen=$lp_high balance=$lp_balance threads=$lp_threads pipes=$lp_pipes\n";
+$cnt++;$oline[$cnt]="\n";
 
 my $f;
 my $crespermin = 0;
+my $lag_fraction = 0;
 
-$cnt++;
-print "Situation Summary Report\n";
-$cnt++;
-print "Situation,Table,Count,Rows,ResultBytes,Result/Min,Fraction,Cumulative%,MinResults,MaxResults,MaxNode\n";
+my $situation_max = "";
+
+$cnt++;$oline[$cnt]="Situation Summary Report\n";
+$cnt++;$oline[$cnt]="Situation,Table,Count,Rows,ResultBytes,Result/Min,Fraction,Cumulative%,MinResults,MaxResults,MaxNode\n";
 foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] } keys %sitx ) {
    $i = $sitx{$f};
-   $cnt++;
    $outl = $sit[$i] . ",";
    $outl .= $sittbl[$i] . ",";
    $outl .= $sitct[$i] . ",";
@@ -1118,24 +1318,31 @@ foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] } keys %sitx ) {
    $outl .= $pfraction . "%,";
    $crespermin += $respermin;
    $fraction = ($crespermin*100) / $trespermin;
+   if ($res_max == 1) {
+      if ($lag_fraction < $opt_nominal_workload) {
+         $advisori++;$advisor[$advisori] = "Advisory: $sit[$i] high rate $respermin [$pfraction%]\n";
+      }
+   }
    $pfraction = sprintf "%.2f", $fraction;
    $outl .= $pfraction . "%,";
    $outl .= $sitrmin[$i] . ",";
    $outl .= $sitrmax[$i] . ",";
+   if ($sitrmax[$i] >= $opt_max_results){
+         $advisori++;$advisor[$advisori] = "Advisory: $sit[$i] possible truncated results - max result $sitrmax[$i]\n";
+   }
    $outl .= $sitrmaxnode[$i];
-   print $outl . "\n";
+   $cnt++;$oline[$cnt]=$outl . "\n";
+   $lag_fraction = $fraction;
 }
 
-$cnt++;
-print "\n";
 
-$cnt++;
-print "Managed System Summary Report - non-HEARTBEAT situations\n";
-$cnt++;
-print "Node,Table,Count,Rows,ResultBytes,Result/Min,MinResults,MaxResults,MaxSit\n";
+$cnt++;$oline[$cnt]="\n";
+$situation_max = "";
+
+$cnt++;$oline[$cnt]="Managed System Summary Report - non-HEARTBEAT situations\n";
+$cnt++;$oline[$cnt]="Node,Table,Count,Rows,ResultBytes,Result/Min,MinResults,MaxResults,MaxSit\n";
 foreach $f ( sort { $manres[$manx{$b}] <=> $manres[$manx{$a}] } keys %manx ) {
    $i = $manx{$f};
-   $cnt++;
    $outl = $man[$i] . ",";
    $outl .= $mantbl[$i] . ",";
    $outl .= $manct[$i] . ",";
@@ -1146,9 +1353,8 @@ foreach $f ( sort { $manres[$manx{$b}] <=> $manres[$manx{$a}] } keys %manx ) {
    $outl .= $manrmin[$i] . ",";
    $outl .= $manrmax[$i] . ",";
    $outl .= $manrmaxsit[$i];
-   print $outl . "\n";
+   $cnt++;$oline[$cnt]=$outl . "\n";
 }
-$cnt++;
 $outl = "*total" . ",";
 $outl .= $dur . ",";
 $outl .= $sitct_tot . ",";
@@ -1156,30 +1362,58 @@ $outl .= $sitrows_tot . ",";
 $outl .= $sitres_tot . ",";
 $respermin = int($sitres_tot / ($dur / 60));
 $outl .= $respermin;
-print $outl . "\n";
+$cnt++;$oline[$cnt]=$outl . "\n";
 
 
 if ($soapi != -1) {
-   $cnt++;
-   print "\n";
-   $cnt++;
-   print "SOAP SQL Summary Report\n";
-   $cnt++;
-   print "IP,Count,SQL\n";
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="SOAP SQL Summary Report\n";
+   $cnt++;$oline[$cnt]="IP,Count,SQL\n";
    foreach $f ( sort { $soapct[$soapx{$b}] <=> $soapct[$soapx{$a}] } keys %soapx ) {
       $i = $soapx{$f};
-      $cnt++;
       $outl = $soapip[$i] . ",";
       $outl .= $soapct[$i] . ",";
       $csvdata = $soap[$i];
       $csvdata =~ s/\"/\"\"/g;
       $outl .= "\"" . $csvdata . "\"";
-      print $outl . "\n";
+      $cnt++;$oline[$cnt]=$outl . "\n";
    }
-   $cnt++;
    $outl = "*total" . ",";
    $outl .= $soapct_tot . ",";
-   print $outl . "\n";
+   $cnt++;$oline[$cnt]=$outl . "\n";
+   my $soap_rate = $soapct_tot / ($dur / 60);
+   if ($soap_rate > $opt_nominal_soap) {
+      $soap_pc = int((($soap_rate - $opt_nominal_soap)*100)/$opt_nominal_soap);
+      my $ppc = sprintf '%.0f%%', $soap_pc;
+      $advisori++;$advisor[$advisori] = "Advisory: SOAP requests per minute $ppc higher then nominal $opt_nominal_soap\n";
+   }
+}
+if ($pti != -1) {
+   $pt_dur = $pt_etime - $pt_stime;
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Process Table Report\n";
+   $cnt++;$oline[$cnt]="Process Table Duration: $pt_dur seconds\n";
+   $cnt++;$oline[$cnt]="Table,Path,Insert,Query,Select,SelectPreFiltered,Delete,Total,Total/min,Error,Error/min,Errors\n";
+   foreach $f ( sort { $pt_total_ct[$ptx{$b}] <=> $pt_total_ct[$ptx{$a}] } keys %ptx) {
+      $i = $ptx{$f};
+      $outl = $pt_table[$i] . ",";
+      $outl .= $pt_path[$i] . ",";
+      $outl .= $pt_insert_ct[$i] . ",";
+      $outl .= $pt_query_ct[$i] . ",";
+      $outl .= $pt_select_ct[$i] . ",";
+      $outl .= $pt_selectpre_ct[$i] . ",";
+      $outl .= $pt_delete_ct[$i] . ",";
+      $outl .= $pt_total_ct[$i] . ",";
+      $respermin = int($pt_total_ct[$i] / ($pt_dur / 60));
+      $outl .= $respermin . ",";
+      $outl .= $pt_error_ct[$i] . ",";
+      $respermin = int($pt_error_ct[$i] / ($pt_dur / 60));
+      $outl .= $respermin . ",";
+      $outl .= $pt_errors[$i] . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+   $respermin = int($pt_total_total / ($pt_dur / 60));
+   $cnt++;$oline[$cnt]="*total*,,,,,,,$pt_total_total,$respermin,\n";
 }
 
 my $total_hist_rows = 0;
@@ -1188,17 +1422,13 @@ $hist_elapsed_time = $hist_max_time - $hist_min_time;
 my $time_elapsed;
 
 if ($histi != -1) {
-   $cnt++;
-   print "\n";
-   print "Historical Export summary by object\n";
-   $cnt++;
-   print "Object,Table,Appl,Rowsize,Rows,Bytes,Bytes_Min,Cycles,MinRows,MaxRows,AvgRows,LastRows\n";
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Historical Export summary by object\n";
+   $cnt++;$oline[$cnt]="Object,Table,Appl,Rowsize,Rows,Bytes,Bytes_Min,Cycles,MinRows,MaxRows,AvgRows,LastRows\n";
    foreach $f ( sort { $hist[$histx{$a}] cmp $hist[$histx{$b}] } keys %histx ) {
       $i = $histx{$f};
-print "$f $i\n";
       my $rows_cycle = 0;
       $rows_cycle = int($hist_totrows[$i]/$hist_cycles[$i]) if $hist_cycles[$i] > 0;
-      $cnt++;
       $outl = $hist[$i] . ",";
       $outl .= $hist_table[$i] . ",";
       $outl .= $hist_appl[$i] . ",";
@@ -1213,52 +1443,44 @@ print "$f $i\n";
       $outl .= $hist_maxrows[$i] . ",";
       $outl .= $rows_cycle . ",";
       $outl .= $hist_lastrows[$i] . ",";
-      print $outl . "\n";
+      $cnt++;$oline[$cnt]=$outl . "\n";
       $total_hist_rows += $hist_rows[$i];
       $total_hist_bytes += $hist_bytes[$i];
    }
-   $cnt++;
    $outl = "*total" . "," . "$hist_elapsed_time" . ",,,";
    $outl .= $total_hist_rows . ",";
    $outl .= $total_hist_bytes . ",";
-   print $outl . "\n";
+   $cnt++;$oline[$cnt]=$outl . "\n";
 }
 
 
 if ($histi != -1) {
-   $cnt++;
-   print "\n";
-   print "Historical Export summary by time\n";
-   $cnt++;
-   print "Time,,,,Rows,Bytes,Secs,Bytes_min\n";
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Historical Export summary by time\n";
+   $cnt++;$oline[$cnt]="Time,,,,Rows,Bytes,Secs,Bytes_min\n";
    foreach $f ( sort { $histtime[$histtimex{$a}] <=> $histtime[$histtimex{$b}] } keys %histtimex ) {
       $i = $histtimex{$f};
-      $cnt++;
       $outl = $histtime[$i] . ",,,,";
       $outl .= $histtime_rows[$i] . ",";
       $outl .= $histtime_bytes[$i] . ",";
       $time_elapsed = $histtime_max_time[$i] - $histtime_min_time[$i] + 1;
       $outl .= $time_elapsed . ",";
       $outl .= int(($histtime_bytes[$i]*60)/$time_elapsed) . ",";
-      print $outl . "\n";
+      $cnt++;$oline[$cnt]=$outl . "\n";
    }
-   $cnt++;
    $outl = "*total" . "," . "$hist_elapsed_time" . ",,,";
    $outl .= $total_hist_rows . ",";
    $outl .= $total_hist_bytes . ",";
-   print $outl . "\n";
+   $cnt++;$oline[$cnt]=$outl . "\n";
 }
 
 if ($histi != -1) {
-   $cnt++;
-   print "\n";
-   print "Historical Export summary by Object and time\n";
-   $cnt++;
-   print "Object,Table,Appl,Rowsize,Rows,Bytes,Time\n";
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Historical Export summary by Object and time\n";
+   $cnt++;$oline[$cnt]="Object,Table,Appl,Rowsize,Rows,Bytes,Time\n";
 #   foreach $f ( sort { $histobjectx{$a} cmp $histobjectx{$b} } keys %histobjectx ) {
    foreach $f ( sort keys %histobjectx ) {
       $i = $histobjectx{$f};
-      $cnt++;
       $outl = $f . ",";
       $outl .= $histobject_table[$i] . ",";
       $outl .= $histobject_appl[$i] . ",";
@@ -1266,15 +1488,30 @@ if ($histi != -1) {
       $outl .= $histobject_rows[$i] . ",";
       $outl .= $histobject_bytes[$i] . ",";
       $outl .= $histobject_time[$i] . ",";
-      print $outl . "\n";
+      $cnt++;$oline[$cnt]=$outl . "\n";
    }
-   $cnt++;
    $outl = "*total" . "," . "$hist_elapsed_time" . ",,,";
    $outl .= $total_hist_rows . ",";
    $outl .= $total_hist_bytes . ",";
-   print $outl . "\n";
+   $cnt++;$oline[$cnt]=$outl . "\n";
 }
 
+print "TEMS Audit report v$gVersion\n";
+print "\n";
+
+
+if ($advisori == -1) {
+   print "No Expert Advisory messages\n";
+} else {
+   for (my $i=0;$i<=$advisori;$i++){
+      print $advisor[$i];
+   }
+}
+print "\n";
+
+for (my $i = 0; $i<=$cnt; $i++) {
+   print $oline[$i];
+}
 
 
 print STDERR "Wrote $cnt lines\n";
@@ -1341,6 +1578,7 @@ sub open_kib {
          $todo{$dlog} = hex($itime);               # Add to array of logs
          close($dh);
       }
+      $segmax -= 1;
 
       foreach $f ( sort { $todo{$a} <=> $todo{$b} } keys %todo ) {
          $segi += 1;
@@ -1425,3 +1663,8 @@ exit;
 #         - inplace added, capture too big cases in hands off mode
 #         - Add count of remote SQL time out messages
 #         - Handle isolated historical data lines better
+# 1.06000 - Add -work option and default inplace to ON
+# 1.10000 - Add Advisory section
+#           Fix hands off logic with Windows logs
+# 1.15000 - Summary Dataserver ProcessTable trace
+#         - Add check for listen pipe shortage
