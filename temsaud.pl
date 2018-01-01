@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-$gVersion = 1.33000;
+$gVersion = 1.34000;
 
 
 # CPAN packages used
@@ -688,6 +688,8 @@ my $days;
 my $saveline;
 my $oplogid;
 
+my %miss_tablex;
+
 my $lagline;
 my $lagtime;
 my $laglocus;
@@ -965,7 +967,12 @@ for(;;)
       } else {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;
-         if (substr($rest,1,19) eq "SQL to be parsed is") {
+#DB::single=2 if !defined $2;
+         if (!defined $2) {
+            $rest = " " x 100;
+            $sql_frag_line = 0;
+            $sql_state = 0;
+         } elsif (substr($rest,1,19) eq "SQL to be parsed is") {
             $sql_frag_line = 0;
             $sql_state = 0;
          }
@@ -1192,6 +1199,9 @@ for(;;)
                $rest = $1;
                # <1150213164119001PCXTA42:VA10PWPAPP036:MQ            YMQ07.00.03 9                V00040000000000000000000000000000200000qwaa7 REMOTE_va10p10023                 Windows~6.1-SP1                 ip.spipe:#30.128.132.150[16832]<NM>VA10PWPAPP036</NM>                                                                                                                                                                                                           A=00:WINNT;C=06.21.00.02:WINNT;G=06.21.00.02:WINNT;             >
                # <1150213164502000REMOTE_va10p10023               wlp_rfmonitor_2ntw_rfax         RFMonitor:VA10PWPRFS002A:LO     RightFax_Warning, Line=(9 file of type *.job over 10 Minutes Old Found in Dir \\vapwprfnbes01\OutputPath\QCCMEDC\ on Server VA101150213164502999Y>
+$DB::single=2 if $l>39840;
+$DB::single=2 if !defined substr($rest,241,1);
+$DB::single=2 if length($rest) < 241;
                if (substr($rest,241,1) eq "1") {                  # ignore node status updates for the moment
                   my $itime1 = substr($rest,1,16);
                   my $ithrunode = substr($rest,17,32);
@@ -1369,6 +1379,21 @@ for(;;)
            $pt_error_ct[$ix] += 1;
            $pt_errors[$ix] = $pt_errors[$ix] . " " . $ipt_status if index($pt_errors[$ix],$ipt_status) == -1;
          }
+      }
+      next;
+   }
+   # (56F2B983.0007-1F:kdspmcat.c,449,"CompilerCatalog") Table name TAPPLPROPS for  Application O4SRV Not Found.
+   if (substr($logunit,0,10) eq "kdspmcat.c") {
+      if ($logentry eq "CompilerCatalog") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Table name TAPPLPROPS for  Application O4SRV Not Found.
+         next if substr($rest,1,10) ne "Table name";
+         $rest =~ / Table name (\S+) for  Application (\S+) /;
+         my $itable = $1;
+         my $iappl = $2;
+         my $ikey = $iappl . "." . $itable;
+         $miss_tablex{$ikey} = 0 if ! defined $miss_tablex{$ikey};
+         $miss_tablex{$ikey} += 1;
       }
       next;
    }
@@ -1746,18 +1771,20 @@ for(;;)
       if ($logentry eq "PRS_ParseSql") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;
-         if (substr($rest,1,19) eq "SQL to be parsed is") {
-            $sql_state = 1;
-            $sql_frag = "";
-            if ($sql_start == 0) {
-               $sql_start = $logtime;
-               $sql_end = $logtime;
-            }
-            if ($logtime < $sql_start) {
-               $sql_start = $logtime;
-            }
-            if ($logtime > $sql_end) {
-               $sql_end = $logtime;
+         if (defined $2) {
+            if (substr($rest,1,19) eq "SQL to be parsed is") {
+               $sql_state = 1;
+               $sql_frag = "";
+               if ($sql_start == 0) {
+                  $sql_start = $logtime;
+                  $sql_end = $logtime;
+               }
+               if ($logtime < $sql_start) {
+                  $sql_start = $logtime;
+               }
+               if ($logtime > $sql_end) {
+                  $sql_end = $logtime;
+               }
             }
          }
       }
@@ -2034,6 +2061,10 @@ if ($nmr_total > 0) {
    $cnt++;$oline[$cnt]="Sample No Matching Request count,,,$nmr_total,\n";
    $cnt++;$oline[$cnt]="\n";
    $advisori++;$advisor[$advisori] = "Advisory: $nmr_total \"No Matching Request\" samples\n";
+}
+
+foreach my $f (keys %miss_tablex) {
+   $advisori++;$advisor[$advisori] = "Advisory: Application.table $f missing $miss_tablex{$f} times\n";
 }
 
 my $f;
@@ -2543,10 +2574,12 @@ my $time_slag = 0;
       $outl .= $res_ref->{count} .",";
       $outl .= $res_ref->{rows} .",";
       $outl .= $res_ref->{bytes} .",";
+      my $contrib = 0;
       foreach $g ( sort { $res_ref->{sitx}{$b}  <=> $res_ref->{sitx}{$a}} keys %{$res_ref->{sitx}} ) {
          $outl .= $g .",";
          $outl .= $res_ref->{sitx}{$g} .",";
-         last;
+         $contrib += 1;
+         last if $contrib > 5;
       }
       $cnt++;$oline[$cnt]=$outl . "\n";
       if ($time_slag == 0) {
@@ -2819,3 +2852,4 @@ exit;
 # 1.32000 - Make command capture logic work on z/OS logs
 # 1.33000 - Add result interval report
 #         - Add results interval count report
+# 1.34000 - Add advisory for missing application.table cases
