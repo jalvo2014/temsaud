@@ -25,7 +25,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-$gVersion = 1.29000;
+$gVersion = 1.32000;
 
 
 # CPAN packages used
@@ -94,6 +94,27 @@ use Data::Dumper;               # debug only
 # pick up parameters and process
 #??? make -z option auto-detect
 
+# following table is used in EBCDIC to ASCII conversion using ccsid 1047 - valid for z/OS
+# adapted from CPAN module Convert::EBCDIC;
+# the values are recorded in octol notation.
+$ccsid1047 =
+'\000\001\002\003\234\011\206\177\227\215\216\013\014\015\016\017' .
+'\020\021\022\023\235\012\010\207\030\031\222\217\034\035\036\037' .
+'\200\201\202\203\204\205\027\033\210\211\212\213\214\005\006\007' .
+'\220\221\026\223\224\225\226\004\230\231\232\233\024\025\236\032' .
+'\040\240\342\344\340\341\343\345\347\361\242\056\074\050\053\174' .
+'\046\351\352\353\350\355\356\357\354\337\041\044\052\051\073\136' .
+'\055\057\302\304\300\301\303\305\307\321\246\054\045\137\076\077' .
+'\370\311\312\313\310\315\316\317\314\140\072\043\100\047\075\042' .
+'\330\141\142\143\144\145\146\147\150\151\253\273\360\375\376\261' .
+'\260\152\153\154\155\156\157\160\161\162\252\272\346\270\306\244' .
+'\265\176\163\164\165\166\167\170\171\172\241\277\320\133\336\256' .
+'\254\243\245\267\251\247\266\274\275\276\335\250\257\135\264\327' .
+'\173\101\102\103\104\105\106\107\110\111\255\364\366\362\363\365' .
+'\175\112\113\114\115\116\117\120\121\122\271\373\374\371\372\377' .
+'\134\367\123\124\125\126\127\130\131\132\262\324\326\322\323\325' .
+'\060\061\062\063\064\065\066\067\070\071\263\333\334\331\332\237' ;
+
 my $opt_z;
 my $opt_expslot;
 my $opt_logpat;
@@ -101,6 +122,7 @@ my $opt_logpath;
 my $opt_workpath;
 my $full_logfn;
 my $opt_v;
+my $opt_o;
 my $opt_nohdr = 0;
 my $workdel = "";
 my $opt_inplace = 1;
@@ -109,6 +131,7 @@ my $opt_nofile = 0;                              # number of file descriptors, z
 my $opt_stack = 0;                               # Stack limit zero means not found
 my $opt_sr;                                      # Soap Report
 my $opt_cmdall;                                  # show all commands
+my $opt_jitall;                                  # show all jitter
 my $opt_noded = 0;                               # track inter-arrival times for results
 
 sub gettime;                             # get time
@@ -157,6 +180,9 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-cmdall") {
       $opt_cmdall = 1;
       shift(@ARGV);
+   } elsif ($ARGV[0] eq "-jitall") {
+      $opt_jitall = 1;
+      shift(@ARGV);
    } elsif ($ARGV[0] eq "-inplace") {
 #     $opt_inplace = 1;                # ignore as unused
       shift(@ARGV);
@@ -176,6 +202,10 @@ while (@ARGV) {
       shift(@ARGV);
       $opt_logpath = shift(@ARGV);
       die "logpath specified but no path found\n" if !defined $opt_logpath;
+   } elsif ($ARGV[0] eq "-o") {
+      shift(@ARGV);
+      $opt_o = shift(@ARGV);
+      die "-o output specified but no path found\n" if !defined $opt_o;
    } elsif ($ARGV[0] eq "-workpath") {
       shift(@ARGV);
       $opt_workpath = shift(@ARGV);
@@ -197,7 +227,9 @@ if (!defined $opt_z) {$opt_z = 0;}
 if (!defined $opt_b) {$opt_b = 0;}
 if (!defined $opt_sr) {$opt_sr = 0;}
 if (!defined $opt_cmdall) {$opt_cmdall = 0;}
+if (!defined $opt_jitall) {$opt_jitall = 0;}
 if (!defined $opt_v) {$opt_v = 0;}
+if (!defined $opt_o) {$opt_o = "temsaud.csv";}
 if (!defined $opt_expslot) {$opt_expslot = 60;}
 
 $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
@@ -540,6 +572,17 @@ my $agto_mult_hr = 0;                        # number of multiple onlines with r
 my $agto_etime = 0;                          # time of first agent online
 my $agto_stime = 0;                          # time of last agent online
 
+my $agtshi = -1;                             # Agent Simple Heartbeat records
+my @agtsh = ();                              # array of agent S-Hs
+my %agtshx;                                  # index to agent S-Hs
+my @agtsh_ct = ();                           # count of agent S-Hs
+my @agtsh_hr = ();                           # rate of agent S-Hs per hour
+my @agtsh_rat = ();                          # recent arrival time
+my @agtsh_iat = ();                          # inter arrival time - actually anonymous hash
+my $agtsh_total_ct = 0;                       # number of multiple S-Hs with rate/hr >= 6;
+my $agtsh_etime = 0;                         # time of first agent S-H
+my $agtsh_stime = 0;                         # time of last agent S-H
+
 my %timex = ( count=> 0,);                   # Hash of Hashes for timeout cases
 
 
@@ -653,6 +696,7 @@ for(;;)
 # print STDERR "working on log $segcurr at $l\n";
 
    chomp($inline);
+#$DB::single=2 if $l >= 30775;
    if ($opt_z == 1) {
       if (length($inline) > 132) {
          $inline = substr($inline,0,132);
@@ -665,7 +709,7 @@ for(;;)
          $trace_sz += length($inline);
       }
    }
-   if ($state == 0) {                       # state = 0 distributed log - no filtering
+   if ($state == 0) {                       # state = 0 distributed log - no filtering - following is pure z logic
       $oneline = $inline;
    }
    elsif ($state == 1) {                       # state 1 - detect print or disk version of sysout file
@@ -720,10 +764,10 @@ for(;;)
          next if $lagline eq "";
          $oneline = $lagline;
          $logtime = $lagtime;
-         $lagline = "";
-         $lagtime = 0;
+         $lagline = $inline;
+         $lagtime = $lagtime;
          $laglocus = "";
-         $state = 2;
+         $state = 3;
          # fall through and process $oneline
       }
       # case 2 - line too short for a locus
@@ -830,7 +874,9 @@ for(;;)
    # (53FE31BA.0045-61C:kglhc1c.c,601,"KGLHC1_Command") <0x190B4CFB,0x8A> Command String
    # +53FE31BA.0045     00000000   443A5C73 63726970  745C756E 69782031   D:\script\unix.1
    # +53FE31BA.0045     00000010   31343038 32373134  31353038 30303020   140827141508000.
-   if (substr($oneline,0,1) eq "+")  {
+   #  2016.053 09:04:51.66 +0006     00000000   85838896 407DA388  89A24089 A2408140   echo.'this.is.a.
+   #  2016.053 09:04:51.66 +0006     00000010   A385A2A3 40869699  40979499 7D         test.for.pmr'
+   if (substr($oneline,0,1) eq "+")  {        # convert hex string - ascii - to printable
       $contkey = substr($oneline,1,13);
       $runref = $contx{$contkey};
       if (defined $runref) {
@@ -839,6 +885,20 @@ for(;;)
             $cmd_frag =~ s/\ //g;
             $cmd_frag =~ s/(([0-9a-f][0-9a-f])+)/pack('H*', $1)/ie;
             $runref->{'cmd'} .= $cmd_frag;
+         }
+      }
+   } elsif ( $opt_z == 1) {
+      if (substr($oneline,21+$offset,1) eq "+") {    # convert hex string - ebcdic - to printable
+         $contkey = $logtimehex . "." . "0";
+         $runref = $contx{$contkey};
+         if (defined $runref) {
+            if ($runref->{'state'} == 3) {
+               my $cmd_frag = substr($oneline,43,36);
+               $cmd_frag =~ s/\ //g;
+               $cmd_frag =~ s/(([0-9a-f][0-9a-f])+)/pack('H*', $1)/ie;
+               eval '$cmd_frag =~ tr/\000-\377/' . $ccsid1047 . '/';
+               $runref->{'cmd'} .= $cmd_frag;
+            }
          }
       }
    }
@@ -858,7 +918,8 @@ for(;;)
    else {                            # z/OS has three pieces
       $locus =~ /\((.*):(.*)\,\"(.*)\"\)/;
       $logline = 0;      ##???
-      $logthread = "T" . $1;
+      $logthread = "T" . substr($1,5);
+      $logtimehex = sprintf("%X",$logtime);
       $logunit = $2;
       $logentry = $3;
    }
@@ -1039,6 +1100,55 @@ for(;;)
          }
          if ($logtime > $agto_etime) {
             $agto_etime = $logtime;
+         }
+      }
+      next;
+   }
+
+   # (5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+   if (substr($logunit,0,10) eq "kfaprpst.c") {
+      if ($logentry eq "HandleSimpleHeartbeat") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
+         if (substr($rest,1,26) eq "Simple heartbeat from node") {
+            $rest =~ /.*?\<(.*?)\>/;
+            $iagent = $1;
+            $iagent =~ s/\s+$//;                    # strip trailing blanks
+            my $ax = $agtshx{$iagent};
+            if (!defined $ax) {
+               $agtshi += 1;
+               $ax = $agtshi;
+               $agtsh[$ax] = $iagent;
+               $agtshx{$iagent} = $ax;
+               $agtsh_ct[$ax] = 0;
+               $agtsh_rat[$ax] = 0;
+               $agtsh_iat[$ax] = ();
+            }
+            $agtsh_ct[$ax] += 1;
+            $agtsh_total_ct += 1;
+            if ($agtsh_rat[$ax] != 0) {
+               my $inter_time = $logtime - $agtsh_rat[$ax];
+               if ($inter_time < 7200) {
+                  my $inter_ref = $agtsh_iat[$ax]{$inter_time};
+                  if (!defined $agtsh_iat[$ax]{$inter_time}) {
+                     $agtsh_iat[$ax]{$inter_time}{count} = 0;
+                     $agtsh_iat[$ax]{$inter_time}{times} = ();
+                  }
+                  $agtsh_iat[$ax]{$inter_time}{count} += 1;
+                  push (@{$agtsh_iat[$ax]{$inter_time}{times}},$logtime);
+               }
+            }
+            $agtsh_rat[$ax] = $logtime;
+            if ($agtsh_stime == 0) {
+                $agtsh_stime = $logtime;
+                $agtsh_etime = $logtime;
+            }
+            if ($logtime < $agtsh_stime) {
+               $agtsh_stime = $logtime;
+            }
+            if ($logtime > $agtsh_etime) {
+               $agtsh_etime = $logtime;
+            }
          }
       }
       next;
@@ -1545,7 +1655,7 @@ for(;;)
       if ($logtime > $act_end) {
          $act_end = $logtime;
       }
-      if (substr($rest,1,6) eq "Entry") {             # starting a new command capture
+      if (substr($rest,1,5) eq "Entry") {             # starting a new command capture
           $act_id += 1;
           $runref = {                                # anonymous hash for command capture
                      thread => $logthread,           # Thread id associated with command capture
@@ -1569,9 +1679,9 @@ for(;;)
       } else {
          $runref = $runx{$logthread};                     # is this a known command capture?
          if (defined $runref) {                           # ignore if process started before trace capture
-
             # (53FE31BD.0000-61C:kglhc1c.c,862,"KGLHC1_Command") Exit: 0x0
-            if (substr($rest,1,4) eq "Exit") {             # Ending a command capture
+            if ((substr($rest,1,4) eq "Exit") or
+                (substr($rest,1,7) eq "Execute")) {            # Ending a command capture
                my $cmd1 = $runref->{'cmd'};
                my $testcmd = $cmd1 . " ";
                my $testkey = substr($cmd1,0,index($cmd1," "));
@@ -1588,7 +1698,6 @@ for(;;)
                   $act_act[$ax] = [];
                }
                $act_elapsed[$ax] += $logtime - $runref->{'start'};
-#$DB::single=2;
                $act_ct[$ax] += 1;
                $act_ok[$ax] += 1 if substr($rest,7,3) eq "0x0";
                $act_err[$ax] += 1 if substr($rest,7,3) ne "0x0";
@@ -1599,19 +1708,19 @@ for(;;)
                if (substr($rest,1,1) eq "<") {
                    # (53FE31BA.0044-61C:kglhc1c.c,592,"KGLHC1_Command") <0x190B3D18,0x8> Attribute type 0
                    # (53FE31BA.0045-61C:kglhc1c.c,601,"KGLHC1_Command") <0x190B4CFB,0x8A> Command String
-                   $rest =~ /\<\S+\,(\S+)\> (.*)/;
+                   $rest =~ /\<\S+\,(\S+)\>(.*)/;
                    my $vlen = $1;
                    $rest = $2;
                    $key = $logtimehex . "." . $logline;
-                   if (substr($rest,0,9) eq "Attribute") {             # Attribute, unintesting
-                      $runref->{'state'} = 2;
-
-                   } else {
+                   if (substr($rest,1,14) eq "Command String") {
                       $runref->{'state'} = 3;
                       $runref->{'cmd'} = "";
                       $runref->{'cmd_tot'} = hex($vlen);
+                      $contx{$key} = $runref;
+                   } elsif ($runref->{'state'} == 3) {
+                      $runref->{'state'} = 1;
                    }
-                    $contx{$key} = $runref;
+
                }
             }
          }
@@ -2112,7 +2221,7 @@ if ($pevt_size > 0) {
 
 my $agto_dur = $agto_etime - $agto_stime;
 if ($agto_mult > 0) {
-   $advisori++;$advisor[$advisori] = "Advisory: $agto_mult Agents with repeated onlines\n";
+   $advisori++;$advisor[$advisori] = "Advisory: $agto_mult_hr Agents with repeated onlines\n";
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Multiple Agent online Report - top 20 max\n";
    $cnt++;$oline[$cnt]="Node,Online_Count\n";
@@ -2121,7 +2230,6 @@ if ($agto_mult > 0) {
    foreach $f ( sort { $agto_ct[$agtox{$b}] <=> $agto_ct[$agtox{$a}] } keys %agtox) {
       my $ai = $agtox{$f};
       $top_current += 1;
-      last if  $agto_ct[$ai] < 2;
       last if $top_current > $top_online;
       $outl = $f . ",";
       $outl .= $agto_ct[$ai] . ",";
@@ -2131,7 +2239,121 @@ if ($agto_mult > 0) {
    $cnt++;$oline[$cnt]="$agto_dur,$agto_mult,\n";
 }
 
+my $agtsh_dur = $agtsh_etime - $agtsh_stime;
+if ($agtsh_dur > 0) {
+#  $advisori++;$advisor[$advisori] = "Advisory: $agto_mult_hr Agents with repeated onlines\n";
+   my $agtsh_total_multi = 0;
+   my $agtsh_jitter_major = 0;
+   my $agtsh_jitter_minor = 0;
+   my %multi_agent = ();
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Fast Simple Heartbeat report\n";
+   $cnt++;$oline[$cnt]="Node,Count,RatePerHour,NonModeCount,NonModeSum,InterArrivalTimes\n";
+   foreach $f ( sort { $agsh_ct[$agtshx{$b}] <=> $agtsh_ct[$agtshx{$a}] } keys %agtshx) {
+      my $ai = $agtshx{$f};
+      next if $agtsh_ct[$ai] == 1;
+      my $avg = ($agtsh_ct[$ai]*3600)/($agtsh_dur);
+      my $dur_ct = keys %{$agtsh_iat[$ai]};
+      next if $dur_ct == 1;
+      my $pdur = "";
+      my $dur_mode = 0;
+     # first determine mode of interarrival time
+      foreach $g (sort  { $agtsh_iat[$ai]{$b}{count} <=> $agtsh_iat[$ai]{$a}{count}} keys %{$agtsh_iat[$ai]}) {
+         $dur_mode = $g;
+         last;
+      }
+      my $dur_vary_ct = 0;
+      my $dur_vary_sum = 0;
+      foreach $g (keys %{$agtsh_iat[$ai]}) {
+         $pdur .= $g . "=";
+         my $tdur = $agtsh_iat[$ai]{$g}{count};
+         if ($g != $dur_mode) {
+           $dur_vary_ct += $tdur;
+           $dur_vary_sum += abs($g-$dur_mode)*$tdur;
+         }
+         $pdur .= $agtsh_iat[$ai]{$g}{count} . ";";
+      }
+      if (4*$dur_vary_ct > $agtsh_ct[$ai]) {
+         $advisori++;$advisor[$advisori] = "Advisory: agent $f indication of duplicate agent names on same system: $pdur\n";
+         $agtsh_total_multi += 1;
+         $multi_agent{$f} = 1;
+      } elsif ($dur_vary_sum > $agtsh_ct[$ai]){
+         $advisori++;$advisor[$advisori] = "Advisory: agent $f indication of occasional high level jitter: $pdur\n";
+         $agtsh_jitter_major += 1;
+      } else  {
+         $agtsh_jitter_minor += 1;
+         if ($opt_jitall == 1){
+            $advisori++;$advisor[$advisori] = "Advisory: agent $f indication of occasional low level jitter: $pdur\n";
+         }
+      }
+      $outl = $f . ",";
+      $outl .= $agtsh_ct[$ai]. ",";
+      $outl .= $avg . ",";
+      $outl .= $dur_vary_ct . ",";
+      $outl .= $dur_vary_sum . ",";
+      $outl .= $pdur . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+   $cnt++;$oline[$cnt]="$agtsh_dur,\n";
+   $advisori++;$advisor[$advisori] = "Advisory: Simple agent Heartbeat total[$agtshi] multi_agent[$agtsh_total_multi] jitter_major[$agtsh_jitter_major] jitter_minor[$agtsh_jitter_minor]\n";
 
+   # If major jitters, correlate large jitter events over time
+
+   if ($agtsh_jitter_major > 0) {
+      my %jitter_correlate;
+      my $ptime;
+      for (my $i=0;$i<60;$i++) {
+         $ptime = substr("00" . $i,-2,2);
+         $jitter_correlate{$ptime}{count} = 0;
+      }
+      foreach $f ( sort { $agsh_ct[$agtshx{$b}] <=> $agtsh_ct[$agtshx{$a}] } keys %agtshx) {
+         my $ai = $agtshx{$f};
+         next if $agtsh_ct[$ai] == 1;
+         next if defined $multi_agent{$f};
+         my $avg = ($agtsh_ct[$ai]*3600)/($agtsh_dur);
+         my $dur_ct = keys %{$agtsh_iat[$ai]};
+         next if $dur_ct == 1;
+         my $pdur = "";
+         my $dur_mode = 0;
+         foreach $g (sort  { $agtsh_iat[$ai]{$b}{count} <=> $agtsh_iat[$ai]{$a}{count}} keys %{$agtsh_iat[$ai]}) {
+            $dur_mode = $g;
+            last;
+         }
+         foreach $g (keys %{$agtsh_iat[$ai]}) {
+            my $tdur = $agtsh_iat[$ai]{$g}{count};
+            next if abs($g-$dur_mode) < 5;
+            foreach $h (@{$agtsh_iat[$ai]{$g}{times}}) {
+               my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($h);
+               $mon += 1;
+               my $itm_stamp = "1" .
+                               substr($year+1900,2,2) .
+                               substr("00" . $mon,-2,2) .
+                               substr("00" . $mday,-2,2) .
+                               substr("00" . $hour,-2,2) .
+                               substr("00" . $min,-2,2) .
+                               substr("00" . $sec,-2,2) .
+                               "000";
+               $minkey = substr("00" . $min,-2,2);
+               $jitter_correlate{$minkey}{count} += 1;
+               my $gdiff = $g-$dur_mode;
+               my $prec = $f . "|" . $gdiff . "|" . $itm_stamp;
+               push (@{$jitter_correlate{$minkey}{nodes}},$prec);
+            }
+         }
+      }
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="Major Jitter Report\n";
+      $cnt++;$oline[$cnt]="Minute,Nodes\n";
+      foreach my $f (sort {$a <=> $b} keys %jitter_correlate) {
+         next if $jitter_correlate{$f}{count} == 0;
+         foreach my $g (@{$jitter_correlate{$f}{nodes}}) {
+            $outl = $f . ",";
+            $outl .= $g;
+            $cnt++;$oline[$cnt]=$outl . "\n";
+         }
+      }
+   }
+}
 
 if ($timex{count} > 0) {
    $advisori++;$advisor[$advisori] = "Advisory: $timex{count} Agent time out messages\n";
@@ -2252,6 +2474,7 @@ if ($histi != -1) {
    $cnt++;$oline[$cnt]=$outl . "\n";
 }
 
+
 if ($opt_nohdr == 0) {
    for (my $i=0; $i<=$hdri; $i++) {
       print $hdr[$i] . "\n";
@@ -2261,7 +2484,7 @@ if ($opt_nohdr == 0) {
 
 
 if ($advisori == -1) {
-   print "No Expert Advisory messages\n";
+   print OH "No Expert Advisory messages\n";
 } else {
    for (my $i=0;$i<=$advisori;$i++){
       print $advisor[$i];
@@ -2490,3 +2713,6 @@ exit;
 # 1.27000 - KFA_PostEvent tracking
 # 1.28000 - Track duplicate agent online logs
 # 1.29000 - Show duplicate agent online better - top 20
+# 1.30000 - Add SimpleHeartbeat report - finds another type of duplicate agent
+# 1.31000 - Add Major Jitter correlation report
+# 1.32000 - Make command capture logic work on z/OS logs
