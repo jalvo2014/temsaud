@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.39000;
+my $gVersion = 1.40000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -202,6 +202,7 @@ my %advcx = (
               "TEMSAUDIT1028W" => "40",
               "TEMSAUDIT1029W" => "75",
               "TEMSAUDIT1030W" => "50",
+              "TEMSAUDIT1031E" => "0",
             );
 
 my %advtextx = ();
@@ -485,6 +486,7 @@ my %derrorx = ();
 my $derror;
 my %rtablex = ();
 my $rtable;
+my $rindex;
 
 
 my %resx;        # hash of result details by minute
@@ -1475,18 +1477,25 @@ for(;;)
          if (substr($rest,1,17) eq "***ERROR: for RRN") {
             # ignore case where message is split on two lines
             if (index($rest," does not match ") != -1) {
-               $rest =~/ does not match (.*?) /;
-               $rtable = $1;
+               $rest =~/ Index TS \<(.*?)\> .*does not match (.*?) /;
+               $rindex = $1;
+               next if !defined $rindex;        ## die
+               $rtable = $2;
                next if !defined $rtable;        ## die
+               my $teststr = $rindex;
+               $teststr =~ s/0123456789//g;
+
                my $rtable_ref = $rtablex{$rtable};
                if (!defined $rtable_ref) {
                   my %rtableref = (
                                      count => 0,
+                                     badindex => 0,
                                   );
                   $rtablex{$rtable} = \%rtableref;
                   $rtable_ref = \%rtableref;
                }
-               $rtable_ref->{count} += 1;
+               $rtable_ref->{count} += 1 if $teststr eq "";
+               $rtable_ref->{badindex} += 1 if $teststr ne "";
             }
             next;
          }
@@ -2597,10 +2606,19 @@ $et = scalar keys %rtablex;
 if ($et > 0) {
    foreach my $f (keys %rtablex) {
       my $etct = $rtablex{$f}->{count};
-      $advi++;$advonline[$advi] = "TEMS database table $f with $etct Relative Record Number errors";
-      $advcode[$advi] = "TEMSAUDIT1024E";
-      $advimpact[$advi] = $advcx{$advcode[$advi]};
-      $advsit[$advi] = $f;
+      if ($etct > 0) {
+         $advi++;$advonline[$advi] = "TEMS database table $f with $etct Relative Record Number errors";
+         $advcode[$advi] = "TEMSAUDIT1024E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = $f;
+      }
+      my $keyct = $rtablex{$f}->{badindex};
+      if ($keyct > 0) {
+         $advi++;$advonline[$advi] = "TEMS database table $f with $keyct Relative Record Number index errors";
+         $advcode[$advi] = "TEMSAUDIT1031E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = $f;
+      }
    }
 }
 
@@ -3547,6 +3565,7 @@ exit;
 #         - add 1028W concurrent action commands at TEMS
 #         - add 1029W for invalid nodes rejected
 # 1.39000 - add 1030W for attribute definition conflicts
+# 1.40000 - Adjust impact of 1024E to 100 and add 1031E at 0
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -3968,10 +3987,10 @@ Tracing: error
 Diag Log: (56BC3268.0000-15:kfastins.c,1391,"KFA_PutSitRecord") ***ERROR: for RRN <6076>, (oldest) Index TS <                > does not match TSITSTSH TS <1160209223543004>
 
 Meaning: Count of TEMS database errors of the
-Relative Record Number type.
+Relative Record Number type. This error message was added at
+the ITM 630 FP6 level and reflects a real problem.
 
-Recovery plan:  Work with IBM Support. The issue is severe
-and needs prompt attention.
+Recovery plan:  Work with IBM Support.
 --------------------------------------------------------------
 
 TEMSAUDIT1025E
@@ -4079,7 +4098,7 @@ Tracing: error
 
 Meaning: TEMS depends on attribute files to recognize the meaning
 and usage of agent defined attribute groups and variables. Occasionally
-the attribute files are self contradictory - with the same attrbute
+the attribute files are self-contradictory - with the same attrbute
 name defined in two different files. This can lead to incorrect
 processing.
 
@@ -4087,5 +4106,25 @@ Usually this is caused by manual saving of old attribute files. It is
 important to know that all attribute files are processed, not just ones
 in the standard form.
 
+One specific case involves KTO and KTU - ITCAM for Transactions Collector
+and Reporter. This conflict was corrected by APAR IV55733. The APAR text
+notes that normal operations are completely unaffected.
+
 Recovery plan: Delete old attribute files or save them in another directory.
 --------------------------------------------------------------
+
+TEMSAUDIT1031E
+Text: TEMS database table with num Relative Record Number key errors
+
+Tracing: error
+Diag Log: (56BC3268.0000-15:kfastins.c,1391,"KFA_PutSitRecord") ***ERROR: for RRN <6076>, (oldest) Index TS <                > does not match TSITSTSH TS <1160209223543004>
+
+Meaning: Count of TEMS database errors of the Relative Record
+Number type. The index TS key should contain characters 0-9 and
+they do not in this case. This error message was added at the
+ITM 630 FP6 level and the APAR change had an error. ITM 630 FP7
+will contain APAR  IV87174 fix to eliminate the spurious error.
+
+Recovery plan:  Ignore message.
+--------------------------------------------------------------
+
