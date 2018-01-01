@@ -16,7 +16,7 @@
 # tested on Windows Activestate 5.16.3
 #
 
-$gVersion = 0.99000;
+$gVersion = 1.00000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -115,7 +115,6 @@ while (@ARGV) {
       $opt_logpath = shift(@ARGV);
       die "logpath specified but no path found\n" if !defined $opt_logpath;
    } elsif ($ARGV[0] eq "-workpath") {
-$DB::single=2;
       shift(@ARGV);
       $opt_workpath = shift(@ARGV);
       die "workpath specified but no path found\n" if !defined $opt_workpath;
@@ -139,11 +138,16 @@ if (!defined $opt_expslot) {$opt_expslot = 60;}
 $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 if (!defined $opt_workpath) {
-   $opt_workpath = "c:/temp" if $gWin == 1;       # ??? %TEMP%
-   $opt_workpath = "/tmp" if $gWin == 0;
+   if ($gWin == 1) {
+      $opt_workpath = $ENV{TEMP};
+      $opt_workpath = "c:\temp" if !defined $opt_workpath;
+   } else {
+      $opt_workpath = $ENV{TMP};
+      $opt_workpath = "/tmp" if !defined $opt_workpath;
+   }
 }
-$opt_workpath .= '/';
 $opt_workpath =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+$opt_workpath .= '/';
 
 my $pwd;
 my $d_res;
@@ -200,7 +204,7 @@ if ($logfn eq "") {
    die "No _ms.inv found\n" if $#results == -1;
    if ($#results > 0) {         # more than one inv file - complain and exit
       $invlist = join(" ",@results);
-      die "multiple invfiles [$invlist]\n";
+      die "multiple invfiles [$invlist] - only one expected\n";
    }
    $logfn =  $results[0];
 }
@@ -1196,9 +1200,22 @@ sub open_kib {
    # get list of files
    if (defined $logbase) {
       $logpat = $logbase . '-.*\.log';
+      my $cmd;
+      my $rc;
+      if ($gWin == 1) {
+         $cmd = "copy \"$opt_logpath$logbase-*.log\" \"$opt_workpath\"";
+         $cmd =~ s/\//\\/g;    # switch to backward slashes for Windows command
+         $rc = system($cmd);
+      } else {
+         $cmd = "cp $opt_logpath$logbase-*.log $opt_workpath.";
+         $rc = system($cmd);
+      }
+      $opt_logpath = $opt_workpath;
    } else {
       $logpat = $logfn
    }
+
+
    opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n");
    @dlogfiles = grep {/$logpat/} readdir(DIR);
    closedir(DIR);
@@ -1296,3 +1313,4 @@ exit;
 #           add processing of agent export traces
 # 0.95000 - add move summary to top and add per cent column
 # 0.99000 - calculate the correct log segments
+# 1.00000 - Optional work directory when handling log segments
