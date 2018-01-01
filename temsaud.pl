@@ -22,7 +22,7 @@
 ## Add location and names of logs analyzed
 ## add alert when maximum results exceeds 16meg-8k bytes - likely partial results returned
 
-$gVersion = 1.18000;
+$gVersion = 1.19000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -102,6 +102,16 @@ my $opt_v;
 my $workdel = "";
 my $opt_inplace = 1;
 my $opt_work    = 0;
+my $opt_nofile = 0;                              # number of file descriptors, zero means not found
+
+sub gettime;                             # get time
+
+my $hdri = -1;                               # some header lines for report
+my @hdr = ();                                #
+
+$hdri++;$hdr[$hdri] = "TEMS Audit report v$gVersion";
+my $audit_start_time = gettime();       # formated current time for report
+$hdri++;$hdr[$hdri] = "Start: $audit_start_time";
 
 #  following are the nominal values. These are used to generate an advisories section
 #  that can guide usage of the Workload report. These can be overridden by the temsaud.ini file.
@@ -112,10 +122,14 @@ my $opt_nominal_workload  = 50;              # When results high, what sits to s
 #my $opt_nominal_maxresult = 128000;          # Maximum result size
 my $opt_nominal_remotesql = 1200;            # Startup seconds, remote SQL failures during this time may be serious
 my $opt_nominal_soap      = 30;              # SOAP results per minute
-my $opt_nominal_nmr       = 0;               # No Matching Requests per minute
+my $opt_nominal_nmr       = 0;               # No Matching Requests value
 my $opt_max_results       = 16*1024*1024 - 8192; # When max results this high, possible truncated results
 my $opt_nominal_listen    = 8;               # warn on high listen count
+my $opt_nominal_nofile    = 8192;            # warn on low nofile value
 my $opt_max_listen        = 16;              # maximum listen count allowed by default
+
+my $arg_start = join(" ",@ARGV);
+$hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
 
 while (@ARGV) {
    if ($ARGV[0] eq "-h") {
@@ -240,6 +254,7 @@ if (-e $opt_ini) {
       elsif ($words[0] eq "soap") {$opt_nominal_soap = $words[1];}
       elsif ($words[0] eq "nmr") {$opt_nominal_nmr = $words[1];}
       elsif ($words[0] eq "listen") {$opt_nominal_listen = $words[1];}
+      elsif ($words[0] eq "nofile") {$opt_nominal_nofile = $words[1];}
       elsif ($words[0] eq "maxlisten") {$opt_max_listen = $words[1];}
       else {
          die "unknown control in temsaud.ini line $l unknown control $words[0]"
@@ -536,6 +551,7 @@ for(;;)
       if (length($inline) > 132) {
          $inline = substr($inline,0,132);
       }
+      next if length($inline) < 21;
    }
    if (($segmax == 0) or ($segp > 0)) {
       if ($skipzero == 0) {
@@ -592,6 +608,7 @@ for(;;)
 
    # continuation is without a locus
    elsif ($state == 3) {                    # state 3 = potentially collect second part of line
+#$DB::single=2 if $l == 2992;
       # case 1 - look for the + sign which means a second line of trace output
       #   emit data and resume looking for more
       if (substr($inline,21+$offset,1) eq "+") {
@@ -650,24 +667,35 @@ for(;;)
              }
          }
          next if substr($oplogid,0,3) eq "OM2";
-#        if (index($oplogid," ") != -1) {
          $lagline .= substr($inline,21+$offset);
          $state = 3;
          next;
-#        }
-#        $oneline = $lagline;
-#        $logtime = $lagtime;
-#        $lagline = "";
-#        $lagtime = 0;
-#        $laglocus = "";
-#        $state = 2;
-#        # fall through and process $oneline
       }
    }
    else {                   # should never happen
       print STDERR $oneline . "\n";
       die "Unknown state [$state] working on log $logfn at $l\n";
       next;
+   }
+      # Extract the Number of File Descriptors - a Linux/Unix concern.
+      # We documented a recommended setting of 8192 for a TEMS
+      #+527A9859.0000      Fsize Limit: None                      Nofile Limit: 1024
+      #+527A9859.0000 ==========
+   if ($opt_nofile == 0) {
+      if (substr($oneline,0,1) eq "+") {
+          $opt_nofile = -1 if substr($oneline,14,11) eq " ==========";
+          if ($opt_nofile == 0) {
+             my $pi = index($oneline,"Nofile Limit: None");
+             if ($pi != -1) {
+                $opt_nofile = 65536;
+             } else {
+                $pi = index($oneline,"Nofile Limit:");
+                if ($pi != -1) {
+                   ($opt_nofile) = substr($oneline,$pi+13) =~ /(\d+)/;
+                }
+             }
+         }
+      }
    }
    if (substr($oneline,0,1) ne "(") {next;}
    $oneline =~ /^(\S+).*$/;          # extract locus part of line
@@ -804,7 +832,7 @@ for(;;)
          if ($logtime > $pt_etime) {
                $pt_etime = $logtime;
          }
-         $rest =~ /.*= (\S+)\,.*= (\S+)\,.*= (\S+)\,.*= (.*)\,.*= (.*)/;
+         $rest =~ /.*= (\S+)\,.*= (\S+)\,.*= (\S+)\,.*= (.*)\,.*=(.*)/;
          $ipt_status = $1;
          $ipt_rows = $2;
          $ipt_table = $3;
@@ -1255,6 +1283,11 @@ if ($lp_high > $opt_nominal_listen) {
    }
    $advisori++;$advisor[$advisori] = "Advisory: Listen Pipe above nominal[$opt_nominal_listen] listen=$lp_high balance=$lp_balance threads=$lp_threads pipes=$lp_pipes\n";
 }
+if ($opt_nofile > 0) {
+   if ($opt_nofile < $opt_nominal_nofile) {
+      $advisori++;$advisor[$advisori] = "Advisory: ulimit nofile [$opt_nofile] is below nominal [$opt_nominal_nofile]\n";
+   }
+}
 
 
 my $res_pc = 0;
@@ -1302,16 +1335,15 @@ if ($syncdist_early > -1) {
       $advisori++;$advisor[$advisori] = "Advisory: $syncdist_early early remote SQL failures\n";
    }
 
-$cnt++;$oline[$cnt] = "Listen Pipe Report listen=$lp_high balance=$lp_balance threads=$lp_threads pipes=$lp_pipes\n";
-$cnt++;$oline[$cnt]="\n";
+if ($lp_high != -1) {
+   $cnt++;$oline[$cnt] = "Listen Pipe Report listen=$lp_high balance=$lp_balance threads=$lp_threads pipes=$lp_pipes\n";
+   $cnt++;$oline[$cnt]="\n";
+}
 
 if ($nmr_total > 0) {
-my $nmr_minute = int($nmr_total / ($tdur / 60));
-   $cnt++;$oline[$cnt]="Sample No Matching Request count,,,$nmr_total,$nmr_minute\n";
+   $cnt++;$oline[$cnt]="Sample No Matching Request count,,,$nmr_total,\n";
    $cnt++;$oline[$cnt]="\n";
-   if ($nmr_minute >= $opt_nominal_nmr) {
-      $advisori++;$advisor[$advisori] = "Advisory: $nmr_minute \"No Matching Request\" samples per minute\n";
-   }
+   $advisori++;$advisor[$advisori] = "Advisory: $nmr_total \"No Matching Request\" samples\n";
 }
 
 my $f;
@@ -1514,7 +1546,9 @@ if ($histi != -1) {
    $cnt++;$oline[$cnt]=$outl . "\n";
 }
 
-print "TEMS Audit report v$gVersion\n";
+for (my $i=0; $i<=$hdri; $i++) {
+   print $hdr[$i] . "\n";
+}
 print "\n";
 
 
@@ -1622,6 +1656,7 @@ sub read_kib {
       $segcurr = $seg[$segp];
       open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
       print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
+      $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"';
    }
    $inline = <KIB>;
    return if defined $inline;
@@ -1633,7 +1668,23 @@ sub read_kib {
    $segcurr = $seg[$segp];
    open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
    print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
+   $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"';
    $inline = <KIB>;
+}
+
+sub gettime
+{
+   my $sec;
+   my $min;
+   my $hour;
+   my $mday;
+   my $mon;
+   my $year;
+   my $wday;
+   my $yday;
+   my $isdst;
+   ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=localtime(time);
+   return sprintf "%4d-%02d-%02d %02d:%02d:%02d",$year+1900,$mon+1,$mday,$hour,$min,$sec;
 }
 
 
@@ -1692,6 +1743,10 @@ exit;
 # 1.06000 - Add -work option and default inplace to ON
 # 1.10000 - Add Advisory section
 #           Fix hands off logic with Windows logs
+#         - Add 16meg truncated result advisory
 # 1.15000 - Summary Dataserver ProcessTable trace
 #         - Add check for listen pipe shortage
 # 1.16000 - fix broken -z option
+# 1.17000 - more -z fixes and truncated result advisory
+# 1.18000 - add counts of No Matching Requests
+# 1.19000 - add advisory for Nofile less then 8192
