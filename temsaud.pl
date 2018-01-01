@@ -16,7 +16,7 @@
 # tested on Windows Activestate 5.12.2
 #
 
-$gVersion = 0.80000;
+$gVersion = 0.90000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -29,6 +29,9 @@ $gVersion = 0.80000;
 #
 # Distributed with a situation:
 # (4D81D817.0000-A17:kpxrpcrq.cpp,749,"IRA_NCS_Sample") Rcvd 1 rows sz 220 tbl *.RNODESTS req HEARTBEAT <219213376,1892681576> node <Primary:INMUM01B2JTP01:NT>
+#   Interesting failure cases
+# (4FF79663.0003-4:kpxrpcrq.cpp,826,"IRA_NCS_Sample") Sample <665885373,2278557540> arrived with no matching request.
+# (4FF794A9.0001-28:kpxrpcrq.cpp,802,"IRA_NCS_Sample") RPC socket change detected, initiate reconnect, node thp-gl-04:KUX!
 #
 # Distributed without situation
 # (4D81D81A.0000-A1A:kpxrpcrq.cpp,749,"IRA_NCS_Sample") Rcvd 1 rows sz 816 tbl *.UNIXOS req  <418500981,1490027440> node <evoapcprd:KUX>
@@ -95,6 +98,9 @@ while (@ARGV) {
    if ($ARGV[0] eq "-z") {
       $opt_z = 1;
       shift(@ARGV);
+   } elsif ($ARGV[0] eq "-b") {
+      $opt_b = 1;
+      shift(@ARGV);
    } elsif ($ARGV[0] eq "-expslot") {
       shift(@ARGV);
       $opt_expslot = shift(@ARGV);
@@ -106,6 +112,7 @@ while (@ARGV) {
 }
 
 if (!defined $opt_z) {$opt_z = 0};
+if (!defined $opt_b) {$opt_b = 0};
 if (!defined $opt_expslot) {$opt_expslot = 60;}
 
 #$gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
@@ -188,6 +195,11 @@ my $inobject;
 my $intable;
 my $inappl;
 my $inrows;
+my $inreadct;
+my $inskipct;
+my $inwritect;
+
+my %table_rowsize = ();
 
 my $histcnt = 0;
 my $total_histrows = 0;
@@ -205,6 +217,10 @@ my $hist_min_time = 0;
 my $hist_max_time = 0;
 my $hist_elapsed_time = 0;
 
+my %histobjx = ();
+my $inmetatable;
+my $inmetaobject;
+
 my $histi = -1;             # historical data export total, key by object name
 my $hx;
 my @hist = ();                  # object name - attribute group
@@ -214,6 +230,11 @@ my @hist_appl = ();             # appliaction name
 my @hist_rows = ();             # number of rows
 my @hist_rowsize = ();          # size of row
 my @hist_bytes = ();            # total size of rows
+my @hist_maxrows = ();          # maximum rows at end of cycle
+my @hist_minrows = ();          # minimum rows at end of cycle
+my @hist_totrows = ();          # Total rows at end of cycle
+my @hist_lastrows = ();         # last rows at end of cycle
+my @hist_cycles = ();           # total number of export cyclces
 
 my $histtimei = -1;             # historical data export hourly, yymmddhh
 my @histtime = ();              # key yymmddhh
@@ -269,7 +290,7 @@ foreach $inline (<KIB>)
 # before the faulting processing. Next you turn that off and set the conditional
 # test for debugging and test away.
 #   print STDERR "working on log $logfn at $l\n";
-#  if ($l == 442) { $DB::single=2;}
+# if ($l == 338) { $DB::single=2;}
 
    chomp($inline);
    if ($state == 0) {                       # state = 0 distributed log - no filtering
@@ -464,6 +485,163 @@ foreach $inline (<KIB>)
       }
       next;
    }
+   if (substr($logunit,0,12) eq "khdxcpub.cpp") {
+       # (50229EBA.0002-A:khdxcpub.cpp,1383,"KHD_ValidateHistoryFile") History file /opt/Tivoli/ITM61/aix533/to/hist/INTERACTN row length is 4152, size is 132232896.
+       if ($logentry eq "KHD_ValidateHistoryFile") {
+          $oneline =~ /^\((\S+)\)(.+)$/;
+          $rest = $2;                       #  History file /opt/Tivoli/ITM61/aix533/to/hist/INTERACTN row length is 4152, size is 132232896
+          if (substr($rest,0,14) eq " History file ") {
+             $rest =~ / History file (\S+) row length is (\d+),/;
+             $table_rowsize{$1} = $2;      # recrod table row size
+          }
+       }
+       next;
+   }
+   if (substr($logunit,0,12) eq "khdxhist.cpp") {
+      # (502122FA.000C-D:khdxhist.cpp,2974,"openMetaFile") Metafile /opt/Tivoli/ITM61/aix533/to/hist/AGGREGATS.hdr opened
+      if ($logentry eq "openMetaFile") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Metafile /opt/Tivoli/ITM61/aix533/to/hist/AGGREGATS.hdr opened
+         if (substr($rest,1,8) eq "Metafile") {
+            $rest =~ / Metafile (.*?)\.hdr /;
+            $inmetatable = substr($1,rindex($1,"\/")+1);
+         }
+      }
+   }
+   if (substr($logunit,0,12) eq "khdxhist.cpp") {
+      # (502122FA.000E-D:khdxhist.cpp,1382,"open") Starting export at 0000000000000000, row 0 for Aggregates
+      if ($logentry eq "open") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Starting export at 0000000000000000, row 0 for Aggregates
+         if (substr($rest,1,18) eq "Starting export at") {
+            $rest =~ / row (\d+) for (.*)/;
+            $inmetaobject = $2;
+            if (defined $inmetatable) {
+               $histobjx{$inmetatable} = $inmetaobject if !defined $histobjx{$inmetatable} ;
+            }
+         }
+      }
+   }
+   if (substr($logunit,0,12) eq "khdxhist.cpp") {
+      # (5022A246.0000-D:khdxhist.cpp,2734,"copyHistoryFile") 34030 read, 6359 skipped, 27671 written from "INTERACTN"
+      if ($logentry eq "copyHistoryFile") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # 34030 read, 6359 skipped, 27671 written from "INTERACTN"
+         if (index($rest,"written from") != 0) {
+            $rest =~ / (\d+) read, (\d+) skipped, (\d+) written from \"(.*?)\"/;
+            $inreadct  = $1;
+            $inskipct  = $2;
+            $inwritect = $3;
+            $intable   = $4;
+            $inobject = "Object-" . $intable if !defined $histobjx{$intable};
+            $inobject = $histobjx{$intable} if defined $histobjx{$intable};
+            $hx = $histx{$inobject};
+            next if !defined $hx;
+            $hist_cycles[$hx] += 1;
+            if ($hist_cycles[$hx] == 1) {
+               $hist_maxrows[$hx] = $inwritect;
+               $hist_minrows[$hx] = $inwritect;
+            }
+            $hist_maxrows[$hx] = $inwritect if $hist_maxrows[$hx] < $inwritect;
+            $hist_minrows[$hx] = $inwritect if $hist_minrows[$hx] > $inwritect;
+            $hist_totrows[$hx] += $inwritect;
+            $hist_lastrows[$hx] = $inwritect;
+         }
+      }
+   }
+   if (substr($logunit,0,12) eq "khdxhist.cpp") {
+      # (50229B3C.0000-D:khdxhist.cpp,1724,"close") /opt/Tivoli/ITM61/aix533/to/hist/INTERACTN - 1001 rows fetched, 0 skipped
+      if ($logentry eq "close") {
+         undef $inmetatable;
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # /opt/Tivoli/ITM61/aix533/to/hist/INTERACTN - 1001 rows fetched, 0 skipped
+         if (substr($rest,0,1) eq " ") {
+            $rest =~ / (.*?) - (\d+) .* (\d+) skipped/;
+            $inrowsize = $table_rowsize{$1};
+            if ($inrowsize != 0) {
+               $intable = substr($1,rindex($1,"\/")+1);
+               $inappl = "Appl-" . $intable;
+               $inrows = $2-$3;
+               $inobject = "Object-" . $intable if !defined $histobjx{$intable};
+               $inobject = $histobjx{$intable} if defined $histobjx{$intable};
+               $hist_min = (localtime($logtime))[1];
+               $hist_min = int($hist_min/$opt_expslot) * $opt_expslot;
+               $hist_min = '00' . $hist_min;
+               $hist_hour = '00' . (localtime($logtime))[2];
+               $hist_day  = '00' . (localtime($logtime))[3];
+               $hist_month = (localtime($logtime))[4] + 1;
+               $hist_month = '00' . $hist_month;
+               $hist_year =  (localtime($logtime))[5] + 1900;
+               $hist_stamp = substr($hist_year,-2,2) . substr($hist_month,-2,2) . substr($hist_day,-2,2) .  substr($hist_hour,-2,2) .  substr($hist_min,-2,2);
+               if ($hist_min_time == 0) {
+                  $hist_min_time = $logtime;
+                  $hist_max_time = $logtime;
+               }
+               $hist_min_time = $logtime if $hist_min_time > $logtime;
+               $hist_max_time = $logtime if $hist_max_time < $logtime;
+
+               # first keep stats by object
+               $key = $inobject;
+               $hx = $histx{$key};
+               if (!defined $hx) {
+                  $histi++;
+                  $hx = $histi;
+                  $hist[$hx] = $key;
+                  $histx{$key} = $hx;
+                  $hist_table[$hx] = $intable;
+                  $hist_appl[$hx] = $inappl;
+                  $hist_rows[$hx] = 0;
+                  $hist_rowsize[$hx] = $inrowsize;
+                  $hist_bytes[$hx] = 0;
+                  $hist_maxrows[$hx] = 0;
+                  $hist_minrows[$hx] = 0;
+                  $hist_totrows[$hx] = 0;
+                  $hist_lastrows[$hx] = 0;
+                  $hist_cycles[$hx] = 0;
+               }
+               $hist_rows[$hx] += $inrows;
+               $hist_bytes[$hx] += $inrows * $inrowsize;
+
+               # next keep stats by time
+               $key = $hist_stamp;
+               $hx = $histtimex{$key};
+               if (!defined $hx) {
+                  $histtimei++;
+                  $hx = $histtimei;
+                  $histtime[$hx] = $key;
+                  $histtimex{$key} = $hx;
+                  $histtime_rows[$hx] = 0;
+                  $histtime_bytes[$hx] = 0;
+                  $histtime_min_time[$hx] = $logtime;
+                  $histtime_max_time[$hx] = $logtime;
+               }
+               $histtime_rows[$hx] += $inrows;
+               $histtime_bytes[$hx] += $inrows * $inrowsize;
+               $histtime_min_time[$hx] = $logtime if $histtime_min_time[$hx] > $logtime;
+               $histtime_max_time[$hx] = $logtime if $histtime_max_time[$hx] < $logtime;
+               # next keep stats by object_time
+               $key = $inobject . "_" . $hist_stamp;
+               $hx = $histobjectx{$key};
+               if (!defined $hx) {
+                  $histobjecti++;
+                  $hx = $histobjecti;
+                  $histobject[$hx] = $key;
+                  $histobjectx{$key} = $hx;
+                  $histobject_object[$hx] = $inobject;
+                  $histobject_table[$hx] = $intable;
+                  $histobject_appl[$hx] = $inappl;
+                  $histobject_time[$hx] = $hist_stamp;
+                  $histobject_rowsize[$hx] = $inrowsize;
+                  $histobject_rows[$hx] = 0;
+                  $histobject_bytes[$hx] = 0;
+               }
+               $histobject_rows[$hx] += $inrows;
+               $histobject_bytes[$hx] += $inrows * $inrowsize;
+            }
+         }
+      }
+      next;
+   }
    if (substr($logunit,0,12) eq "khdxdacl.cpp") {
       # (4E7CB4A4.0026-16A:khdxdacl.cpp,1985,"routeData") Rowsize = 1592, Rows per buffer = 20
       if ($logentry eq "routeData") {
@@ -473,10 +651,11 @@ foreach $inline (<KIB>)
             $rest =~ /Rowsize = (\d+),/;
             $inrowsize = $1;
          }
-      next;
+      }
    }
    if (substr($logunit,0,12) eq "khdxdacl.cpp") {
       # (4E7CB4A9.0002-16A:khdxdacl.cpp,545,"routeExportRequest") Export request for object KLZ_Process_User_Info table KLZPUSR appl KLZ), 1001 rows, is successful.
+      if ($logentry eq "routeExportRequest") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Export request for object KLZ_Process_User_Info table KLZPUSR appl KLZ), 1001 rows, is successful.
          if (substr($rest,1,25) eq "Export request for object") {
@@ -515,6 +694,11 @@ foreach $inline (<KIB>)
                   $hist_rows[$hx] = 0;
                   $hist_rowsize[$hx] = $inrowsize;
                   $hist_bytes[$hx] = 0;
+                  $hist_maxrows[$hx] = 0;
+                  $hist_minrows[$hx] = 0;
+                  $hist_totrows[$hx] = 0;
+                  $hist_lastrows[$hx] = 0;
+                  $hist_cycles[$hx] = 0;
                }
                $hist_rows[$hx] += $inrows;
                $hist_bytes[$hx] += $inrows * $inrowsize;
@@ -564,6 +748,7 @@ foreach $inline (<KIB>)
    next if $logentry ne "IRA_NCS_Sample";
    $oneline =~ /^\((\S+)\)(.+)$/;
    $rest = $2;                       # Rcvd 1 rows sz 816 tbl *.UNIXOS req  <418500981,1490027440> node <evoapcprd:KUX>
+   next if substr($rest,1,4) ne 'Rcvd';
    $rest =~ /(\S+) (\d+) rows sz (\d+) tbl (\S+) req (.*)/;
    next if $1 ne "Rcvd";
    $irows = $2;
@@ -625,7 +810,7 @@ foreach $inline (<KIB>)
    $sitres[$sx] += $insize;
    $sitres_tot  += $insize;
 
-   next if $isit eq "HEARTBEAT";
+   if ($opt_b == 0) {next if $isit eq "HEARTBEAT";}
 
    if (!defined $manx{$inode}) {      # if newly observed node, set up initial values and associative array
       $mani++;
@@ -797,9 +982,11 @@ if ($histi != -1) {
    print "\n";
    print "Historical Export summary by object\n";
    $cnt++;
-   print "Object,Table,Appl,Rowsize,Rows,Bytes,Bytes_Min\n";
-   foreach $f ( sort { $hist[$histx{$a}] <=> $hist[$histx{$b}] } keys %histx ) {
+   print "Object,Table,Appl,Rowsize,Rows,Bytes,Bytes_Min,Cycles,MinRows,MaxRows,AvgRows,LastRows\n";
+   foreach $f ( sort { $hist[$histx{$a}] cmp $hist[$histx{$b}] } keys %histx ) {
       $i = $histx{$f};
+      my $rows_cycle = 0;
+      $rows_cycle = int($hist_totrows[$i]/$hist_cycles[$i]) if $hist_cycles[$i] > 0;
       $cnt++;
       $outl = $hist[$i] . ",";
       $outl .= $hist_table[$i] . ",";
@@ -808,6 +995,11 @@ if ($histi != -1) {
       $outl .= $hist_rows[$i] . ",";
       $outl .= $hist_bytes[$i] . ",";
       $outl .= int(($hist_bytes[$i]*60)/$hist_elapsed_time) . ",";
+      $outl .= $hist_cycles[$i] . ",";
+      $outl .= $hist_minrows[$i] . ",";
+      $outl .= $hist_maxrows[$i] . ",";
+      $outl .= $rows_cycle . ",";
+      $outl .= $hist_lastrows[$i] . ",";
       print $outl . "\n";
       $total_hist_rows += $hist_rows[$i];
       $total_hist_bytes += $hist_bytes[$i];
@@ -850,10 +1042,11 @@ if ($histi != -1) {
    print "Historical Export summary by Object and time\n";
    $cnt++;
    print "Object,Table,Appl,Rowsize,Rows,Bytes,Time\n";
-   foreach $f ( sort { $histtime[$histobjectx{$a}] eq $histtime[$histobjectx{$b}] } keys %histobjectx ) {
+#   foreach $f ( sort { $histobjectx{$a} cmp $histobjectx{$b} } keys %histobjectx ) {
+   foreach $f ( sort keys %histobjectx ) {
       $i = $histobjectx{$f};
       $cnt++;
-      $outl = $histobject_object[$i] . ",";
+      $outl = $f . ",";
       $outl .= $histobject_table[$i] . ",";
       $outl .= $histobject_appl[$i] . ",";
       $outl .= $histobject_rowsize[$i] . ",";
@@ -910,3 +1103,6 @@ exit;
 # 0.70000 - convert RKLVLOG time stamps to Unix epoch seconds
 # 0.75000 - sort reports by number of ResultBytes column in descending order ,
 #         - add SOAP SQL report if trace entries present
+# 0.80000 - add logic for historical data export
+# 0.90000 - add -b option to break out HEARTBEAT sources
+#           add processing of agent export traces
