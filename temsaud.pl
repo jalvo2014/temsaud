@@ -16,11 +16,9 @@
 # tested on Windows Activestate 5.12.2
 #
 
-$gVersion = 0.90000;
+$gVersion = 0.95000;
 
 # $DB::single=2;   # remember debug breakpoint
-
-# 0.80000   Add history export report
 
 # CPAN packages used
 # none
@@ -262,6 +260,7 @@ my $dateline = "";          # date portion of timestamp
 my $timeline = "";          # time portion of timestamp
 my $offset = 0;             # track sysout print versus disk flavor of RKLVLOG
 my $totsecs = 0;            # added to when time boundary crossed
+my $outl;
 
 
 my %epoch = ();             # convert year/day of year to Unix epoch seconds
@@ -659,6 +658,7 @@ foreach $inline (<KIB>)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Export request for object KLZ_Process_User_Info table KLZPUSR appl KLZ), 1001 rows, is successful.
          if (substr($rest,1,25) eq "Export request for object") {
+            $inrowsize = 1000 if $inrowsize == 0;
             if ($inrowsize != 0) {
                $rest =~ / object (.*?) table (.*?) appl (.*?)\), (\d+) /;
                $inobject = $1;
@@ -884,15 +884,24 @@ for ($i = 0; $i <= $toobigi; $i++) {
    $outl .= $toobigsize[$i] . ",";
    print $outl . "\n";
 }
-$cnt++;
-print "\n";
+$cnt++;print "\n";
+
+$cnt++;print "Summary Statistics\n";
+$cnt++;print "Duration (seconds),,,$dur\n";
+$cnt++;print "Total Count,,,$sitct_tot\n";
+$cnt++;print "Total Rows,,,$sitrows_tot\n";
+$cnt++;print "Total Result (bytes),,,$sitres_tot\n";
+my $trespermin = int($sitres_tot / ($dur / 60));
+$cnt++;print "Total Results per minute,,,$trespermin\n";
+$cnt++;print "\n";
 
 my $f;
+my $crespermin = 0;
 
 $cnt++;
 print "Situation Summary Report\n";
 $cnt++;
-print "Situation,Table,Count,Rows,ResultBytes,Result/Min,MinResults,MaxResults,MaxNode\n";
+print "Situation,Table,Count,Rows,ResultBytes,Result/Min,Fraction,Cumulative%,MinResults,MaxResults,MaxNode\n";
 foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] } keys %sitx ) {
    $i = $sitx{$f};
    $cnt++;
@@ -903,20 +912,19 @@ foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] } keys %sitx ) {
    $outl .= $sitres[$i] . ",";
    $respermin = int($sitres[$i] / ($dur / 60));
    $outl .= $respermin . ",";
+#$DB::single=2;
+   my $fraction = ($respermin*100) / $trespermin;
+   my $pfraction = sprintf "%.2f", $fraction;
+   $outl .= $pfraction . "%,";
+   $crespermin += $respermin;
+   $fraction = ($crespermin*100) / $trespermin;
+   $pfraction = sprintf "%.2f", $fraction;
+   $outl .= $pfraction . "%,";
    $outl .= $sitrmin[$i] . ",";
    $outl .= $sitrmax[$i] . ",";
    $outl .= $sitrmaxnode[$i];
    print $outl . "\n";
 }
-$cnt++;
-$outl = "*total" . ",";
-$outl .= $dur . ",";
-$outl .= $sitct_tot . ",";
-$outl .= $sitrows_tot . ",";
-$outl .= $sitres_tot . ",";
-$respermin = int($sitres_tot / ($dur / 60));
-$outl .= $respermin;
-print $outl . "\n";
 
 $cnt++;
 print "\n";
@@ -1106,3 +1114,4 @@ exit;
 # 0.80000 - add logic for historical data export
 # 0.90000 - add -b option to break out HEARTBEAT sources
 #           add processing of agent export traces
+# 0.95000 - add move summary to top and add per cent column
