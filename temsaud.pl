@@ -22,7 +22,7 @@
 ## Add location and names of logs analyzed
 ## add alert when maximum results exceeds 16meg-8k bytes - likely partial results returned
 
-$gVersion = 1.19000;
+$gVersion = 1.20000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -103,6 +103,7 @@ my $workdel = "";
 my $opt_inplace = 1;
 my $opt_work    = 0;
 my $opt_nofile = 0;                              # number of file descriptors, zero means not found
+my $opt_stack = 0;                               # Stack limit zero means not found
 
 sub gettime;                             # get time
 
@@ -126,6 +127,7 @@ my $opt_nominal_nmr       = 0;               # No Matching Requests value
 my $opt_max_results       = 16*1024*1024 - 8192; # When max results this high, possible truncated results
 my $opt_nominal_listen    = 8;               # warn on high listen count
 my $opt_nominal_nofile    = 8192;            # warn on low nofile value
+my $opt_nominal_stack     = 10240;           # warn on high stack limit value
 my $opt_max_listen        = 16;              # maximum listen count allowed by default
 
 my $arg_start = join(" ",@ARGV);
@@ -255,6 +257,7 @@ if (-e $opt_ini) {
       elsif ($words[0] eq "nmr") {$opt_nominal_nmr = $words[1];}
       elsif ($words[0] eq "listen") {$opt_nominal_listen = $words[1];}
       elsif ($words[0] eq "nofile") {$opt_nominal_nofile = $words[1];}
+      elsif ($words[0] eq "stack") {$opt_nominal_stack = $words[1];}
       elsif ($words[0] eq "maxlisten") {$opt_max_listen = $words[1];}
       else {
          die "unknown control in temsaud.ini line $l unknown control $words[0]"
@@ -692,6 +695,31 @@ for(;;)
                 $pi = index($oneline,"Nofile Limit:");
                 if ($pi != -1) {
                    ($opt_nofile) = substr($oneline,$pi+13) =~ /(\d+)/;
+                }
+             }
+         }
+      }
+   }
+      # Extract the Stack Limit - a Linux/Unix concern.
+      # We recommend a maximum of 10 megabytes for a TEMS
+      #+52BE1DCC.0000     Nofile Limit: None                       Stack Limit: 32M
+      #+527A9859.0000 ==========
+   if ($opt_stack == 0) {
+      if (substr($oneline,0,1) eq "+") {
+          $opt_stack = -1 if substr($oneline,14,11) eq " ==========";
+          if ($opt_stack == 0) {
+             my $pi = index($oneline,"Stack Limit: None");
+             if ($pi != -1) {
+                $opt_stack = 4*1024*1024;
+             } else {
+                $pi = index($oneline,"Stack Limit:");
+                if ($pi != -1) {
+                   my $in_stack;
+                   ($in_stack) = substr($oneline,$pi+12) =~ /(\w+)/;
+                   my $stack_last_char = substr($in_stack,-1,1);
+                   my $stack_number = substr($in_stack,0,length($in_stack)-1);
+                   $stack_number *= 1024 if $stack_last_char eq 'M';
+                   $opt_stack = $stack_number;
                 }
              }
          }
@@ -1288,6 +1316,11 @@ if ($opt_nofile > 0) {
       $advisori++;$advisor[$advisori] = "Advisory: ulimit nofile [$opt_nofile] is below nominal [$opt_nominal_nofile]\n";
    }
 }
+if ($opt_stack > 0) {
+   if ($opt_stack > $opt_nominal_stack) {
+      $advisori++;$advisor[$advisori] = "Advisory: ulimit stack [$opt_stack] is above nominal [$opt_nominal_stack] (kbytes)\n";
+   }
+}
 
 
 my $res_pc = 0;
@@ -1750,3 +1783,4 @@ exit;
 # 1.17000 - more -z fixes and truncated result advisory
 # 1.18000 - add counts of No Matching Requests
 # 1.19000 - add advisory for Nofile less then 8192
+# 1.20000 - add advisory for Stack more then 10M
