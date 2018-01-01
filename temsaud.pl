@@ -22,7 +22,7 @@
 ## Add location and names of logs analyzed
 ## add alert when maximum results exceeds 16meg-8k bytes - likely partial results returned
 
-$gVersion = 1.17000;
+$gVersion = 1.18000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -112,6 +112,7 @@ my $opt_nominal_workload  = 50;              # When results high, what sits to s
 #my $opt_nominal_maxresult = 128000;          # Maximum result size
 my $opt_nominal_remotesql = 1200;            # Startup seconds, remote SQL failures during this time may be serious
 my $opt_nominal_soap      = 30;              # SOAP results per minute
+my $opt_nominal_nmr       = 0;               # No Matching Requests per minute
 my $opt_max_results       = 16*1024*1024 - 8192; # When max results this high, possible truncated results
 my $opt_nominal_listen    = 8;               # warn on high listen count
 my $opt_max_listen        = 16;              # maximum listen count allowed by default
@@ -237,6 +238,7 @@ if (-e $opt_ini) {
       elsif ($words[0] eq "workload") {$opt_nominal_workload = $words[1];}
       elsif ($words[0] eq "remotesql") {$opt_nominal_remotesql = $words[1];}
       elsif ($words[0] eq "soap") {$opt_nominal_soap = $words[1];}
+      elsif ($words[0] eq "nmr") {$opt_nominal_nmr = $words[1];}
       elsif ($words[0] eq "listen") {$opt_nominal_listen = $words[1];}
       elsif ($words[0] eq "maxlisten") {$opt_max_listen = $words[1];}
       else {
@@ -412,6 +414,8 @@ my $ipt_path  = "";
 my $ipt_key = "";
 my $ix;
 my $pt_total_total = 0;
+
+my $nmr_total = 0;          # no matching request count
 
 my $lp_high = -1;
 my $lp_balance = -1;
@@ -1112,7 +1116,15 @@ for(;;)
    next if substr($logunit,0,12) ne "kpxrpcrq.cpp";
    next if $logentry ne "IRA_NCS_Sample";
    $oneline =~ /^\((\S+)\)(.+)$/;
-   $rest = $2;                       # Rcvd 1 rows sz 816 tbl *.UNIXOS req  <418500981,1490027440> node <evoapcprd:KUX>
+   $rest = $2;
+      # Sample <665885373,2278557540> arrived with no matching request.
+   if (substr($rest,1,6) eq "Sample") {
+      if (index($rest,"arrived with no matching request.") != -1) {
+         $nmr_total += 1;
+      }
+      next;
+   }
+     # Rcvd 1 rows sz 816 tbl *.UNIXOS req  <418500981,1490027440> node <evoapcprd:KUX>
    next if substr($rest,1,4) ne 'Rcvd';
    $rest =~ /(\S+) (\d+) rows sz (\d+) tbl (\S+) req (.*)/;
    next if $1 ne "Rcvd";
@@ -1131,18 +1143,16 @@ for(;;)
    $rest =~ /node <(\S+)>/;
    $inode = $1;
    $insize = $isize*$irows;
-#   if ($opt_z == 0) {
-      if ($sitstime == 0) {
-         $sitstime = $logtime;
-         $sitetime = $logtime;
-      }
-      if ($logtime < $sitstime) {
-         $sitstime = $logtime;
-      }
-      if ($logtime > $sitetime) {
-         $sitetime = $logtime;
-      }
-#   }
+   if ($sitstime == 0) {
+      $sitstime = $logtime;
+      $sitetime = $logtime;
+   }
+   if ($logtime < $sitstime) {
+      $sitstime = $logtime;
+   }
+   if ($logtime > $sitetime) {
+      $sitetime = $logtime;
+   }
    if (!defined $sitx{$isit}) {      # if newly observed situation, set up initial values and associative array
       $siti++;
       $sit[$siti] = $isit;
@@ -1294,6 +1304,15 @@ if ($syncdist_early > -1) {
 
 $cnt++;$oline[$cnt] = "Listen Pipe Report listen=$lp_high balance=$lp_balance threads=$lp_threads pipes=$lp_pipes\n";
 $cnt++;$oline[$cnt]="\n";
+
+if ($nmr_total > 0) {
+my $nmr_minute = int($nmr_total / ($tdur / 60));
+   $cnt++;$oline[$cnt]="Sample No Matching Request count,,,$nmr_total,$nmr_minute\n";
+   $cnt++;$oline[$cnt]="\n";
+   if ($nmr_minute >= $opt_nominal_nmr) {
+      $advisori++;$advisor[$advisori] = "Advisory: $nmr_minute \"No Matching Request\" samples per minute\n";
+   }
+}
 
 my $f;
 my $crespermin = 0;
@@ -1676,4 +1695,3 @@ exit;
 # 1.15000 - Summary Dataserver ProcessTable trace
 #         - Add check for listen pipe shortage
 # 1.16000 - fix broken -z option
-# 1,17000 - handle z log interspersed MSG2 messages better
