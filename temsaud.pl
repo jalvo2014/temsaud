@@ -16,7 +16,7 @@
 # tested on Windows Activestate 5.12.2
 #
 
-$gVersion = 0.700000;
+$gVersion = 0.75000;
 
 # $DB::single=2;   # remember debug breakpoint
 
@@ -37,6 +37,16 @@ $gVersion = 0.700000;
 #  2011.080 14:53:59.79 65183700> node <IRAM:S8CMS1:SYS:STORAGE         >
 #
 # the data is identical otherwise
+#
+#  Too Big message
+#   (4D75475E.0001-B00:kpxreqds.cpp,1695,"buildThresholdsFilterObject") Filter object too big (39776 + 22968),Table FILEINFO Situation SARM_UX_FileMonitoring2_Warn.
+#
+#  SOAP IP address
+#  (4D9633C2.0010-11:kshdhtp.cpp,363,"getHeaderValue") Header is <ip.ssl:#10.41.100.21:38317>
+#
+#  SOAP SQL
+#  (4D9633C2.0020-11:kshreq.cpp,881,"buildSQL") Using pre-built SQL: SELECT NODE, AFFINITIES, PRODUCT, VERSION, RESERVED, O4ONLINE FROM O4SRV.INODESTS
+#  (4D9633C3.0021-11:kshreq.cpp,1307,"buildSQL") Using SQL: SELECT CLCMD,CLCMD2,CREDENTIAL,CWD,KEY,MESSAGE,ACTSECURE,OPTIONS,RESPFILE,RUNASUSER,RUNASPWD,REQSTATUS,ACTPRTY,RESULT,ORIGINNODE FROM O4SRV.CLACTRMT WHERE  SYSTEM.PARMA("NODELIST", "swdc-risk1csc0:KUX", 18) AND  CLCMD =  N"/opt/IBM/custom/ChangeTEMS_1.00.sh PleaseReturnZero"
 #
 # To manage the differences, a state engine is used.
 #  When set to 0 based on absence of -z option, the lines are processed directly
@@ -150,6 +160,14 @@ my $ifilttbl;               # input table
 my $ifiltsit;               # input situation
 my $tx;                     # index
 
+my $soapi = -1;             # count of soap SQLa
+my @soap = ();              # indexed array to SOAP SQLs
+my %soapx = ();             # associative array to SOAP SQLs
+my @soapct;                 # count of soap SQLs
+my @soapip;                 # last ip address seen in header
+my $soapip_lag = "";        # last ip address spotted
+my $soapct_tot;             # total count of SQLs
+
 my $state = 0;       # 0=look for offset, 1=look for zos initial record, 2=look for zos continuation, 3=distributed log
 my $partline = "";          # partial line for z/OS RKLVLOG
 my $dateline = "";          # date portion of timestamp
@@ -182,7 +200,7 @@ foreach $inline (<KIB>)
 # before the faulting processing. Next you turn that off and set the conditional
 # test for debugging and test away.
 #   print STDERR "working on log $logfn at $l\n";
-#  if ($l == 44) { $DB::single=2;}
+#  if ($l == 442) { $DB::single=2;}
 
    chomp($inline);
    if ($state == 0) {                       # state = 0 distributed log - no filtering
@@ -322,7 +340,7 @@ foreach $inline (<KIB>)
       $logunit = $2;
       $logentry = $3;
    }
-   if (substr($logunit,0,12) ne "kpxrpcds.cpp") {
+   if (substr($logunit,0,12) eq "kpxreqds.cpp") {
       if ($logentry eq "buildThresholdsFilterObject") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Filter object too big (39776 + 22968),Table FILEINFO Situation SARM_UX_FileMonitoring2_Warn.
@@ -342,8 +360,39 @@ foreach $inline (<KIB>)
          $toobigsitx{$ifiltsit} = $tx;
          $toobigsize[$tx] = $ifiltsize;
          $toobigtbl[$tx] = $ifilttbl;
-         next;
       }
+      next;
+   }
+   if (substr($logunit,0,11) eq "kshdhtp.cpp") {
+      if ($logentry eq "getHeaderValue") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Header is <ip.ssl:#10.41.100.21:38317>
+         next if substr($rest,1,13) ne "Header is <ip";
+         $rest =~ /<(.*?)>/;
+         $soapip_lag = $1;
+      }
+      next;
+   }
+   if (substr($logunit,0,10) eq "kshreq.cpp") {
+      if ($logentry eq "buildSQL") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Using pre-built SQL: SELECT NODE, AFFINITIES, PRODUCT, VERSION, RESERVED, O4ONLINE FROM O4SRV.INODESTS
+                                           # Using SQL: SELECT CLCMD,CLCMD2,CREDENTIAL,CWD,KEY,MESSAGE,ACTSECURE,OPTIONS,RESPFILE
+         next if ((substr($rest,1,20) ne "Using pre-built SQL:" ) && (substr($rest,1,10) ne "Using SQL:" ));
+         $rest =~ /: (.*)$/;
+         $isql = $1;
+         $sx = $soapx{$isql};
+         if (!defined $sx) {
+            $soapi++;
+            $soap[$soapi] = $isql;
+            $soapx{$isql} = $soapi;
+            $sx = $soapi;
+         }
+         $soapct[$sx] += 1;
+         $soapct_tot += 1;
+         $soapip[$sx] = $soapip_lag;
+      }
+      next;
    }
    next if substr($logunit,0,12) ne "kpxrpcrq.cpp";
    next if $logentry ne "IRA_NCS_Sample";
@@ -470,6 +519,10 @@ if ($dur == 0)  {
 
 $cnt = 0;
 $cnt++;
+print "TEMS Audit report v$gVersion\n";
+$cnt++;
+print "\n";
+$cnt++;
 print "Too Big Report\n";
 $cnt++;
 print "Situation,Table,FilterSize\n";
@@ -483,10 +536,14 @@ for ($i = 0; $i <= $toobigi; $i++) {
 $cnt++;
 print "\n";
 
+my $f;
+
 $cnt++;
 print "Situation Summary Report\n";
+$cnt++;
 print "Situation,Table,Count,Rows,ResultBytes,Result/Min,MinResults,MaxResults,MaxNode\n";
-for ($i = 0; $i <= $siti; $i++) {
+foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] } keys %sitx ) {
+   $i = $sitx{$f};
    $cnt++;
    $outl = $sit[$i] . ",";
    $outl .= $sittbl[$i] . ",";
@@ -515,8 +572,10 @@ print "\n";
 
 $cnt++;
 print "Managed System Summary Report - non-HEARTBEAT situations\n";
+$cnt++;
 print "Node,Table,Count,Rows,ResultBytes,Result/Min,MinResults,MaxResults,MaxSit\n";
-for ($i = 0; $i <= $mani; $i++) {
+foreach $f ( sort { $manres[$manx{$b}] <=> $manres[$manx{$a}] } keys %manx ) {
+   $i = $manx{$f};
    $cnt++;
    $outl = $man[$i] . ",";
    $outl .= $mantbl[$i] . ",";
@@ -539,6 +598,29 @@ $outl .= $sitres_tot . ",";
 $respermin = int($sitres_tot / ($dur / 60));
 $outl .= $respermin;
 print $outl . "\n";
+
+
+if ($soapi != -1) {
+   $cnt++;
+   print "SOAP SQL Summary Report\n";
+   $cnt++;
+   print "IP,Count,SQL\n";
+   my $csvdata;
+   foreach $f ( sort { $soapct[$soapx{$b}] <=> $soapct[$soapx{$a}] } keys %soapx ) {
+      $i = $soapx{$f};
+      $cnt++;
+      $outl = $soapip[$i] . ",";
+      $outl .= $soapct[$i] . ",";
+      $csvdata = $soap[$i];
+      $csvdata =~ s/\"/\"\"/g;
+      $outl .= "\"" . $csvdata . "\"";
+      print $outl . "\n";
+   }
+   $cnt++;
+   $outl = "*total" . ",";
+   $outl .= $soapct_tot . ",";
+   print $outl . "\n";
+}
 
 print STDERR "Wrote $cnt lines\n";
 
@@ -577,3 +659,4 @@ exit;
 # 0.50000 - initial development
 # 0.60000 - too big report first, add managed system report
 # 0.70000 - convert RKLVLOG time stamps to Unix epoch seconds
+# 0.75000 - sort reports by number of ResultBytes column in descending order
