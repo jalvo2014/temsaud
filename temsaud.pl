@@ -1,3 +1,4 @@
+
 #!/usr/local/bin/perl -w
 #------------------------------------------------------------------------------
 # Licensed Materials - Property of IBM (C) Copyright IBM Corp. 2010, 2010
@@ -20,10 +21,11 @@
 ## Todos
 ## Watch for Override messages
 ## Take Action command function for high usage
-## Add location and names of logs analyzed
-## add alert when maximum results exceeds 16meg-8k bytes - likely partial results returned
+##  (5459ADD0.0000-23:kpxreqi.cpp,126,"InitializeClass") *INFO : Using 20 CTIRA_Recursive_lock objects for class RequestImp
+## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
+##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-$gVersion = 1.25000;
+$gVersion = 1.27000;
 
 
 # CPAN packages used
@@ -99,6 +101,7 @@ my $opt_logpath;
 my $opt_workpath;
 my $full_logfn;
 my $opt_v;
+my $opt_nohdr = 0;
 my $workdel = "";
 my $opt_inplace = 1;
 my $opt_work    = 0;
@@ -106,7 +109,6 @@ my $opt_nofile = 0;                              # number of file descriptors, z
 my $opt_stack = 0;                               # Stack limit zero means not found
 my $opt_sr;                                      # Soap Report
 my $opt_cmdall;                                  # show all commands
-my $opt_nohdr;                                   # skip variable outputs
 
 sub gettime;                             # get time
 
@@ -115,6 +117,7 @@ my @hdr = ();                                #
 
 $hdri++;$hdr[$hdri] = "TEMS Audit report v$gVersion";
 my $audit_start_time = gettime();       # formated current time for report
+$hdri++;$hdr[$hdri] = "Start: $audit_start_time";
 
 #  following are the nominal values. These are used to generate an advisories section
 #  that can guide usage of the Workload report. These can be overridden by the temsaud.ini file.
@@ -134,6 +137,7 @@ my $opt_max_listen        = 16;              # maximum listen count allowed by d
 my $opt_nominal_soap_burst = 300;             # maximum burst of 300 per minute
 
 my $arg_start = join(" ",@ARGV);
+$hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
 
 while (@ARGV) {
    if ($ARGV[0] eq "-h") {
@@ -151,9 +155,6 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-cmdall") {
       $opt_cmdall = 1;
       shift(@ARGV);
-   } elsif ($ARGV[0] eq "-nohdr") {
-      $opt_nohdr = 1;
-      shift(@ARGV);
    } elsif ($ARGV[0] eq "-inplace") {
 #     $opt_inplace = 1;                # ignore as unused
       shift(@ARGV);
@@ -162,6 +163,9 @@ while (@ARGV) {
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-v") {
       $opt_v = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-nohdr") {
+      $opt_nohdr = 1;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-expslot") {
       shift(@ARGV);
@@ -191,12 +195,8 @@ if (!defined $opt_z) {$opt_z = 0;}
 if (!defined $opt_b) {$opt_b = 0;}
 if (!defined $opt_sr) {$opt_sr = 0;}
 if (!defined $opt_cmdall) {$opt_cmdall = 0;}
-if (!defined $opt_nohdr) {$opt_nohdr = 0;}
 if (!defined $opt_v) {$opt_v = 0;}
 if (!defined $opt_expslot) {$opt_expslot = 60;}
-
-$hdri++;$hdr[$hdri] = "Start: $audit_start_time" if $opt_nohdr == 0;
-$hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start" if $opt_nohdr == 0;
 
 $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
@@ -515,6 +515,15 @@ my %sqltabx = ();                            # SQL table to index has
 my @sqltab_ct = ();                          # count of SQL table usages
 my $sql_state = 0;                           # state of SQL capture
 my $sql_cap = "";                            # collection of SQL fragments
+
+my $px;
+my $pevti = -1;                              # ProcessEvent count
+my @pevt  = ();
+my %pevtx = ();
+my @pevt_ct = ();
+
+my $pe_etime = 0;
+my $pe_stime = 0;
 
 
 my $inrowsize;
@@ -944,6 +953,73 @@ for(;;)
       next;
    }
    next if $skipzero;
+   # first are two node status update type
+   # (54DE6F7F.0008-15:kfastpst.c,902,"KFA_PostEvent") First status queue record <11FF82E54> for viewArea node <NULL> while processing event record      <1150213164119001PCXTA42:VA10PWPAPP036:MQ            YMQ07.00.03 9                V00040000000000000000000000000000200000qwaa7 REMOTE_va10p10023                 Windows~6.1-SP1                 ip.spipe:#30.128.132.150[16832]<NM>VA10PWPAPP036</NM>                                                                                                                                                                                                           A=00:WINNT;C=06.21.00.02:WINNT;G=06.21.00.02:WINNT;             >
+   # (54DE6F7F.000E-15:kfastpst.c,868,"KFA_PostEvent") Additional status queue record <11FFC02F4> for viewArea node <NULL> while processing event record <1150213164119001PCXTA42:VA10PWPAPP036:MQ            YMQ07.00.03 9                V00040000000000000000000000000000200000qwaa7 REMOTE_va10p10023                 Windows~6.1-SP1                 ip.spipe:#30.128.132.150[16832]<NM>VA10PWPAPP036</NM>                                                                                                                                                                                                           A=00:WINNT;C=06.21.00.02:WINNT;G=06.21.00.02:WINNT;             >
+   # a situation status - pure event
+   # (54DE705E.001A-55:kfastpst.c,868,"KFA_PostEvent") Additional status queue record <12331C7D4> for viewArea node <NULL> while processing event record <1150213164502000REMOTE_va10p10023               wlp_rfmonitor_2ntw_rfax         RFMonitor:VA10PWPRFS002A:LO     RightFax_Warning, Line=(9 file of type *.job over 10 Minutes Old Found in Dir \\vapwprfnbes01\OutputPath\QCCMEDC\ on Server VA101150213164502999Y>
+   # a situation status - sampled situation
+   # (54DE6EEE.0005-62:kfastpst.c,868,"KFA_PostEvent") Additional status queue record <12341B7D4> for viewArea node <NULL> while processing event record <1150213163854000REMOTE_us98ram02umi1xn          wlp_logstw_xorw_std             capturep:va10puvorc007:ORA                                                                                                                                      1150213163853999Y>
+
+   if (substr($logunit,0,10) eq "kfastpst.c") {
+      if ($logentry eq "KFA_PostEvent") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Header is <ip.ssl:#10.41.100.21:38317>
+         my $pi = index($rest,"status queue record");
+         if ($pi != -1) {
+            $rest = substr($rest,$pi+20);
+            $pi = index($rest,"while processing event record");
+            if ($pi != -1) {
+               $rest =~ /.*(\<.*)/;
+               $rest = $1;
+               # <1150213164119001PCXTA42:VA10PWPAPP036:MQ            YMQ07.00.03 9                V00040000000000000000000000000000200000qwaa7 REMOTE_va10p10023                 Windows~6.1-SP1                 ip.spipe:#30.128.132.150[16832]<NM>VA10PWPAPP036</NM>                                                                                                                                                                                                           A=00:WINNT;C=06.21.00.02:WINNT;G=06.21.00.02:WINNT;             >
+               # <1150213164502000REMOTE_va10p10023               wlp_rfmonitor_2ntw_rfax         RFMonitor:VA10PWPRFS002A:LO     RightFax_Warning, Line=(9 file of type *.job over 10 Minutes Old Found in Dir \\vapwprfnbes01\OutputPath\QCCMEDC\ on Server VA101150213164502999Y>
+               if (substr($rest,241,1) eq "1") {                  # ignore node status updates for the moment
+                  my $itime1 = substr($rest,1,16);
+                  my $ithrunode = substr($rest,17,32);
+                  $ithrunode =~ s/\s+$//;   #trim trailing whitespace
+                  my $isitname = substr($rest,49,32);
+                  $isitname =~ s/\s+$//;   #trim trailing whitespace
+                  my $inode = substr($rest,81,32);
+                  $inode =~ s/\s+$//;   #trim trailing whitespace
+                  my $iatom = substr($rest,113,128);
+                  $iatom =~ s/\s+$//;   #trim trailing whitespace
+                  my $iunknown = substr($rest,239,2);
+                  my $itime2 = substr($rest,241,16);
+                  my $istatus = substr($rest,257,1);
+                  my $key = $inode . "|" . $isitname;
+                  my $evt_ref = $pevtx{$key};
+                  if (!defined $evt_ref) {
+                     my %evtref = (
+                                     sitname => $isitname,
+                                     node => $inode,
+                                     count => 0,
+                                  );
+                     $pevtx{$key} = \%evtref;
+                     $evt_ref      = \%evtref;
+                  }
+                  $evt_ref->{count} += 1;
+                  $evt_ref->{atoms}->{$iatom} = 1 if $iatom ne "";
+                  $evt_ref->{thrunode}->{$ithrunode} = 1;
+                  if ($pe_stime == 0) {
+                      $pe_stime = $logtime;
+                      $pe_etime = $logtime;
+                  }
+                  if ($logtime < $pe_stime) {
+                     $pe_stime = $logtime;
+                  }
+                  if ($logtime > $pe_etime) {
+                        $pe_etime = $logtime;
+                  }
+               }
+            }
+         }
+      }
+      next;
+   }
+
+
+
    if (substr($logunit,0,11) eq "kshdhtp.cpp") {
       if ($logentry eq "getHeaderValue") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -1420,6 +1496,7 @@ for(;;)
                   $act_act[$ax] = [];
                }
                $act_elapsed[$ax] += $logtime - $runref->{'start'};
+#$DB::single=2;
                $act_ct[$ax] += 1;
                $act_ok[$ax] += 1 if substr($rest,7,3) eq "0x0";
                $act_err[$ax] += 1 if substr($rest,7,3) ne "0x0";
@@ -1692,7 +1769,8 @@ my $situation_max = "";
 
 $cnt++;$oline[$cnt]="Situation Summary Report\n";
 $cnt++;$oline[$cnt]="Situation,Table,Count,Rows,ResultBytes,Result/Min,Fraction,Cumulative%,MinResults,MaxResults,MaxNode\n";
-foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] } keys %sitx ) {
+foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] ||
+                                    $a cmp $b                      } keys %sitx ) {
    $i = $sitx{$f};
    $outl = $sit[$i] . ",";
    $outl .= $sittbl[$i] . ",";
@@ -1729,7 +1807,7 @@ $situation_max = "";
 
 $cnt++;$oline[$cnt]="Managed System Summary Report - non-HEARTBEAT situations\n";
 $cnt++;$oline[$cnt]="Node,Table,Count,Rows,ResultBytes,Result/Min,MinResults,MaxResults,MaxSit\n";
-foreach $f ( sort { $manres[$manx{$b}] <=> $manres[$manx{$a}] } keys %manx ) {
+foreach $f ( sort { $manres[$manx{$b}] <=> $manres[$manx{$a}] || $a cmp $b } keys %manx ) {
    $i = $manx{$f};
    $outl = $man[$i] . ",";
    $outl .= $mantbl[$i] . ",";
@@ -1762,7 +1840,7 @@ if ($acti != -1) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Reflex Command Summary Report\n";
    $cnt++;$oline[$cnt]="Count,Error,Elapsed,Cmd\n";
-   foreach $f ( sort { $act_ct[$actx{$b}] <=> $act_ct[$actx{$a}] } keys %actx ) {
+   foreach $f ( sort { $act_ct[$actx{$b}] <=> $act_ct[$actx{$a}] || $a cmp $b } keys %actx ) {
       $i = $actx{$f};
       $outl = $act_ct[$i] . ",";
       $outl .= $act_err[$i] . ",";
@@ -1773,7 +1851,7 @@ if ($acti != -1) {
       $pcommand =~ s/\x0A/\\n/g;
       $pcommand =~ s/\x0D/\\r/g;
       $pcommand =~ s/\"/\"\"/g;
-      $outl .= "=\"" . $pcommand . "\"";
+      $outl .= "\"" . $pcommand . "\"";
       $cnt++;$oline[$cnt]=$outl . "\n";
       $act_ct_total += $act_ct[$i];
       $act_ct_error += $act_err[$i];
@@ -1790,7 +1868,7 @@ if ($acti != -1) {
                $pcommand =~ s/\x00/\\0/g;
                $pcommand =~ s/\"/\"\"/g;
                $pcommand =~ s/\'/\'\'/g;
-               $outl .= "=\"" . $pcommand . "\",";
+               $outl .= "\"" . $pcommand . "\",";
                $cnt++;$oline[$cnt]=$outl . "\n";
             }
          }
@@ -1822,10 +1900,12 @@ if ($sqli != -1) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="SQL Summary Report\n";
    $cnt++;$oline[$cnt]="Count,SQL\n";
-   foreach $f ( sort { $sql_ct[$sqlx{$b}] <=> $sql_ct[$sqlx{$a}] } keys %sqlx ) {
+   foreach $f ( sort { $sql_ct[$sqlx{$b}] <=> $sql_ct[$sqlx{$a}] || $a cmp $b } keys %sqlx ) {
       $i = $sqlx{$f};
       $outl = $sql_ct[$i] . ",";
-      $outl .= "=\"" . $sql[$i] . "\",";
+      my $psql =  $sql[$i];
+      $psql =~ s/\"/\'/g;
+      $outl .= "\"" . $psql . "\",";
       $cnt++;$oline[$cnt]=$outl . "\n";
       $sql_ct_total += $sql_ct[$i];
    }
@@ -1838,12 +1918,12 @@ if ($soapi != -1) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="SOAP SQL Summary Report\n";
    $cnt++;$oline[$cnt]="IP,Count,SQL\n";
-   foreach $f ( sort { $soapct[$soapx{$b}] <=> $soapct[$soapx{$a}] } keys %soapx ) {
+   foreach $f ( sort { $soapct[$soapx{$b}] <=> $soapct[$soapx{$a}] || $a cmp $b } keys %soapx ) {
       $i = $soapx{$f};
       $outl = $soapip[$i] . ",";
       $outl .= $soapct[$i] . ",";
       $csvdata = $soap[$i];
-      $csvdata =~ s/\"/\"\"/g;
+      $csvdata =~ s/\"/\'/g;
       $outl .= "\"" . $csvdata . "\"";
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
@@ -1862,32 +1942,47 @@ if ($soapi != -1) {
       $advisori++;$advisor[$advisori] = "\"Advisory: SOAP Burst requests per minute $ppc higher then nominal $opt_nominal_soap_burst at line $soap_burst_max_l in $soap_burst_max_log\"\n";
    }
 }
-if ($pti != -1) {
-   $pt_dur = $pt_etime - $pt_stime;
+
+my $total_evt = 0;
+my $pe_dur;
+if (keys(%pevtx) != -1) {
+   $pe_dur = $pe_etime - $pe_stime;
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Process Table Report\n";
-   $cnt++;$oline[$cnt]="Process Table Duration: $pt_dur seconds\n";
-   $cnt++;$oline[$cnt]="Table,Path,Insert,Query,Select,SelectPreFiltered,Delete,Total,Total/min,Error,Error/min,Errors\n";
-   foreach $f ( sort { $pt_total_ct[$ptx{$b}] <=> $pt_total_ct[$ptx{$a}] } keys %ptx) {
-      $i = $ptx{$f};
-      $outl = $pt_table[$i] . ",";
-      $outl .= $pt_path[$i] . ",";
-      $outl .= $pt_insert_ct[$i] . ",";
-      $outl .= $pt_query_ct[$i] . ",";
-      $outl .= $pt_select_ct[$i] . ",";
-      $outl .= $pt_selectpre_ct[$i] . ",";
-      $outl .= $pt_delete_ct[$i] . ",";
-      $outl .= $pt_total_ct[$i] . ",";
-      $respermin = int($pt_total_ct[$i] / ($pt_dur / 60));
-      $outl .= $respermin . ",";
-      $outl .= $pt_error_ct[$i] . ",";
-      $respermin = int($pt_error_ct[$i] / ($pt_dur / 60));
-      $outl .= $respermin . ",";
-      $outl .= $pt_errors[$i] . ",";
+   $cnt++;$oline[$cnt]="PostEvent Report\n";
+#   $cnt++;$oline[$cnt]="Process Table Duration: $pt_dur seconds\n";
+   $cnt++;$oline[$cnt]="Situation,Node,Count,AtomCount,Thrunodes,\n";
+   foreach $f ( sort { $pevtx{$b}->{count} <=> $pevtx{$a}->{count} || A4 cmp $b } keys %pevtx) {
+      $outl = $pevtx{$f}->{sitname} . ",";
+      $outl .= $pevtx{$f}->{node} . ",";
+      $outl .= $pevtx{$f}->{count} . ",";
+      $total_evt += $pevtx{$f}->{count};
+      my $acount = keys %{$pevtx{$f}->{atoms}};
+      $outl .= $acount . ",";
+      my $tlist = join(" ",keys %{$pevtx{$f}->{thrunode}});
+      $outl .= $tlist . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
-   $respermin = int($pt_total_total / ($pt_dur / 60));
-   $cnt++;$oline[$cnt]="*total*,,,,,,,$pt_total_total,$respermin,\n";
+   $cnt++;$oline[$cnt]="*total*,$pe_dur,$total_evt,\n";
+}
+
+if ($histi != -1) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Historical Export summary by time\n";
+   $cnt++;$oline[$cnt]="Time,,,,Rows,Bytes,Secs,Bytes_min\n";
+   foreach $f ( sort { $histtime[$histtimex{$a}] <=> $histtime[$histtimex{$b}] || $a cmp $b } keys %histtimex ) {
+      $i = $histtimex{$f};
+      $outl = $histtime[$i] . ",,,,";
+      $outl .= $histtime_rows[$i] . ",";
+      $outl .= $histtime_bytes[$i] . ",";
+      $time_elapsed = $histtime_max_time[$i] - $histtime_min_time[$i] + 1;
+      $outl .= $time_elapsed . ",";
+      $outl .= int(($histtime_bytes[$i]*60)/$time_elapsed) . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+   $outl = "*total" . "," . "$hist_elapsed_time" . ",,,";
+   $outl .= $total_hist_rows . ",";
+   $outl .= $total_hist_bytes . ",";
+   $cnt++;$oline[$cnt]=$outl . "\n";
 }
 
 my $total_hist_rows = 0;
@@ -1900,7 +1995,7 @@ if ($histi != -1) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Historical Export summary by object\n";
    $cnt++;$oline[$cnt]="Object,Table,Appl,Rowsize,Rows,Bytes,Bytes_Min,Cycles,MinRows,MaxRows,AvgRows,LastRows\n";
-   foreach $f ( sort { $hist[$histx{$a}] cmp $hist[$histx{$b}] } keys %histx ) {
+   foreach $f ( sort { $hist[$histx{$a}] cmp $hist[$histx{$b}] || $a cmp $b } keys %histx ) {
       $i = $histx{$f};
       my $rows_cycle = 0;
       $rows_cycle = int($hist_totrows[$i]/$hist_cycles[$i]) if $hist_cycles[$i] > 0;
@@ -1933,7 +2028,7 @@ if ($histi != -1) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Historical Export summary by time\n";
    $cnt++;$oline[$cnt]="Time,,,,Rows,Bytes,Secs,Bytes_min\n";
-   foreach $f ( sort { $histtime[$histtimex{$a}] <=> $histtime[$histtimex{$b}] } keys %histtimex ) {
+   foreach $f ( sort { $histtime[$histtimex{$a}] <=> $histtime[$histtimex{$b}] || $a cmp $b } keys %histtimex ) {
       $i = $histtimex{$f};
       $outl = $histtime[$i] . ",,,,";
       $outl .= $histtime_rows[$i] . ",";
@@ -2011,7 +2106,7 @@ if ($opt_sr == 1) {
    }
 }
 
-print STDERR "Wrote $cnt lines\n" if $opt_nohdr == 0;
+print STDERR "Wrote $cnt lines\n";
 
 # all done
 
@@ -2037,7 +2132,6 @@ sub open_kib {
          $workdel = $logbase . "-*.log";
       }
    }
-
 
    if (defined $logpat) {
       opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n");
@@ -2101,7 +2195,7 @@ sub read_kib {
       $segcurr = $seg[$segp];
       open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
       print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
-      $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"' if $opt_nohdr == 0;
+      $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"';
       $segline = 0;
    }
    $segline ++;
@@ -2115,7 +2209,7 @@ sub read_kib {
    $segcurr = $seg[$segp];
    open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
    print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
-   $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"' if $opt_nohdr == 0;
+   $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"';
    $segline = 1;
    $inline = <KIB>;
 }
@@ -2206,3 +2300,5 @@ exit;
 # 1.24000 - count action commands
 #         - Advisory when KGLCB_FSYNC_ENABLED=0
 # 1.25000 - count SQLs
+# 1.26000 - Track recursive locks
+# 1.27000 - KFA_PostEvent tracking
