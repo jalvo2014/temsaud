@@ -15,6 +15,7 @@
 #
 # tested on Windows Activestate 5.16.3
 #
+# $DB::single=2;   # remember debug breakpoint
 
 ## Todos
 ## Watch for Override messages
@@ -22,12 +23,11 @@
 ## Add location and names of logs analyzed
 ## add alert when maximum results exceeds 16meg-8k bytes - likely partial results returned
 
-$gVersion = 1.23000;
+$gVersion = 1.24000;
 
-# $DB::single=2;   # remember debug breakpoint
 
 # CPAN packages used
-# none
+use Data::Dumper;               # debug only
 
 # This is a typical log scraping program. The log data looks like this
 #
@@ -105,6 +105,7 @@ my $opt_work    = 0;
 my $opt_nofile = 0;                              # number of file descriptors, zero means not found
 my $opt_stack = 0;                               # Stack limit zero means not found
 my $opt_sr;                                      # Soap Report
+my $opt_cmdall;                                  # show all commands
 
 sub gettime;                             # get time
 
@@ -148,6 +149,9 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-sr") {
       $opt_sr = 1;
       shift(@ARGV);
+   } elsif ($ARGV[0] eq "-cmdall") {
+      $opt_cmdall = 1;
+      shift(@ARGV);
    } elsif ($ARGV[0] eq "-inplace") {
 #     $opt_inplace = 1;                # ignore as unused
       shift(@ARGV);
@@ -184,6 +188,7 @@ if (!defined $logfn) {$logfn = "";}
 if (!defined $opt_z) {$opt_z = 0;}
 if (!defined $opt_b) {$opt_b = 0;}
 if (!defined $opt_sr) {$opt_sr = 0;}
+if (!defined $opt_cmdall) {$opt_cmdall = 0;}
 if (!defined $opt_v) {$opt_v = 0;}
 if (!defined $opt_expslot) {$opt_expslot = 60;}
 
@@ -348,7 +353,8 @@ my $locus;                  # (4D81D81A.0000-A1A:kpxrpcrq.cpp,749,"IRA_NCS_Sampl
 my $rest;                   # unprocesed data
 my $logtime;                # distributed time stamp in seconds - number of seconds since Jan 1, 1970
 my $logtimehex;             # distributed time stamp in hex
-my $logthread;              # thread information - unused
+my $logline;                # line number within $logtimehex
+my $logthread;              # thread information - prefixed with "T"
 my $logunit;                # where printed from - kpxrpcrq.cpp,749
 my $logentry;               # function printed from - IRA_NCS_Sample
 my $irows;                  # number of rows
@@ -455,11 +461,40 @@ my $ix;
 my $pt_total_total = 0;
 
 my $nmr_total = 0;          # no matching request count
+my $fsync_enabled = 1;      # assume fsync is enabled
 
 my $lp_high = -1;
 my $lp_balance = -1;
 my $lp_threads = -1;
 my $lp_pipes   = -1;
+
+# Summarized action command captures
+my $acti = -1;                               # Action command count
+my @act = ();                                # array of action commands - down to first blank
+my %actx = ();                               # index from action command
+my @act_elapsed = ();                        # total elapsed time of action commands
+my @act_ok = ();                             # count when exit status was zero
+my @act_err = ();                            # count when exit status was non-zero
+my @act_ct = ();                             # count of total action commands
+my @act_act = ();                            # array of action commands
+
+my $act_start = 0;
+my $act_end = 0;
+
+# running action command captures.
+# used during capture of data
+my %runx = ();                               # index of running capture threads using Tthread
+my %contx = ();                              # index from cont to same array using hextime.line
+my $contkey;
+
+# following are in the $runx value, which is actually an array
+my $runref;                                  # reference to array
+my $run_start;                               # start time of command start
+my $run_state;                               # 1 = found entry line
+my $run_stamp;
+my $run_cmd;                                 # command string being built
+my $run_cmd_tot;                             # total length to be found
+my $run_thread;                              # needed for cross references
 
 my $inrowsize;
 my $inobject;
@@ -569,8 +604,7 @@ for(;;)
 # with  1>xxx 2>&1. From that you determine what the line number was
 # before the faulting processing. Next you turn that off and set the conditional
 # test for debugging and test away.
-#  print STDERR "working on log $segcurr at $l\n";
-#  if ($l > 10018) {$DB::single=2;}
+# print STDERR "working on log $segcurr at $l\n";
 
    chomp($inline);
    if ($opt_z == 1) {
@@ -634,7 +668,6 @@ for(;;)
 
    # continuation is without a locus
    elsif ($state == 3) {                    # state 3 = potentially collect second part of line
-#$DB::single=2 if $l == 2992;
       # case 1 - look for the + sign which means a second line of trace output
       #   emit data and resume looking for more
       if (substr($inline,21+$offset,1) eq "+") {
@@ -748,21 +781,45 @@ for(;;)
          }
       }
    }
+   # (53FE31BA.0045-61C:kglhc1c.c,601,"KGLHC1_Command") <0x190B4CFB,0x8A> Command String
+   # +53FE31BA.0045     00000000   443A5C73 63726970  745C756E 69782031   D:\script\unix.1
+   # +53FE31BA.0045     00000010   31343038 32373134  31353038 30303020   140827141508000.
+   ##?? add capture of command line dumps here.
+   if (substr($oneline,0,1) eq "+")  {
+      $contkey = substr($oneline,1,13);
+      $runref = $contx{$contkey};
+      if (defined $runref) {
+         ($run_thread,$run_start,$run_state,$run_stamp,$run_cmd,$run_cmd_tot) = @{$runref};
+         if ($run_state == 3) {
+         # $target =~ s/0x(([0-9a-f][0-9a-f])+)/pack('H*', $1)/ie;
+            my $cmd_frag = substr($oneline,30,36);
+            $cmd_frag =~ s/\ //g;
+            $cmd_frag =~ s/(([0-9a-f][0-9a-f])+)/pack('H*', $1)/ie;
+            $run_cmd .= $cmd_frag;
+#print STDERR "developing cmd $run_cmd\n";
+            $runref = [$run_thread,$run_start,$run_state,$run_stamp,$run_cmd,$run_cmd_tot];
+            $contx{$contkey} = $runref;
+            $runx{$run_thread} = $runref;
+         }
+      }
+   }
    if (substr($oneline,0,1) ne "(") {next;}
    $oneline =~ /^(\S+).*$/;          # extract locus part of line
    $locus = $1;
-   if ($opt_z == 0) {                # distributed has four pieces
-      $locus =~ /\((.*)\.(.*):(.*)\,\"(.*)\"\)/;
+   if ($opt_z == 0) {                # distributed has five pieces
+      $locus =~ /\((.*)\.(.*)-(.*):(.*)\,\"(.*)\"\)/;
       next if index($1,"(") != -1;   # ignore weird case with embedded (
-      $logtime = hex($1);
-      $logtimehex = $1;
-      $logthread = $2;
-      $logunit = $3;
-      $logentry = $4;
+      $logtime = hex($1);            # decimal epoch
+      $logtimehex = $1;              # hex epoch
+      $logline = $2;                 # line number following hex epoch, meaningful with there are + extended lines
+      $logthread = "T" . $3;         # Thread key
+      $logunit = $4;                 # source unit and line number
+      $logentry = $5;                # function name
    }
    else {                            # z/OS has three pieces
       $locus =~ /\((.*):(.*)\,\"(.*)\"\)/;
-      $logthread = $1;
+      $logline = 0;      ##???
+      $logthread = "T" . $1;
       $logunit = $2;
       $logentry = $3;
    }
@@ -826,11 +883,8 @@ for(;;)
          $rest = $2;                       #     listen 16: PLE=11CE1F2B0, hMon=01900C3B, bal=152, thr=2432, pipes=2026
                                            # 6.3 listenCount 1: PLE=5C4E710, hMon=CE100369, bal=2, thr=2, pipes=0
 
-#$DB::single=2;
          next if substr($rest,1,6) ne "listen";
-$DB::single=2;
          $rest =~ /(\d+):.*?=\s*(\d+).*?=\s*(\d+).*?=(\d+).*/;
-$DB::single=2;
          $lp_high = $1;
          $lp_balance = $2;
          $lp_threads = $3;
@@ -926,10 +980,8 @@ $DB::single=2;
          if ($logtime > $pt_etime) {
                $pt_etime = $logtime;
          }
-#$DB::single=2 if $l >= 99999;
          $rest =~ /.*?= (\S+)\,.*?=\s+(\S+)\,.*?= (\S+)\,.*?=\s*(.*?)\,.*?=\s*(\S*)/;
 
-if (!defined $4) {$DB::single=2;}
          $ipt_status = $1;
          $ipt_rows = $2;
          $ipt_table = $3;
@@ -1237,6 +1289,101 @@ if (!defined $4) {$DB::single=2;}
       }
       next;
    }
+   if (substr($logunit,0,10) eq "kglcbbio.c") {
+      if ($logentry eq "kglcb_getFsyncConfig") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       #  fsync() is NOT ENABLED. KGLCB_FSYNC_ENABLED='0'
+         $rest =~ /KGLCB_FSYNC_ENABLED\=\'(\d)\'/;
+         $fsync_enabled = $1 if defined $1;
+      }
+   }
+   # (53FE31BA.0043-61C:kglhc1c.c,563,"KGLHC1_Command") Entry
+   # (53FE31BA.0044-61C:kglhc1c.c,592,"KGLHC1_Command") <0x190B3D18,0x8> Attribute type 0
+   # +53FE31BA.0044     00000000   53595341 444D494E                      SYSADMIN
+   # (53FE31BA.0045-61C:kglhc1c.c,601,"KGLHC1_Command") <0x190B4CFB,0x8A> Command String
+   # +53FE31BA.0045     00000000   443A5C73 63726970  745C756E 69782031   D:\script\unix.1
+   # +53FE31BA.0045     00000010   31343038 32373134  31353038 30303020   140827141508000.
+   # +53FE31BA.0045     00000020   27554E49 585F4350  5527206C 74727364   'UNIX_CPU'.ltrsd
+   # +53FE31BA.0045     00000030   3032303A 4B555820  2750726F 63657373   020:KUX.'Process
+   # +53FE31BA.0045     00000040   20435055 20757469  6C697A61 74696F6E   .CPU.utilization
+   # +53FE31BA.0045     00000050   20474520 38352069  73206372 69746963   .GE.85.is.critic
+   # +53FE31BA.0045     00000060   616C2C20 20746865  20696E74 656E7369   al,..the.intensi
+   # +53FE31BA.0045     00000070   7479206F 66206120  70726F63 65737320   ty.of.a.process.
+   # +53FE31BA.0045     00000080   6973206F 66203938  2027                is.of.98.'
+   # (53FE31BD.0000-61C:kglhc1c.c,862,"KGLHC1_Command") Exit: 0x0
+
+   if (substr($logunit,0,9) eq "kglhc1c.c") {
+      $oneline =~ /^\((\S+)\)(.+)$/;
+      $rest = $2;
+      if ($act_start == 0) {
+         $act_start = $logtime;
+         $act_end = $logtime;
+      }
+      if ($logtime < $act_start) {
+         $act_start = $logtime;
+      }
+      if ($logtime > $act_end) {
+         $act_end = $logtime;
+      }
+      if (substr($rest,1,6) eq "Entry") {             # starting a new command capture
+          $run_thread = $logthread;
+          $run_start = $logtime;
+          $run_state = 1;
+          $run_stamp = $logtimehex;
+          $run_cmd = "";
+          $run_cmd_tot = 0;
+          $runref = [$run_thread,$run_start,$run_state,$run_stamp,$run_cmd,$run_cmd_tot];
+          $runx{$logthread} = $runref;
+          $contkey = $logtimehex . "." . $logline;
+          $contx{$contkey} = $runref;
+      } else {
+         $runref = $runx{$logthread};                     # is this a known command capture?
+         if (defined $runref) {                           # so process, started before trace capture
+            my ($run_thread,$run_start,$run_state,$run_stamp,$run_cmd,$run_cmd_tot) = @{$runref};
+
+            # (53FE31BD.0000-61C:kglhc1c.c,862,"KGLHC1_Command") Exit: 0x0
+            if (substr($rest,1,4) eq "Exit") {             # Ending a command capture
+               my $testcmd = $run_cmd . " ";
+               my $testkey = substr($run_cmd,0,index($testcmd," "));
+               my $ax = $actx{$testkey};
+               if (!defined $ax) {
+                  $acti += 1;
+                  $ax = $acti;
+                  $act[$ax] = $testkey;
+                  $actx{$testkey} = $ax;
+                  $act_elapsed[$ax] = 0;
+                  $act_ok[$ax] = 0;
+                  $act_err[$ax] = 0;
+                  $act_ct[$ax] = 0;
+                  $act_act[$ax] = [];
+               }
+               $act_elapsed[$ax] += $logtime - $run_start;
+               $act_ct[$ax] += 1;
+               $act_ok[$ax] += 1 if substr($rest,7,3) eq "0x0";
+               $act_err[$ax] += 1 if substr($rest,7,3) ne "0x0";
+               push(@{$act_act[$ax]},$run_cmd);
+            } else {
+               if (substr($rest,1,1) eq "<") {
+                  # (53FE31BA.0044-61C:kglhc1c.c,592,"KGLHC1_Command") <0x190B3D18,0x8> Attribute type 0
+                  # (53FE31BA.0045-61C:kglhc1c.c,601,"KGLHC1_Command") <0x190B4CFB,0x8A> Command String
+                  $rest =~ /\<\S+\,(\S+)\> (.*)/;
+                  my $vlen = $1;
+                  $rest = $2;
+                  if (substr($rest,0,9) eq "Attribute") {             # Attribute, unintesting
+                     $run_state = 2;                                  # skip next continuation capture
+                  } else {
+                     $run_state = 3;                                  # capture the next continuations
+                     $run_cmd_tot = hex($vlen);
+                  }
+                  $runref = [$run_thread,$run_start,$run_state,$run_stamp,$run_cmd,$run_cmd_tot];
+                  $runx{$logthread} = $runref;
+                  $key = $logtimehex . "." . $logline;
+                  $contx{$key} = $runref;
+                  }
+               }
+            }
+         }
+   }
    next if substr($logunit,0,12) ne "kpxrpcrq.cpp";
    next if $logentry ne "IRA_NCS_Sample";
    $oneline =~ /^\((\S+)\)(.+)$/;
@@ -1372,7 +1519,6 @@ if ($toobigi > -1) {
       my $ptoobigi = $toobigi + 1;
       $advisori++;$advisor[$advisori] = "Advisory: $ptoobigi Filter object too big situations and/or reports\n";
    }
-$DB::single=2;
 if ($lp_high > $opt_nominal_listen) {
    if ($lp_high >= $opt_max_listen) {
       $advisori++;$advisor[$advisori] = "Advisory: Listen Pipe Shortage at maximum - emergency!!\n";
@@ -1436,7 +1582,10 @@ if ($syncdist_early > -1) {
       $advisori++;$advisor[$advisori] = "Advisory: $syncdist_early early remote SQL failures\n";
    }
 
-$DB::single=2;
+if ($fsync_enabled == 0) {
+      $advisori++;$advisor[$advisori] = "Advisory: KGLCB_FSYNC_ENABLED set to 0 - risky for TEMS database files\n";
+   }
+
 if ($lp_high != -1) {
    $cnt++;$oline[$cnt] = "Listen Pipe Report listen=$lp_high balance=$lp_balance threads=$lp_threads pipes=$lp_pipes\n";
    $cnt++;$oline[$cnt]="\n";
@@ -1516,6 +1665,57 @@ $respermin = int($sitres_tot / ($dur / 60));
 $outl .= $respermin;
 $cnt++;$oline[$cnt]=$outl . "\n";
 
+my $act_ct_total = 0;
+my $act_ct_error = 0;
+my $act_elapsed_total = 0;
+my $act_duration;
+
+if ($acti != -1) {
+   $act_duration = $act_end - $act_start;
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Reflex Command Summary Report\n";
+   $cnt++;$oline[$cnt]="Cmd,Elapsed,Count,Error,Example\n";
+   foreach $f ( sort { $act_ct[$actx{$b}] <=> $act_ct[$actx{$a}] } keys %actx ) {
+      $i = $actx{$f};
+      $outl = $act[$i] . ",";
+      $outl .= $act_elapsed[$i] . ",";
+      $outl .= $act_ct[$i] . ",";
+      $outl .= $act_err[$i] . ",";
+      my @cmdarray = @{$act_act[$i]};
+      my $pcommand = $cmdarray[0];
+      $pcommand =~ s/\x09/\\t/g;
+      $pcommand =~ s/\x0A/\\n/g;
+      $pcommand =~ s/\x0D/\\r/g;
+      $pcommand =~ s/\"/\"\"/g;
+      $outl .= "=\"" . $pcommand . "\"";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      $act_ct_total += $act_ct[$i];
+      $act_ct_error += $act_err[$i];
+      $act_elapsed_total += $act_elapsed[$i];
+
+      if ($opt_cmdall == 1) {
+         if ($#cmdarray > 0) {
+            for (my $c=1;$c<=$#cmdarray;$c++) {
+               $outl = ",,,,";
+               $pcommand = $cmdarray[$c];
+               $pcommand =~ s/\x09/\\t/g;
+               $pcommand =~ s/\x0A/\\n/g;
+               $pcommand =~ s/\x0D/\\r/g;
+               $pcommand =~ s/\x00/\\0/g;
+               $pcommand =~ s/\"/\"\"/g;
+               $pcommand =~ s/\'/\'\'/g;
+               $outl .= "=\"" . $pcommand . "\",";
+               $cnt++;$oline[$cnt]=$outl . "\n";
+            }
+         }
+      }
+   }
+   $outl = "duration" . " " . $act_duration . ",";
+   $outl .= $act_elapsed_total . ",";
+   $outl .= $act_ct_total . ",";
+   $outl .= $act_ct_error . ",";
+   $cnt++;$oline[$cnt]=$outl . "\n";
+}
 
 if ($soapi != -1) {
    $cnt++;$oline[$cnt]="\n";
@@ -1553,7 +1753,6 @@ if ($pti != -1) {
    $cnt++;$oline[$cnt]="Table,Path,Insert,Query,Select,SelectPreFiltered,Delete,Total,Total/min,Error,Error/min,Errors\n";
    foreach $f ( sort { $pt_total_ct[$ptx{$b}] <=> $pt_total_ct[$ptx{$a}] } keys %ptx) {
       $i = $ptx{$f};
-$DB::single=2;
       $outl = $pt_table[$i] . ",";
       $outl .= $pt_path[$i] . ",";
       $outl .= $pt_insert_ct[$i] . ",";
@@ -1578,6 +1777,7 @@ my $total_hist_rows = 0;
 my $total_hist_bytes = 0;
 $hist_elapsed_time = $hist_max_time - $hist_min_time;
 my $time_elapsed;
+
 
 if ($histi != -1) {
    $cnt++;$oline[$cnt]="\n";
@@ -1672,16 +1872,12 @@ print "\n";
 for (my $i = 0; $i<=$cnt; $i++) {
    print $oline[$i];
 }
-#$DB::single=2;
 if ($opt_sr == 1) {
-#$DB::single=2;
    if ($soap_burst_minute != -1) {
-#$DB::single=2;
       my $opt_sr_fn = "soap_detail.txt";
       open SOAP, ">$opt_sr_fn" or die "Unable to open SOAP Detail output file $opt_sr_fn\n";
       select SOAP;              # print will use SOAP instead of STDOUT
       print "Secs   Count Line   Log-segment\n";
-#$DB::single=2;
       for (my $i=0;$i<=$soap_burst_minute;$i++) {
          next if !defined $soap_burst_log[$i];
          next if $soap_burst[$i] == 0;
@@ -1693,10 +1889,8 @@ if ($opt_sr == 1) {
          print "$oline\n";
       }
       close SOAP;
-#$DB::single=2;
    }
 }
-#$DB::single=2;
 
 print STDERR "Wrote $cnt lines\n";
 
@@ -1890,3 +2084,5 @@ exit;
 #         - add SOAP Burst calculation and advisory
 # 1.22000 - add -sr == soapreport
 # 1.23000 - handle z/OS better, especially for ProcessTable capture
+# 1.24000 - count action commands
+#         - Advisory when KGLCB_FSYNC_ENABLED=0
