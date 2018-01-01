@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-$gVersion = 1.34000;
+$gVersion = 1.35000;
 
 
 # CPAN packages used
@@ -1199,45 +1199,47 @@ for(;;)
                $rest = $1;
                # <1150213164119001PCXTA42:VA10PWPAPP036:MQ            YMQ07.00.03 9                V00040000000000000000000000000000200000qwaa7 REMOTE_va10p10023                 Windows~6.1-SP1                 ip.spipe:#30.128.132.150[16832]<NM>VA10PWPAPP036</NM>                                                                                                                                                                                                           A=00:WINNT;C=06.21.00.02:WINNT;G=06.21.00.02:WINNT;             >
                # <1150213164502000REMOTE_va10p10023               wlp_rfmonitor_2ntw_rfax         RFMonitor:VA10PWPRFS002A:LO     RightFax_Warning, Line=(9 file of type *.job over 10 Minutes Old Found in Dir \\vapwprfnbes01\OutputPath\QCCMEDC\ on Server VA101150213164502999Y>
-$DB::single=2 if $l>39840;
-$DB::single=2 if !defined substr($rest,241,1);
-$DB::single=2 if length($rest) < 241;
-               if (substr($rest,241,1) eq "1") {                  # ignore node status updates for the moment
-                  my $itime1 = substr($rest,1,16);
-                  my $ithrunode = substr($rest,17,32);
-                  $ithrunode =~ s/\s+$//;   #trim trailing whitespace
-                  my $isitname = substr($rest,49,32);
-                  $isitname =~ s/\s+$//;   #trim trailing whitespace
-                  my $inode = substr($rest,81,32);
-                  $inode =~ s/\s+$//;   #trim trailing whitespace
-                  my $iatom = substr($rest,113,128);
-                  $iatom =~ s/\s+$//;   #trim trailing whitespace
-                  my $iunknown = substr($rest,239,2);
-                  my $itime2 = substr($rest,241,16);
-                  my $istatus = substr($rest,257,1);
-                  my $key = $inode . "|" . $isitname;
-                  my $evt_ref = $pevtx{$key};
-                  if (!defined $evt_ref) {
-                     my %evtref = (
-                                     sitname => $isitname,
-                                     node => $inode,
-                                     count => 0,
-                                  );
-                     $pevtx{$key} = \%evtref;
-                     $evt_ref      = \%evtref;
-                  }
-                  $evt_ref->{count} += 1;
-                  $evt_ref->{atoms}->{$iatom} = 1 if $iatom ne "";
-                  $evt_ref->{thrunode}->{$ithrunode} = 1;
-                  if ($pe_stime == 0) {
-                      $pe_stime = $logtime;
-                      $pe_etime = $logtime;
-                  }
-                  if ($logtime < $pe_stime) {
-                     $pe_stime = $logtime;
-                  }
-                  if ($logtime > $pe_etime) {
-                        $pe_etime = $logtime;
+               # the following logic is used to avoid issues with data on continued lines.
+               if (substr($rest,-1,1) eq ">") {                         # ignore continued lines for the moment
+                  if (length($rest) > 241) {                            # ignore short lines
+                     if (substr($rest,241,1) eq "1") {                  # ignore node status updates for the moment
+                        my $itime1 = substr($rest,1,16);
+                        my $ithrunode = substr($rest,17,32);
+                        $ithrunode =~ s/\s+$//;   #trim trailing whitespace
+                        my $isitname = substr($rest,49,32);
+                        $isitname =~ s/\s+$//;   #trim trailing whitespace
+                        my $inode = substr($rest,81,32);
+                        $inode =~ s/\s+$//;   #trim trailing whitespace
+                        my $iatom = substr($rest,113,128);
+                        $iatom =~ s/\s+$//;   #trim trailing whitespace
+                        my $iunknown = substr($rest,239,2);
+                        my $itime2 = substr($rest,241,16);
+                        my $istatus = substr($rest,257,1);
+                        my $key = $inode . "|" . $isitname;
+                        my $evt_ref = $pevtx{$key};
+                        if (!defined $evt_ref) {
+                           my %evtref = (
+                                           sitname => $isitname,
+                                           node => $inode,
+                                           count => 0,
+                                        );
+                           $pevtx{$key} = \%evtref;
+                           $evt_ref      = \%evtref;
+                        }
+                        $evt_ref->{count} += 1;
+                        $evt_ref->{atoms}->{$iatom} = 1 if $iatom ne "";
+                        $evt_ref->{thrunode}->{$ithrunode} = 1;
+                        if ($pe_stime == 0) {
+                            $pe_stime = $logtime;
+                            $pe_etime = $logtime;
+                        }
+                        if ($logtime < $pe_stime) {
+                           $pe_stime = $logtime;
+                        }
+                        if ($logtime > $pe_etime) {
+                              $pe_etime = $logtime;
+                        }
+                     }
                   }
                }
             }
@@ -2853,3 +2855,4 @@ exit;
 # 1.33000 - Add result interval report
 #         - Add results interval count report
 # 1.34000 - Add advisory for missing application.table cases
+# 1.35000 - Correct some logic on incoming PostEvent messages
