@@ -27,7 +27,7 @@
 ## Count of pcb adds and deletes
 
 
-my $gVersion = 1.56000;
+my $gVersion = 1.57000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -253,6 +253,8 @@ my %advcx = (
               "TEMSAUDIT1048E" => "100",
               "TEMSAUDIT1049E" => "100",
               "TEMSAUDIT1050W" => "100",
+              "TEMSAUDIT1051E" => "110",
+              "TEMSAUDIT1052E" => "120",
             );
 
 my %advtextx = ();
@@ -294,6 +296,8 @@ my $conv_ref;
 
 my %pcbx;
 my %pcbr;
+
+my $hublost_total = 0;
 
 
 my $stage2 = "";
@@ -1538,7 +1542,6 @@ for(;;)
    }
    # signal for KDEB_INTERFACELIST conflicts
    # (58DA4E42.0511-73:kdepnpc.c,138,"KDEP_NewPCB") 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
-$DB::single=2 if $l == 192270;
    if (substr($logunit,0,9) eq "kdepnpc.c") {
       if ($logentry eq "KDEP_NewPCB") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -1547,7 +1550,6 @@ $DB::single=2 if $l == 192270;
             $rest =~ / (\S+): (\S+),/;
             my $iip = $1;
             my $iaddr = "X" . $2;
-#$DB::single=2 if $iip eq "151.88.14.75";
             my $pcb_ref = $pcbx{$iip};
             if (!defined $pcb_ref) {
                my %pcbref = (
@@ -1568,7 +1570,6 @@ $DB::single=2 if $l == 192270;
    }
    # signal for KDEB_INTERFACELIST conflicts
    # (58DA4EFE.00B1-174:kdepdpc.c,62,"KDEP_DeletePCB") 10B0C8C6: KDEP_pcb_t deleted
-$DB::single=2 if $l == 204438;
    if (substr($logunit,0,9) eq "kdepdpc.c") {
       if ($logentry eq "KDEP_DeletePCB") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -1588,6 +1589,17 @@ $DB::single=2 if $l == 204438;
                   }
                }
             }
+            next;
+         }
+      }
+   }
+   # (58D77E39.0002-11A0:ko4mgtsk.cpp,133,"ManagedTask::sendStatus") Connection to HUB lost - stopping situation status insert
+   if (substr($logunit,0,12) eq "ko4mgtsk.cpp") {
+      if ($logentry eq "ManagedTask::sendStatus") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Connection to HUB lost - stopping situation status insert
+         if (substr($rest,1,22) eq "Connection to HUB lost") {
+            $hublost_total += 1;
             next;
          }
       }
@@ -3467,6 +3479,20 @@ if ($pcb_deletePCB > 0) {
 
 }
 
+if ($hublost_total > 0) {
+   if ($opt_tems eq "*LOCAL" ) {
+      $advi++;$advonline[$advi] = "Hub TEMS has lost connection to HUB $hublost_total times";
+      $advcode[$advi] = "TEMSAUDIT1052E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "HUB";
+   } else {
+      $advi++;$advonline[$advi] = "Remote TEMS has lost connection to HUB $hublost_total times";
+      $advcode[$advi] = "TEMSAUDIT1051E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "HUB";
+   }
+}
+
 foreach my $f (keys %miss_tablex) {
    $advi++;$advonline[$advi] = "Application.table $f missing $miss_tablex{$f} times";
    $advcode[$advi] = "TEMSAUDIT1011W";
@@ -4452,7 +4478,8 @@ if ($advi != -1) {
    print OH "\n";
    print OH "Advisory Trace, Meaning and Recovery suggestions follow\n\n";
    foreach my $f ( sort { $a cmp $b } keys %advgotx ) {
-      print OH "Advisory code: " . $f . " Impact:" . $advgotx{$f}  . "\n";
+      print OH "Advisory code: " . $f  . "\n";
+      print OH "Impact:" . $advgotx{$f}  . "\n";
       print OH $advtextx{$f};
    }
 }
@@ -4881,6 +4908,7 @@ exit;
 # 1.55000 - correct cumulative results per cent presentation
 #         - More information on port scanning
 # 1.56000 - Add advisory on DeletePCB cases
+# 1.57000 - Add advisories on connection to hub TEMS loss
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -5823,5 +5851,42 @@ Recovery plan: The report shows the ip address of the system
 but does not give the agent name. Review all the agents looking
 for the KDEB_INTERFACELIST issue. If the issue is not obvious
 involve IBM Support to assist.
+----------------------------------------------------------------
+
+TEMSAUDIT1051E
+Text: Remote TEMS has lost connection to HUB count times
+
+Tracing: error
+(58D77E39.0002-11A0:ko4mgtsk.cpp,133,"ManagedTask::sendStatus") Connection to HUB lost - stopping situation status insert
+
+Meaning: This is produced when a remote TEMS can no longer connect
+with a hub TEMS. Usually the remote TEMS is attempting something
+like a situation status insert. Sometimes the remote TEMS can
+recover for a while and then lose connection again.
+
+This is a severe issue and needs prompt diagnosis. It can be
+caused by many reasons including TEMS database problems,
+network problems and excessive workoad.
+
+
+Recovery plan: Contact IBM support for aid in diagnosis.
+----------------------------------------------------------------
+
+TEMSAUDIT1052E
+Text: Hub TEMS has lost connection to HUB count times
+
+Tracing: error
+(58D77E39.0002-11A0:ko4mgtsk.cpp,133,"ManagedTask::sendStatus") Connection to HUB lost - stopping situation status insert
+
+Meaning: This is produced when one hub TEMS task can no longer
+connect with the dataserver function of the hub TEMS. This
+is a severe error which is only recovered with a hub TEMS recycle.
+The hub TEMS will not recover without a recycle.
+
+This is a most severe issue and needs prompt diagnosis. It can be
+caused by many reasons including TEMS database problems,
+network problems and excessive workoad.
+
+Recovery plan: Contact IBM support for aid in diagnosis.
 ----------------------------------------------------------------
 
