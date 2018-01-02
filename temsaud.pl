@@ -23,8 +23,11 @@
 ##  (5459ADD0.0000-23:kpxreqi.cpp,126,"InitializeClass") *INFO : Using 20 CTIRA_Recursive_lock objects for class RequestImp
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
+## Fp7 trace adds Richard added
+## Count of pcb adds and deletes
 
-my $gVersion = 1.55000;
+
+my $gVersion = 1.56000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -249,6 +252,7 @@ my %advcx = (
               "TEMSAUDIT1047W" => "95",
               "TEMSAUDIT1048E" => "100",
               "TEMSAUDIT1049E" => "100",
+              "TEMSAUDIT1050W" => "100",
             );
 
 my %advtextx = ();
@@ -287,6 +291,9 @@ my $sit_ref;
 my %codex;
 my $code_ref;
 my $conv_ref;
+
+my %pcbx;
+my %pcbr;
 
 
 my $stage2 = "";
@@ -1526,6 +1533,62 @@ for(;;)
                $code_ref->{conv}{$isource} = \%convref;
             }
             $conv_ref->{count} += 1;
+         }
+      }
+   }
+   # signal for KDEB_INTERFACELIST conflicts
+   # (58DA4E42.0511-73:kdepnpc.c,138,"KDEP_NewPCB") 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
+$DB::single=2 if $l == 192270;
+   if (substr($logunit,0,9) eq "kdepnpc.c") {
+      if ($logentry eq "KDEP_NewPCB") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
+         if (substr($rest,-7) eq "created") {
+            $rest =~ / (\S+): (\S+),/;
+            my $iip = $1;
+            my $iaddr = "X" . $2;
+#$DB::single=2 if $iip eq "151.88.14.75";
+            my $pcb_ref = $pcbx{$iip};
+            if (!defined $pcb_ref) {
+               my %pcbref = (
+                               addr => {},
+                               newPCB => 0,
+                               deletePCB => 0,
+                            );
+               $pcb_ref = \%pcbref;
+               $pcbx{$iip} = \%pcbref;
+            }
+            $pcb_ref->{count} += 1;
+            $pcb_ref->{newPCB} += 1;
+            $pcb_ref->{addr}{$iaddr}=1;
+            $pcbr{$iaddr} = $iip;
+            next;
+         }
+      }
+   }
+   # signal for KDEB_INTERFACELIST conflicts
+   # (58DA4EFE.00B1-174:kdepdpc.c,62,"KDEP_DeletePCB") 10B0C8C6: KDEP_pcb_t deleted
+$DB::single=2 if $l == 204438;
+   if (substr($logunit,0,9) eq "kdepdpc.c") {
+      if ($logentry eq "KDEP_DeletePCB") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # 10B0C8C6: KDEP_pcb_t deleted
+         if (substr($rest,-7) eq "deleted") {
+            $rest =~ / (\S+):/;
+            my $iaddr = "X" . $1;
+            my $iip = $pcbr{$iaddr};
+            if (defined $iip) {
+               my $pcb_ref = $pcbx{$iip};
+               if (defined $pcb_ref) {
+                  if (defined $pcb_ref->{addr}{$iaddr}) {
+                     $pcb_ref->{count} += 1;
+                     $pcb_ref->{deletePCB} += 1;
+                     delete $pcb_ref->{addr}{$iaddr};
+                     delete $pcbr{$iaddr};
+                  }
+               }
+            }
+            next;
          }
       }
    }
@@ -3387,6 +3450,23 @@ if ($kcf_count > 0) {
    }
 }
 
+my $pcb_total = 0;
+my $pcb_deletePCB = 0;
+foreach my $f (keys %pcbx) {
+   my $pcb_ref = $pcbx{$f};
+   $pcb_total += 1;
+   next if $pcb_ref->{deletePCB} < 2;
+   $pcb_deletePCB += 1;
+}
+
+if ($pcb_deletePCB > 0) {
+   $advi++;$advonline[$advi] = "Connection problems with [$pcb_deletePCB] systems total[$pcb_total] - See following report";
+   $advcode[$advi] = "TEMSAUDIT1050W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "PCB";
+
+}
+
 foreach my $f (keys %miss_tablex) {
    $advi++;$advonline[$advi] = "Application.table $f missing $miss_tablex{$f} times";
    $advcode[$advi] = "TEMSAUDIT1011W";
@@ -4314,6 +4394,19 @@ if ($loci_ct > 0) {
    }
 }
 
+
+if ($pcb_deletePCB > 0) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Communications Problem Report - $pcb_deletePCB systems\n";
+   $cnt++;$oline[$cnt]="ip_address,Count,NewPCB,DeletePCB\n";
+   foreach $f ( sort { $pcbx{$b}->{deletePCB} <=> $pcbx{$a}->{deletePCB} || $a cmp $b } keys %pcbx) {
+      my $pcb_ref = $pcbx{$f};
+      last if $pcb_ref->{deletePCB} < 2;
+      $outl = $f . "," . $pcbx{$f}->{count} . "," . $pcbx{$f}->{newPCB} . "," . $pcbx{$f}->{deletePCB} . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+}
+
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
 open OH, ">$opt_o" or die "can't open $opt_o: $!";
@@ -4787,6 +4880,7 @@ exit;
 #         - Add advisory on low storage
 # 1.55000 - correct cumulative results per cent presentation
 #         - More information on port scanning
+# 1.56000 - Add advisory on DeletePCB cases
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -5696,5 +5790,38 @@ port scanning.
 Recovery plan: Critical plan is to work with network and security
 team to NOT port scan ITM processes. As an alternative stop the
 ITM processes during such scanning.
+----------------------------------------------------------------
+
+TEMSAUDIT1050W
+Text: Connection problems with [count] systems total[count] - See following report
+
+Tracing: error
+(58DA4E42.0511-73:kdepnpc.c,138,"KDEP_NewPCB") 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
+(58DA4EFE.00B1-174:kdepdpc.c,62,"KDEP_DeletePCB") 10B0C8C6: KDEP_pcb_t deleted
+
+Meaning: When an agent connects there is a NewPCB log entry. PCB means
+Process Control Block. When that connection is dropped there is a
+DeletePCB entry. These are all normal messages. However the DeletePCB
+is relatively rare. It might be seen when an agent is recycled.
+
+In one circumstance two agents were seen which had an ITM communications
+conflict. One Agent had a control
+
+KDEB_INTERFACELIST=!xxx.xxx.xxx.xxx
+
+and another agent had no such control. In that circumstance the first
+agent created a exclusive bind on its listening port. The second agent
+created a non-exclusive bind on the same listening port. The main
+diagnostic clue was many DeletePCB messages - two every 10 minutes.
+This causes severe problems for ITM since each agent knocks out
+the other agent each cycle.
+
+This advisory concerns cases where there are DeletePCB messages.
+A later report section gives details.
+
+Recovery plan: The report shows the ip address of the system
+but does not give the agent name. Review all the agents looking
+for the KDEB_INTERFACELIST issue. If the issue is not obvious
+involve IBM Support to assist.
 ----------------------------------------------------------------
 
