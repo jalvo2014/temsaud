@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.41000;
+my $gVersion = 1.42000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -205,6 +205,7 @@ my %advcx = (
               "TEMSAUDIT1030W" => "50",
               "TEMSAUDIT1031E" => "0",
               "TEMSAUDIT1032E" => "100",
+              "TEMSAUDIT1033W" => "90",
             );
 
 my %advtextx = ();
@@ -230,6 +231,8 @@ my $atr_file;
 my $atr_ref;
 my $atrn_ref;
 my $atrf_ref;
+
+my %inodex;
 
 while (<main::DATA>)
 {
@@ -1394,6 +1397,66 @@ for(;;)
          $syncdist_time[$syncdist_timei] = $logtime - $syncdist_first_time;
       }
       next;
+   }
+
+   #(57A0B2C2.000D-48:kfastinh.c,1187,"KFA_InsertNodests") Sending Node Status : node <vsmp8288:VA                     > nodetype <V> thrunode <remote_apsp0562                 > expiryint <-1> expirytime <9               > online <  > o4online <Y> product <VA> version <06.20.01> affinities <00000000G000000000000000000000000400004w0a7 > hostinfo <AIX~6.1         > hostloc <                > hostaddr <ip.pipe:#10.125.108.65[57760]<NM>vsmp8288</NM>                                                                                                                                                                                                                  > reserved <A=02:aix523;C=06.20.01.00:aix523;G=06.20.01.00:aix523;          > hrtbeattime <1160802094349000>
+   if (substr($logunit,0,10) eq "kfastinh.c") {
+      if ($logentry eq "KFA_InsertNodests") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Sending Node Status : node <vsmp8288:VA                     > nodetype <V> thrunode <remote_apsp0562                 > expiryint <-1> expirytime <9               > online <  > o4online <Y> product <VA> version <06.20.01> affinities <00000000G000000000000000000000000400004w0a7 > hostinfo <AIX~6.1         > hostloc <                > hostaddr <ip.pipe:#10.125.108.65[57760]<NM>vsmp8288</NM>                                                                                                                                                                                                                  > reserved <A=02:aix523;C=06.20.01.00:aix523;G=06.20.01.00:aix523;          > hrtbeattime <1160802094349000>
+         if (substr($rest,1,19) eq "Sending Node Status") {
+            $rest =~ /node <(.*?)> nodetype <(.*?)> thrunode <(.*?)> expiryint <(.*?)> expirytime <(.*?)> online <(.*?)> o4online <(.*?)> product <(.*?)> version <(.*?)> affinities <(.*?)> hostinfo <(.*?)> hostloc <(.*?)> hostaddr <(.*?)> reserved <(.*?)> hrtbeattime <(.*?)>/;
+            my $inode = $1;
+            my $inodetype = $2;
+            my $ithrunode = $3;
+            my $iexpiryint = $4;
+            my $iexpirytime = $5;
+            my $online = $6;
+            my $o4online = $7;
+            my $iproduct = $8;
+            my $iversion = $9;
+            my $iaffinities = $10;
+            my $ihostinfo = $11;
+            my $ihostloc = $12;
+            my $ihostaddr = $13;
+            my $ireserved = $14;
+            my $ihrtbeattime = $15;
+            $inode =~ s/\s+$//;                    # strip trailing blanks
+            $ithrunode =~ s/\s+$//;                    # strip trailing blanks
+            $iaffinities =~ s/\s+$//;                    # strip trailing blanks
+            $ihostaddr =~ s/\s+$//;                    # strip trailing blanks
+            $iexpirytime =~ s/\s+$//;                    # strip trailing blanks
+            next if $iproduct eq "EM";
+            my $inode_ref = $inodex{$inode};
+            if (!defined $inode_ref) {
+               my %inoderef = (
+                                 count => 0,
+                                 instances => {},
+                              );
+                $inode_ref = \%inoderef;
+                $inodex{$inode} = \%inoderef;
+            }
+            $inode_ref->{count} += 1;
+            my $inodeikey = $ihostaddr . "|" . $iaffinities . "|" . $ithrunode;
+            my $inodei_ref = $inode_ref->{instances}{$inodeikey};
+            if (!defined $inodei_ref) {
+               my %inodeiref = (
+                                 hostaddr => $ihostaddr,
+                                 affinities => $iaffinities,
+                                 thrunode => $ithrunode,
+                                 version => $iversion,
+                                 reserved => $ireserved,
+                                 expirytime => $iexpirytime,
+                                 product => $iproduct,
+                                 count => 0,
+                              );
+                $inodei_ref = \%inodeiref;
+                $inode_ref->{instances}{$inodeikey} = \%inodeiref;
+            }
+            $inodei_ref->{count} += 1;
+         }
+
+      }
    }
 
    #(569D717B.007C-4A:kglkycbt.c,1212,"kglky1ar") iaddrec2 failed - status = -1, errno = 9,file = QA1CSTSC, index = PrimaryIndex, key = qbe_prd_ux_systembusy_c         TEMSP01
@@ -2983,9 +3046,9 @@ if ($agtsh_dur > 0) {
       foreach $g (keys %{$agtsh_iat[$ai]}) {
          $pdur .= $g . "=";
          my $tdur = $agtsh_iat[$ai]{$g}{count};
-         if ($g != $dur_mode) {
-           $dur_vary_ct += $tdur;
-           $dur_vary_sum += abs($g-$dur_mode)*$tdur;
+         if (abs($g-$dur_mode) > 2) {
+            $dur_vary_ct += $tdur;
+            $dur_vary_sum += abs($g-$dur_mode)*$tdur;
          }
          $pdur .= $agtsh_iat[$ai]{$g}{count} . ";";
       }
@@ -3082,6 +3145,32 @@ if ($agtsh_dur > 0) {
             $outl .= $g;
             $cnt++;$oline[$cnt]=$outl . "\n";
          }
+      }
+   }
+}
+
+#$DB::single=2;
+my $inodex_ct = scalar keys %inodex;
+if ($inodex_ct > 0) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Send Node Status Exception Report\n";
+   $cnt++;$oline[$cnt]="Node,Count,Hostaddr,Thrunode,Product,Version\n";
+   foreach $f ( sort { $a cmp $b } keys %inodex) {
+      my $inode_ref = $inodex{$f};
+      next if $inode_ref->{count} == 1;
+      foreach $g (keys %{$inode_ref->{instances}}) {
+         my $inodei_ref = $inode_ref->{instances}{$g};
+         $outl = $f . ",";                 # node
+         $outl .= $inodei_ref->{count} . ",";
+         $outl .= $inodei_ref->{hostaddr} . ",";
+         $outl .= $inodei_ref->{thrunode} . ",";
+         $outl .= $inodei_ref->{product} . ",";
+         $outl .= $inodei_ref->{version} . ",";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+         $advi++;$advonline[$advi] = "Node $f at $inodei_ref->{hostaddr} has $inodei_ref->{count} sendstatus - possible duplicate agent";
+         $advcode[$advi] = "TEMSAUDIT1033W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "duplicate";
       }
    }
 }
@@ -3592,6 +3681,8 @@ exit;
 # 1.39000 - add 1030W for attribute definition conflicts
 # 1.40000 - Adjust impact of 1024E to 100 and add 1031E at 0
 # 1.41000 - Add advisory for missing ERROR in traces
+# 1.42000 - Add advisory on node status update
+#         - Adjust jitter logic to avoid silly duplicate advisories
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -4167,5 +4258,19 @@ Recovery plan: Make sure KBB_RAS1 specification has the ERROR
 specification included. In Windows, this would be usually seen
 in the MTEMS Advanced->Edit Trace Parms... dialog box in the
 RAS1 Filter data area.
+--------------------------------------------------------------
+
+TEMSAUDIT1033W
+Text: Node <nodename> has <count> at <addr> sendstatus - possible duplicate agent
+
+Tracing: none
+Diag Log: (57A0B2C2.000D-48:kfastinh.c,1187,"KFA_InsertNodests") Sending Node Status : node <vsmp8288:VA ...
+
+Meaning: This will be seen in one case of duplciate agent names.
+Usually it means two agents are running on the same system with the
+same system name. See later report for details.
+
+Recovery plan: This is likely normal if the agent has reconnected.
+Otherwise this is abnormal and only one should be running on a system.
 --------------------------------------------------------------
 
