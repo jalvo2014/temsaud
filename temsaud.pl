@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.43000;
+my $gVersion = 1.44000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -207,6 +207,7 @@ my %advcx = (
               "TEMSAUDIT1032E" => "100",
               "TEMSAUDIT1033W" => "90",
               "TEMSAUDIT1034W" => "75",
+              "TEMSAUDIT1035W" => "80",
             );
 
 my %advtextx = ();
@@ -221,6 +222,19 @@ my %valx;
 my $valkey;
 my %vcontx;
 my %reflexx;
+my %locix;
+my $loci_ct = 0;
+my $logloci;
+my %lociex = (                    # generic loci counter exclusion
+                "RAS1|CTBLD" => 1,
+                "kdyshdlib.cpp|issueNodeStatusOpenThread" => 1,
+                "kpxreqhb.cpp|HeartbeatInserter" => 1,
+                "kdepnpc.c|KDEP_NewPCB" => 1,
+                "kdebpli.c|KDEBP_Listen" => 1,
+                "kdepdpc.c|KDEP_DeletePCB" => 1,
+                "kpxrwhpx.cpp|LookupWarehouse" => 1,
+                "kfaprpst.c|KFA_UpdateNodestatusAtHub" => 1,
+             );
 
 my %atrwx;                        # collection of attribute warnings
 my $atrwx_ct = 0;                 # collection of attribute warnings
@@ -280,6 +294,7 @@ my $opt_max_listen        = 16;              # maximum listen count allowed by d
 my $opt_nominal_soap_burst = 300;            # maximum burst of 300 per minute
 my $opt_nominal_agto_mult = 1;               # amount of allowed repeat onlines
 my $opt_nominal_max_impact = 50;                     # Above this impact level, return exit code non-zero
+my $opt_nominal_loci = 2;                     # Above this percent, record in loci report
 
 my $arg_start = join(" ",@ARGV);
 $hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
@@ -1127,6 +1142,7 @@ for(;;)
       }
    }
    if (substr($oneline,0,1) ne "(") {next;}
+#$DB::single=2 if $l == 32;
    $oneline =~ /^(\S+).*$/;          # extract locus part of line
    $locus = $1;
    if ($opt_z == 0) {                # distributed has five pieces
@@ -1134,7 +1150,7 @@ for(;;)
       next if index($1,"(") != -1;   # ignore weird case with embedded (
       $logtime = hex($1);            # decimal epoch
       $logtimehex = $1;              # hex epoch
-      $logline = $2;                 # line number following hex epoch, meaningful with there are + extended lines
+      $logline = $2;                 # line number following hex epoch, meaningful when there are + extended lines
       $logthread = "T" . $3;         # Thread key
       $logunit = $4;                 # source unit and line number
       $logentry = $5;                # function name
@@ -1159,6 +1175,30 @@ for(;;)
          if ($logtime > $trcetime) {
             $trcetime = $logtime;
          }
+      }
+   }
+#$DB::single=2;
+   $logunit =~ /(.*?)\,(\d+)/;
+   if (defined $2) {
+   my $locitest = $1 . "|" . $logentry;
+      if (!defined $lociex{$locitest}) {
+#$DB::single=2;
+         my $logloci = $1 . "|" . $logentry . "|" . $2;
+         my $loci_ref = $locix{$logloci};
+         if (!defined $loci_ref) {
+#$DB::single=2;
+            my %lociref = (
+                             count => 0,
+                          );
+             $loci_ref = \%lociref;
+            $locix{$logloci} = \%lociref;
+#$DB::single=2;
+#my $x = 1;
+         }
+         $loci_ref->{count} += 1;
+         $loci_ct += 1;
+#$DB::single=2;
+#my $x = 1;
       }
    }
    # looking for a continuaion of sql line
@@ -2539,6 +2579,7 @@ if ($tdur == 0)  {
    $tdur = 1000;
 }
 
+
 $hdri++;$hdr[$hdri] = "$opt_nodeid $opt_tems";
 
 
@@ -3414,6 +3455,28 @@ if ($atrwx_ct > 0) {
    }
 }
 
+if ($loci_ct > 0) {
+   my $loci_worry = 0;
+   my $worry_ct = int(($loci_ct*$opt_nominal_loci)/100);
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Loci Count Report - $loci_ct found\n";
+   $cnt++;$oline[$cnt]="Locus,Count,PerCent,\n";
+   foreach $f ( sort { $locix{$b}->{count} <=> $locix{$a}->{count} || $a cmp $b } keys %locix) {
+      last if $locix{$f}->{count} < $worry_ct;
+      my $res_pc = int(($locix{$f}->{count}*100)/$loci_ct);
+      my $ppc = sprintf '%.0f%%', $res_pc;
+      $outl = $f . "," . $locix{$f}->{count} . "," . $ppc . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      $loci_worry += 1;
+   }
+   if ($loci_worry > 0 ) {
+      $advi++;$advonline[$advi] = "$loci_worry worrying diagnostic messages - see later report section";
+      $advcode[$advi] = "TEMSAUDIT1035W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "diagnostic";
+   }
+}
+
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
 open OH, ">$opt_o" or die "can't open $opt_o: $!";
@@ -3729,6 +3792,7 @@ exit;
 #         - Adjust jitter logic to avoid silly duplicate advisories
 # 1.43000 - Better logic for invalid names
 #           Add advisory for reflex command failures
+# 1.44000 - Add loci frequency report and advisory
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -4323,7 +4387,7 @@ Otherwise this is abnormal and only one should be running on a system.
 TEMSAUDIT1034W
 Text: Reflex [Action] Command count failures in count situation(s)
 
-Tracing: none
+Tracing: error
 Diag Log: (578F9048.0009-6:ko4sit.cpp,1573,"Situation::slice") Error : Sit SAPP_DB2_Failedarchive : reflex emulation command returned 4.
 
 Meaning: The TEMS ran an action commands which failed
@@ -4344,5 +4408,28 @@ error (unit:kraafira,Entry="runAutomationCommand" all)(unit:kglhc1c all)
 
 Recovery plan: Rework the action commands so they run as expected. Or perhaps
 find a way to do the work without action commands.
+--------------------------------------------------------------
+
+TEMSAUDIT1035W
+Text: count worrying diagnostic messages - see later report section
+
+Tracing: error
+Diag Log: various
+
+Meaning: TEMS normally runs with an error condition diagnostic trace.
+When a severe error condition exists, it is common to see many error
+messages occur many times in a row. This does not always mean a severe
+condition has occured, however when a severe condition occurs there are
+often many messages.
+
+This advisory is created when an error source is producing more than
+2% of the total number of diagnostic messages. A later report gives more
+details. If you are also experiencing symptoms this may aid diagnosis.
+
+This is a work in progress and known normal messages are excluded. The
+list of normal messages will be updated over time based on experience.
+
+Recovery plan: If you are experiencing symptoms, involve IBM Support. If
+not use your own best judgement.
 --------------------------------------------------------------
 
