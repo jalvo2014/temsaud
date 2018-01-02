@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.54000;
+my $gVersion = 1.55000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -247,6 +247,8 @@ my %advcx = (
               "TEMSAUDIT1045W" => "95",
               "TEMSAUDIT1046W" => "90",
               "TEMSAUDIT1047W" => "95",
+              "TEMSAUDIT1048E" => "100",
+              "TEMSAUDIT1049E" => "100",
             );
 
 my %advtextx = ();
@@ -313,6 +315,7 @@ my $portscan_Unsupported = 0;
 my $portscan_HTTP = 0;
 my $portscan_integrity = 0;
 my $portscan_suspend = 0;
+my $portscan_72 = 0;
 
 while (<main::DATA>)
 {
@@ -634,7 +637,7 @@ if ($logfn eq "") {
       # found 2+ inv files
       # review all inv files, some may contain illegal or missing files so need to check all.
       for (my $i=0;$i<=$#results;$i++) {
-         my $testinvfn = $opt_logpath . "/" . $results[$i];
+         my $testinvfn = $opt_logpath . $results[$i];
          next if !open( INV, "< $testinvfn" );
          $inline = <INV>;
          close(INV);
@@ -644,7 +647,8 @@ if ($logfn eq "") {
          my $endfn = substr($inline,$lpos+1);
          $lpos = rindex($endfn,"-");
          my $front_line = substr($endfn,0,$lpos);
-         $test_logfn = $opt_logpath . "/" . $endfn;
+         $test_logfn = $opt_logpath . $endfn;
+         next if ! -s $test_logfn;
          next if !open( LOG, "< $test_logfn" );
          $inline = <LOG>;
          close(LOG);
@@ -655,11 +659,8 @@ if ($logfn eq "") {
          if ($invlogtime < $testime) {
             $invlogtime = $testime;
             $logfn = $results[$i];   # record inv file with most recent log record
-#my $x = 1;
          }
-#my $x = 1;
       }
-#my $x = 1;
    }
 }
 
@@ -820,6 +821,7 @@ my $nmr_total = 0;          # no matching request count
 my $anic_total = 0;         # Activity not in call count
 my $fsync_enabled = 1;      # assume fsync is enabled
 my $kds_writenos = "";      # assume kds_writenos not specified
+my $gmm_total = 0;          # count out of storage messages
 
 my $lp_high = -1;
 my $lp_balance = -1;
@@ -905,7 +907,7 @@ my @agtsh_ct = ();                           # count of agent S-Hs
 my @agtsh_hr = ();                           # rate of agent S-Hs per hour
 my @agtsh_rat = ();                          # recent arrival time
 my @agtsh_iat = ();                          # inter arrival time - actually anonymous hash
-my $agtsh_total_ct = 0;                       # number of multiple S-Hs with rate/hr >= 6;
+my $agtsh_total_ct = 0;                      # number of multiple S-Hs with rate/hr >= 6;
 my $agtsh_etime = 0;                         # time of first agent S-H
 my $agtsh_stime = 0;                         # time of last agent S-H
 
@@ -1326,12 +1328,14 @@ for(;;)
          my $logloci = $1 . "|" . $logentry . "|" . $2;
          my $loci_ref = $locix{$logloci};
          if (!defined $loci_ref) {
+#$DB::single=2 if $logloci eq "kdsvws1.c|ManageView|2421";
             my %lociref = (
                              count => 0,
-                             first => $oneline,
+                             first => "",
                           );
-             $loci_ref = \%lociref;
+            $loci_ref = \%lociref;
             $locix{$logloci} = \%lociref;
+            $loci_ref->{first} = $oneline;
          }
          $loci_ref->{count} += 1;
          $loci_ct += 1;
@@ -1563,6 +1567,17 @@ for(;;)
          if (index($rest,"suspending new connections") != -1) {
             $portscan++;
             $portscan_suspend++;
+         }
+      }
+   }
+   # (58FAAE7F.0000-61B7B:kdebbac.c,50,"KDEB_BaseAccept") Status 1DE0000D=KDE1_STC_IOERROR=72: NULL
+   if (substr($logunit,0,9) eq "kdebbac.c") {
+      if ($logentry eq "KDEB_BaseAccept") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Status 1DE0000D=KDE1_STC_IOERROR=72: NULL
+         if (index($rest,"KDE1_STC_IOERROR=72") != -1) {
+            $portscan++;
+            $portscan_72++;
          }
       }
    }
@@ -2755,6 +2770,18 @@ for(;;)
       }
    }
 
+   #(58E42EB8.0000-1110:kdsdscom.c,196,"VDM1_Malloc") GMM1_AllocateStorage failed - 1
+   if (substr($logunit,0,10) eq "kdsdscom.c") {
+      if ($logentry eq "VDM1_Malloc") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,27) eq "GMM1_AllocateStorage failed") {             # Storage Allocation Failure in TEMS
+            $gmm_total += 1;
+            next;
+         }
+      }
+   }
+
    #(577D74E2.0000-1A:kfavalid.c,512,"validate") Invalid character discovered.  Integer value:<34> at position 0.
    #(577D74E2.0001-1A:kfavalid.c,575,"ValidateNodeEntry") Validation for node failed.
    #(577D74E2.0002-1A:kfavalid.c,1017,"KFA_InvalidNameMessage") Unsupported Nodelist or Node Status record.  Contents follow:
@@ -2885,7 +2912,6 @@ for(;;)
          }
       }
    }
-
    next if substr($logunit,0,12) ne "kpxrpcrq.cpp";
    next if $logentry ne "IRA_NCS_Sample";
    $oneline =~ /^\((\S+)\)(.+)$/;
@@ -3193,8 +3219,8 @@ if ($uadvisor_bytes>0) {
    my $res_pc = int(($uadvisor_bytes*100)/$sitres_tot);
    my $ppc = sprintf '%.0f%%', $res_pc;
    $cnt++;$oline[$cnt]="Total UADVISOR (percent),,,$res_pc\n";
-   $trespermin = int($uadvisor_bytes / ($dur / 60));
-   $cnt++;$oline[$cnt]="Total UADVISOR per minute,,,$trespermin\n";
+   my $turespermin = int($uadvisor_bytes / ($dur / 60));
+   $cnt++;$oline[$cnt]="Total UADVISOR per minute,,,$turespermin\n";
 }
 
 if ($trespermin > $opt_nominal_results) {
@@ -3298,6 +3324,16 @@ if ($portscan > 0) {
    $advsit[$advi] = "Portscan";
 }
 
+if (($portscan_suspend + $portscan_72) > 0) {
+   my $scantype = "";
+   $scantype .= "suspend(" . $portscan_suspend . ") " if $portscan_suspend > 0;
+   $scantype .= "72(" . $portscan_72 . ") " if $portscan_72 > 0;
+   $advi++;$advonline[$advi] = "Definite Evidence of port scanning [$scantype] which can destabilize any ITM process including TEMS";
+   $advcode[$advi] = "TEMSAUDIT1049E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Portscan";
+}
+
 if ($fsync_enabled == 0) {
       $advi++;$advonline[$advi] = "KGLCB_FSYNC_ENABLED set to 0 - risky for TEMS database files";
       $advcode[$advi] = "TEMSAUDIT1009E";
@@ -3333,6 +3369,13 @@ if ($anic_total > 0) {
    $advcode[$advi] = "TEMSAUDIT1042E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "ANIC";
+}
+
+if ($gmm_total > 0) {
+   $advi++;$advonline[$advi] = "Storage allocation [$gmm_total] failure(s)";
+   $advcode[$advi] = "TEMSAUDIT1048E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "GMM";
 }
 
 if ($kcf_count > 0) {
@@ -4259,9 +4302,8 @@ if ($loci_ct > 0) {
       last if $locix{$f}->{count} < $worry_ct;
       my $res_pc = int(($locix{$f}->{count}*100)/$loci_ct);
       my $ppc = sprintf '%.0f%%', $res_pc;
-      $outl = $f . "," . $locix{$f}->{count} . "," . $ppc . ",";
-      $outl .=  $locix{$f}->{first} . ",";
-      $cnt++;$oline[$cnt]=$outl . "\n";
+      $outl = $f . "," . $locix{$f}->{count} . "," . $ppc . "," . $locix{$f}->{first};
+      $cnt++;$oline[$cnt]="$outl\n";
       $loci_worry += 1;
    }
    if ($loci_worry > 0 ) {
@@ -4302,7 +4344,7 @@ if ($advi != -1) {
       my $j = $advx{$f};
       print OH "$advimpact[$j],$advcode[$j],$advsit[$j],$advonline[$j]\n";
       $max_impact = $advimpact[$j] if $advimpact[$j] > $max_impact;
-      $advgotx{$advcode[$j]} = 1;
+      $advgotx{$advcode[$j]} = $advimpact[$j];
    }
 } else {
    print OH "No Expert Advisory messages\n";
@@ -4317,7 +4359,7 @@ if ($advi != -1) {
    print OH "\n";
    print OH "Advisory Trace, Meaning and Recovery suggestions follow\n\n";
    foreach my $f ( sort { $a cmp $b } keys %advgotx ) {
-      print OH "Advisory code: " . $f . "\n";
+      print OH "Advisory code: " . $f . " Impact:" . $advgotx{$f}  . "\n";
       print OH $advtextx{$f};
    }
 }
@@ -4742,6 +4784,9 @@ exit;
 #         - correct wording on 1041E issue.
 # 1.54000 - Add Endpoint Communication Problem Report
 #         - Add advisory on WRITENOS=YES
+#         - Add advisory on low storage
+# 1.55000 - correct cumulative results per cent presentation
+#         - More information on port scanning
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -5610,5 +5655,46 @@ Recovery plan: Remove the setting. In the most recent case
 it was discoved in <installdir>/config/kbbenv.ini file, but
 it could be anyplace. If you cannot locate it, contact
 IBM Support to assist.
+----------------------------------------------------------------
+
+TEMSAUDIT1048E
+Text: Storage allocation [count] failure(s)
+
+Tracing: error
+(58E42EB8.0000-1110:kdsdscom.c,196,"VDM1_Malloc") GMM1_AllocateStorage failed - 1
+
+Meaning: There are messages stating that storage allocation failed.
+This most often seen in Windows as the kdsmain process size approaches
+the 2gig [32-bit] or 4gig [64-bit] limit. It used to be seen in Unix
+at 2gig until ITM 623 FP2. It is still seen in any environment
+if paging space cannot handle the kdsmain process size.
+
+The impact is severe and usuall a TEMS failure is imminent.
+
+Recovery plan: Work with IBM Support to determin the underlying
+cause. It could be too much workload, environmental factors like
+paging space, too many agents etc etc.
+----------------------------------------------------------------
+
+TEMSAUDIT1049E
+Text: Definite Evidence of port scanning [$scantype] which can destabilize any ITM process including TEMS
+
+Tracing: error
+(55C220BB.0003-5B:kdebpli.c,115,"pipe_listener") ip.spipe suspending new connections: 1DE0000D
+(58FAAE7F.0000-61B7B:kdebbac.c,50,"KDEB_BaseAccept") Status 1DE0000D=KDE1_STC_IOERROR=72: NULL
+
+Meaning: The log indicates port scanning is taking place.
+
+There is a diagnostic fix referenced here
+
+https://www-304.ibm.com/support/entdocview.wss?uid=swg1IV85368
+
+When that diagnostic fix is installed and enabled, there are
+documented messages which identify the ip address source of the
+port scanning.
+
+Recovery plan: Critical plan is to work with network and security
+team to NOT port scan ITM processes. As an alternative stop the
+ITM processes during such scanning.
 ----------------------------------------------------------------
 
