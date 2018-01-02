@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.51000;
+my $gVersion = 1.52000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -241,6 +241,8 @@ my %advcx = (
               "TEMSAUDIT1039W" => "95",
               "TEMSAUDIT1040E" => "100",
               "TEMSAUDIT1041E" => "100",
+              "TEMSAUDIT1042E" => "100",
+              "TEMSAUDIT1043E" => "110",
             );
 
 my %advtextx = ();
@@ -279,6 +281,7 @@ my $sit_ref;
 
 my $stage2 = "";
 my $stage2_ct = 0;
+my $stage2_ct_err = 0;
 
 my %commex;
 my $comme_ct = 0;
@@ -804,6 +807,7 @@ my $ix;
 my $pt_total_total = 0;
 
 my $nmr_total = 0;          # no matching request count
+my $anic_total = 0;         # Activity not in call count
 my $fsync_enabled = 1;      # assume fsync is enabled
 
 my $lp_high = -1;
@@ -1439,6 +1443,17 @@ for(;;)
       }
    }
 
+   # (5890C272.0000-5D3:kdcc1wh.c,114,"conv__who_are_you") status=1c010008, "activity not in call", ncs/KDC1_STC_NOT_IN_CALL
+   if (substr($logunit,0,9) eq "kdcc1wh.c") {
+      if ($logentry eq "conv__who_are_you") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # status=1c010008, "activity not in call", ncs/KDC1_STC_NOT_IN_CALL
+         if (substr($rest,1,15) eq "status=1c010008") {
+            $anic_total += 1;
+         }
+      }
+   }
+
 
    # signals for port scanning
    # (571C6FD5.0000-F6:kdhsiqm.c,772,"KDHS_InboundQueueManager") Unsupported request method "NESSUS"
@@ -1493,6 +1508,7 @@ for(;;)
          } elsif (substr($rest,1,11) eq "End stage 2") {
             $stage2_ct += 1;
             $stage2 .= "End-" . $logtime . ":";
+            $stage2_ct_err += 1 if index($rest,"return code: 0") == -1;
          }
          next;
       }
@@ -3150,6 +3166,13 @@ if ($stage2_ct > 2) {
    $advsit[$advi] = "Reconnect";
 }
 
+if ($stage2_ct_err > 0) {
+   $advi++;$advonline[$advi] = "Failed Reconnection from remote TEMS to hub TEMS - $stage2_ct_err times";
+   $advcode[$advi] = "TEMSAUDIT1043E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Reconnect_Fail";
+}
+
 if ($portscan > 0) {
    my $scantype = "";
    $scantype .= "Unsupported(" . $portscan_Unsupported . ") " if $portscan_Unsupported > 0;
@@ -3181,6 +3204,15 @@ if ($nmr_total > 0) {
    $advcode[$advi] = "TEMSAUDIT1010W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "NMR";
+}
+
+if ($anic_total > 0) {
+   $cnt++;$oline[$cnt]="Activity Not In Call count,,,$anic_total,\n";
+   $cnt++;$oline[$cnt]="\n";
+   $advi++;$advonline[$advi] = "$anic_total \"activity not in call\" reports";
+   $advcode[$advi] = "TEMSAUDIT1042E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "ANIC";
 }
 
 foreach my $f (keys %miss_tablex) {
@@ -4535,6 +4567,7 @@ exit;
 #         - handle multiple .inv records better
 # 1.51000 - add Historical data bytes to Summary
 #         - add Situation Result by Time report
+# 1.52000 - add Activity not a Call advisory
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -5271,4 +5304,55 @@ from SITDB table or QA1CRULD.
 Recovery plan:  Work with IBM Support. The issue is severe
 and needs prompt attention.
 --------------------------------------------------------------
+
+TEMSAUDIT1042E
+Text: count "activity not in call" reports
+
+Tracing: error
+Diag Log: (5890C272.0000-5D3:kdcc1wh.c,114,"conv__who_are_you") status=1c010008, "activity not in call", ncs/KDC1_STC_NOT_IN_CALL
+
+Meaning: This condition occurs between any two ITM processes
+where at least one side is running on an AIX system. The impact
+is that the activity is lost. That can result in many
+issues such as agent unable to monitor. The only good news
+is the issue is rare.
+
+The issue is completely resolved in ITM 630 FP7 and documented
+here
+
+APAR IV78468: AGENT ON AIX LOSES CONNECTION TO THE TEMS
+http://www-01.ibm.com/support/docview.wss?uid=swg1IV78468
+
+Running with KDC_DEBUG=Y will give additional information about
+the source of the lost activities.
+
+Recovery plan:  Upgrade the ITM components involved. That means
+TEMS/WPA/S&P/TEPS and OS Agents running on AIX systems..
+----------------------------------------------------------------
+
+TEMSAUDIT1043E
+Text: Failed Reconnection from remote TEMS to hub TEMS - count times
+
+Tracing: error
+(58C18A6C.0000-6:ko4crtsq.cpp,7146,"IBInterface::doStageTwoProcess") End stage 2 processing. Database and IB Cache synchronization with the hub with return code: 1
+
+Meaning: The remote TEMS failed the stage 2 resynchronization
+process with the hub TEMS. That means it could not get the
+three major tables TNODELST, TOBJACCL and TSITDESC. After that
+the remote TEMS runs in a largely failure mode not doing
+what was intended.
+
+In some cases the remote TEMS needs to be configured with a
+longer remote SQL timeout.
+
+Remote TEMS fails to startup
+http://www.ibm.com/support/docview.wss?uid=swg21591476
+
+That can occur if the tables get significantly larger, the
+latency between remote and hub TEMS gets larger, or the
+system running the remote TEMS has less than needed capacity.
+
+Recovery plan:  Work with IBM support to diagnose and correct
+the condition.
+----------------------------------------------------------------
 
