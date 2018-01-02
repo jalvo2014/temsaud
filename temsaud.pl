@@ -24,10 +24,10 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 ## Fp7 trace adds Richard added
-## Count of pcb adds and deletes
+## kglaffam.c|AFF1_IsPartOf|294,16618,10%,(58231CDA.0002-18:kglaffam.c,294,"AFF1_IsPartOf") Warning: No affinity entry for <&IBM.CAM7_WAS>
 
 
-my $gVersion = 1.58000;
+my $gVersion = 1.59000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -162,6 +162,7 @@ my $opt_rdslot;                                  # number of seconds for result 
 my $opt_rdtop;                                   # number of situations to display
 my $ssi = -1;
 my @ssout;
+my $opt_flip = 0;
 
 my $test_logfn;
 my $invfile;
@@ -177,9 +178,9 @@ my $invlogtime = 0;
 
 my @seg = ();
 my $segcurr;
-my $h;
 my $i;
 my $g;
+my $h;
 my $l;
 my $respermin;
 my $dur;
@@ -254,7 +255,10 @@ my %advcx = (
               "TEMSAUDIT1049E" => "100",
               "TEMSAUDIT1050W" => "100",
               "TEMSAUDIT1051E" => "110",
-              "TEMSAUDIT1052E" => "120",
+              "TEMSAUDIT1053W" => "95",
+              "TEMSAUDIT1054W" => "80",
+              "TEMSAUDIT1055W" => "90",
+              "TEMSAUDIT1056W" => "85",
             );
 
 my %advtextx = ();
@@ -298,6 +302,19 @@ my %pcbx;
 my %pcbr;
 
 my $hublost_total = 0;
+my $intexp_total = 0;
+
+
+my %soaperror;
+my $soaperror_fault = "";
+my $soaperror_client = "";
+my $soaperror_ct;
+
+my %changex;
+my $changex_ct = 0;
+
+my %misscolx;
+my $misscolx_ct;
 
 
 my $stage2 = "";
@@ -402,6 +419,9 @@ while (@ARGV) {
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-sr") {
       $opt_sr = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-flip") {
+      $opt_flip = 1;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-cmdall") {
       $opt_cmdall = 1;
@@ -1339,7 +1359,6 @@ for(;;)
          my $logloci = $1 . "|" . $logentry . "|" . $2;
          my $loci_ref = $locix{$logloci};
          if (!defined $loci_ref) {
-#$DB::single=2 if $logloci eq "kdsvws1.c|ManageView|2421";
             my %lociref = (
                              count => 0,
                              first => "",
@@ -1606,6 +1625,18 @@ for(;;)
       }
    }
 
+   # (590CFA4B.002B-449:kgltmbas.c,725,"DriveTimerExit") KDSTMDTE: Interval Missed Seconds=1494015924 Nsecs=763544806 Detected at Seconds=1494022731 Nsecs=80363777
+   if (substr($logunit,0,10) eq "kgltmbas.c") {
+      if ($logentry eq "DriveTimerExit") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # KDSTMDTE: Interval Missed Seconds=1494015924 Nsecs=763544806 Detected at Seconds=1494022731 Nsecs=80363777
+         if (substr($rest,1,25) eq "KDSTMDTE: Interval Missed") {
+            $intexp_total += 1;
+            next;
+         }
+      }
+   }
+
 
    # signals for port scanning
    # (571C6FD5.0000-F6:kdhsiqm.c,772,"KDHS_InboundQueueManager") Unsupported request method "NESSUS"
@@ -1624,6 +1655,7 @@ for(;;)
          next;
       }
    }
+
    # (55C14E21.0001-8B:kdebp0r.c,235,"receive_pipe") Status 1DE00074=KDE1_STC_DATASTREAMINTEGRITYLOST
    if (substr($logunit,0,9) eq "kdebp0r.c") {
       if ($logentry eq "receive_pipe") {
@@ -2235,8 +2267,90 @@ for(;;)
                $agtsh_etime = $logtime;
             }
          }
+         next;
       }
-      next;
+
+
+      # (590DD139.0000-C5:kfaprpst.c,3649,"NodeStatusRecordChange") Host info/loc/addr change detected for node <uuc_wtwavwq9:06                 > thrunode <REMOTE_usitmpl8057-itm2         > hostAddr: <ip.spipe:#192.168.10.72[4206]<NM>uuc_wtwavwq9</NM>          >
+      # (59103772.0000-C9:kfaprpst.c,3618,"NodeStatusRecordChange") Affinities change detected for node <uuc_scent5010:NT                > thrunode <REMOTE_usitmpl8044              > hostAddr: <ip.spipe:#10.188.5.10[60467]<NM>uuc_scent5010</NM>          >
+      # (590D97C3.0002-69:kfaprpst.c,3632,"NodeStatusRecordChange") Version change detected for node <CustomMSG:uuc_uswasx3c8:LO      > thrunode <REMOTE_usitmpl8047              > hostAddr: <ip.spipe:#10.56.38.101[34393]<NM>uuc_uswasx3c8</NM>         >
+      # (5907C6CF.0001-28:kfaprpst.c,3582,"NodeStatusRecordChange") Thrunode change detected for node <CustomMSG:uuc_ussaspa601:LO     > thrunode <REMOTE_usitmpl8055              > Old thrunode <REMOTE_usitmpl8054              > hostAddr: <ip.spipe:#10.113.3.8[63646]<NM>uuc_ussaspa601</NM>          >
+      if ($logentry eq "NodeStatusRecordChange") {
+         if ($opt_flip == 1) {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       #  Host info/loc/addr change detected for node <uuc_wtwavwq9:06                 > thrunode <REMOTE_usitmpl8057-itm2         > hostAddr: <ip.spipe:#192.168.10.72[4206]<NM>uuc_wtwavwq9</NM>          >
+            $rest =~ / (.*?) change detected for node \<(.*?)\>(.+)$/;
+            my $idesc = $1;
+            my $inode = $2;
+            $rest = $3;
+            $rest =~ /thrunode \<(.*?)\>(.+)$/;
+            my $ithrunode = $1;
+            $rest = $2;
+            my $ioldthrunode = "";
+            if (index($rest,"Old thrunode") != -1) {
+               $rest =~ /Old thrunode \<(.*?)\>(.+)$/;
+               $ioldthrunode = $1;
+               $rest = $2;
+            }
+            $rest =~ /hostAddr\: \<(.*?)\[/;
+            my $ihostaddr = $1;
+            $inode =~ s/\s+$//;   #trim trailing whitespace
+            $ithrunode =~ s/\s+$//;   #trim trailing whitespace
+            $ioldthrunode =~ s/\s+$//;   #trim trailing whitespace
+            $ihostaddr =~ s/\s+$//;   #trim trailing whitespace
+            my $change_ref = $changex{$idesc};
+            $changex_ct += 1;
+            if (!defined $change_ref) {
+               my %changeref = (
+                                  count => 0,
+                                  nodes => {},
+                               );
+               $change_ref = \%changeref;
+               $changex{$idesc} = \%changeref;
+            }
+            $change_ref->{count} += 1;
+            my $change_node_ref = $change_ref->{nodes}{$inode};
+            if (!defined $change_node_ref) {
+               my %changenoderef = (
+                                      count => 0,
+                                      instances => {},
+                               );
+               $change_node_ref = \%changenoderef;
+               $change_ref->{nodes}{$inode} = \%changenoderef;
+            }
+            $change_node_ref->{count} += 1;
+            my $changekey = $ithrunode . "|" . $ihostaddr;
+            my $change_instance_ref = $change_node_ref->{instances}{$changekey};
+            if (!defined $change_instance_ref) {
+               my %changeinstanceref = (
+                                          count => 0,
+                                          hostaddr =>$ihostaddr,
+                                          thrunode =>$ithrunode,
+                                          oldthrunode =>$ioldthrunode,
+                               );
+               $change_instance_ref = \%changeinstanceref;
+               $change_node_ref->{instances}{$changekey} = \%changeinstanceref;
+            }
+            $change_instance_ref->{count} += 1;
+            next;
+         }
+      }
+   }
+   # (591116EF.0000-EEC:kdspmcat.c,979,"CompilerCatalog") Column ATFSTAT in Table LIMS_SYSS for Application KIP Not Found.
+   if (substr($logunit,0,10) eq "kdspmcat.c") {
+      if ($logentry eq "CompilerCatalog") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Column ATFSTAT in Table LIMS_SYSS for Application KIP Not Found.
+         if (substr($rest,-10) eq "Not Found.") {
+            $rest =~ /Column (\S+) in Table (\S+) for Application (\S+) /;
+            my $icolumn = $1;
+            my $itable = $2;
+            my $iapp = $3;
+            my $key = $3 . "|" . $2 . "|" . $1;
+            $misscolx{$key} += 1;
+            next;
+         }
+      }
    }
 
 
@@ -2383,6 +2497,48 @@ for(;;)
       }
       next;
    }
+   #(59082197.0003-2B7:kshhttp.cpp,493,"writeSoapErrorResponse") faultstring: CMS logon validation failed.
+   #(59082197.0004-2B7:kshhttp.cpp,523,"writeSoapErrorResponse") Client: ip.ssl:#158.98.69.8:42858
+   if (substr($logunit,0,11) eq "kshhttp.cpp") {
+      if ($logentry eq "writeSoapErrorResponse") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # faultstring: CMS logon validation failed.
+                                           # Client: ip.ssl:#158.98.69.8:42858
+         if (substr($rest,1,12) eq "faultstring:") {
+            $rest =~ /: (.*)/;
+            $soaperror_fault = $1 if defined $1;
+            next;
+         } elsif (substr($rest,1,7) eq "Client:") {
+            $rest =~ /: (.*)/;
+            $soaperror_client = $1 if defined $1;
+            if ($soaperror_fault ne "") {
+                my $soaperror_ref = $soaperror{$soaperror_fault};
+                if (!defined $soaperror_ref) {
+                   my %soaperrorref = (
+                                         count => 0,
+                                         clients => {},
+                                      );
+
+                   $soaperror_ref = \%soaperrorref;
+                   $soaperror{$soaperror_fault} = \%soaperrorref;
+                }
+                $soaperror_ref->{count} += 1;
+                my $client_ref = $soaperror_ref->{clients}{$soaperror_client};
+                if (!defined $client_ref) {
+                   my %clientref = (
+                                      count => 0,
+                                   );
+
+                   $client_ref = \%clientref;
+                   $soaperror_ref->{clients}{$soaperror_client} = \%clientref;
+                }
+                $client_ref->{count} += 1;
+            }
+            next;
+         }
+      }
+   }
+
 
    #(52051207.0004-42:kdsstc1.c,2097,"ProcessTable") Table Status = 74, Rowcount = 0, TableName = WTMEMORY, Query Type = Select, TablePath = WTMEMORY
    if (substr($logunit,0,9) eq "kdsstc1.c") {
@@ -3481,11 +3637,38 @@ foreach my $f (keys %pcbx) {
 }
 
 if ($pcb_deletePCB > 0) {
-   $advi++;$advonline[$advi] = "Connection problems with [$pcb_deletePCB] systems total[$pcb_total] - See following report";
+   $advi++;$advonline[$advi] = "Agent connection churning on [$pcb_deletePCB] systems total[$pcb_total] - See following report";
    $advcode[$advi] = "TEMSAUDIT1050W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "PCB";
 
+}
+
+$soaperror_ct = scalar keys %soaperror;
+if ($soaperror_ct >= 0) {
+   $advi++;$advonline[$advi] = "SOAP Errors Types [$soaperror_ct] Detected - See following report";
+   $advcode[$advi] = "TEMSAUDIT1054W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "SOAP";
+
+}
+
+if ($changex_ct > 0) {
+   $advi++;$advonline[$advi] = "Agent Location Flipping Changes Detected [$changex_ct] - See following report";
+   $advcode[$advi] = "TEMSAUDIT1055W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Agent";
+
+}
+
+$misscolx_ct = scalar keys %misscolx;
+if ($misscolx_ct > 0) {
+   foreach my $f (keys %misscolx) {
+      $advi++;$advonline[$advi] = "Missing Application/Table/Column $f $misscolx{$f} times";
+      $advcode[$advi] = "TEMSAUDIT1056W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
 }
 
 if ($hublost_total > 0) {
@@ -3500,6 +3683,12 @@ if ($hublost_total > 0) {
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "HUB";
    }
+}
+if ($intexp_total > 0) {
+   $advi++;$advonline[$advi] = "Time interval expired late $intexp_total times";
+   $advcode[$advi] = "TEMSAUDIT1053W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
 }
 
 foreach my $f (keys %miss_tablex) {
@@ -4432,7 +4621,7 @@ if ($loci_ct > 0) {
 
 if ($pcb_deletePCB > 0) {
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Communications Problem Report - $pcb_deletePCB systems\n";
+   $cnt++;$oline[$cnt]="Agent connection churning Report - $pcb_deletePCB systems\n";
    $cnt++;$oline[$cnt]="ip_address,Count,NewPCB,DeletePCB,Agents(count),\n";
    foreach $f ( sort { $pcbx{$b}->{deletePCB} <=> $pcbx{$a}->{deletePCB} || $a cmp $b } keys %pcbx) {
       my $pcb_ref = $pcbx{$f};
@@ -4444,6 +4633,47 @@ if ($pcb_deletePCB > 0) {
       }
       $outl .= $pagents . ",";
       $cnt++;$oline[$cnt]="$outl\n";
+   }
+}
+
+$soaperror_ct = scalar keys %soaperror;
+if ($soaperror_ct > 0) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="SOAP Error Report\n";
+   $cnt++;$oline[$cnt]="Count,Fault,\n";
+   $cnt++;$oline[$cnt]=",Count,Client,\n";
+   foreach $f ( sort { $soaperror{$b}->{count} <=> $soaperror{$a}->{count} } keys %soaperror) {
+      my $fault_ref = $soaperror{$f};
+      $outl = $fault_ref->{count} . "," . $f . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+      foreach $g (keys %{$fault_ref->{clients}}) {
+         my $client_ref = $fault_ref->{clients}{$g};
+         $outl = "," . $client_ref->{count} . " , " . $g . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+      }
+   }
+}
+
+if ($changex_ct > 0) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Agent Flipping Report\n";
+   $cnt++;$oline[$cnt]="Node,Count,\n";
+   $cnt++;$oline[$cnt]="Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,\n";
+   foreach $f ( sort { $a cmp $b } keys %changex) {
+      my $change_ref = $changex{$f};
+      foreach $g (keys %{$change_ref->{nodes}}) {
+         my $change_node_ref = $change_ref->{nodes}{$g};
+         next if $change_node_ref->{count} < 2;
+         foreach $h (keys %{$change_node_ref->{instances}}) {
+            my $change_instance_ref = $change_node_ref->{instances}{$h};
+            next if $change_instance_ref->{count} < 2;
+            $outl = $f . ",";
+            $outl .= $change_node_ref->{count} . "," . $g . ",";
+            $outl .= $change_instance_ref->{count} . ",";
+            $outl .= $change_instance_ref->{thrunode} . "," . $change_instance_ref->{hostaddr} . "," . $change_instance_ref->{oldthrunode} . ",";
+            $cnt++;$oline[$cnt]="$outl\n";
+         }
+      }
    }
 }
 
@@ -4924,6 +5154,10 @@ exit;
 # 1.56000 - Add advisory on DeletePCB cases
 # 1.57000 - Add advisories on connection to hub TEMS loss
 # 1.58000 - Improve DeletePCB report to include possible agents involved
+# 1.59000 - Add advisory for missing timer expiration
+#         - Add advisory for SOAP errors
+#         - Add advisory and report for Agent Location Flipping
+#         - Add advisory for missing application data
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -5836,7 +6070,7 @@ ITM processes during such scanning.
 ----------------------------------------------------------------
 
 TEMSAUDIT1050W
-Text: Connection problems with [count] systems total[count] - See following report
+Text: Agent connection churning on [count] systems total[count] - See following report
 
 Tracing: error
 (58DA4E42.0511-73:kdepnpc.c,138,"KDEP_NewPCB") 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
@@ -5903,5 +6137,78 @@ caused by many reasons including TEMS database problems,
 network problems and excessive workoad.
 
 Recovery plan: Contact IBM support for aid in diagnosis.
+----------------------------------------------------------------
+
+TEMSAUDIT1053W
+Text: Time interval expired late count times
+
+Tracing: error
+(590CFA4B.002B-449:kgltmbas.c,725,"DriveTimerExit") KDSTMDTE: Interval Missed Seconds=1494015924 Nsecs=763544806 Detected at Seconds=1494022731 Nsecs=80363777
+
+Meaning: This message is seen when ITM logic sets an expiry time and
+later when the exit routine is runs the logic discovers that some
+intermediate timer exits were missed.
+
+This condition is only seen when the ITM process is under extremely
+heavy load. Think of it as a skipped heartbeat, There are
+probably a lot of other bad conditions happening.
+
+Recovery plan: Reduce workload or run ITM process on a more
+powerful system.
+----------------------------------------------------------------
+
+TEMSAUDIT1054W
+Text: SOAP Error Types [count] Detected - See following report
+
+Tracing: error
+(59082197.0003-2B7:kshhttp.cpp,493,"writeSoapErrorResponse") faultstring: CMS logon validation failed.
+(59082197.0004-2B7:kshhttp.cpp,523,"writeSoapErrorResponse") Client: ip.ssl:#158.98.69.8:42858
+
+Meaning: These errors mean SOAP failures. The might mean nothing
+more than a side effect of testing and development. However if
+there are floods of them like "CMS logon validation failed" then
+a production process might be failing. Other cases might imply
+an environment issue such as a hub TEMS with too much workload.
+
+Recovery plan: Investigate the SOAP workload and correct as needed.
+----------------------------------------------------------------
+
+TEMSAUDIT1055W
+Text: Agent Location Flipping Changes Detected [count] - See following report
+
+Tracing: error
+(590DD139.0000-C5:kfaprpst.c,3649,"NodeStatusRecordChange") Host info/loc/addr change detected for node <uuc_wtwavwq9:06                 > thrunode <REMOTE_usitmpl8057-itm2         > hostAddr: <ip.spipe:#192.168.10.72[4206]<NM>uuc_wtwavwq9</NM>          >
+(59103772.0000-C9:kfaprpst.c,3618,"NodeStatusRecordChange") Affinities change detected for node <uuc_scent5010:NT                > thrunode <REMOTE_usitmpl8044              > hostAddr: <ip.spipe:#10.188.5.10[60467]<NM>uuc_scent5010</NM>          >
+(590D97C3.0002-69:kfaprpst.c,3632,"NodeStatusRecordChange") Version change detected for node <CustomMSG:uuc_uswasx3c8:LO      > thrunode <REMOTE_usitmpl8047              > hostAddr: <ip.spipe:#10.56.38.101[34393]<NM>uuc_uswasx3c8</NM>         >
+(5907C6CF.0001-28:kfaprpst.c,3582,"NodeStatusRecordChange") Thrunode change detected for node <CustomMSG:uuc_ussaspa601:LO     > thrunode <REMOTE_usitmpl8055              > Old thrunode <REMOTE_usitmpl8054              > hostAddr: <ip.spipe:#10.113.3.8[63646]<NM>uuc_ussaspa601</NM>          >
+
+Meaning: These message mean that an agent is flipping from
+one location and/or thrunode and/or ip address to another.
+
+A certain number of those are expected as agents are recycled
+or change from one remote TEMS to another. However when these
+are seen in volume, there can be configuration issue including
+accidental duplicate agent names.
+
+Duplicate agents can cause TEPS slow response and TEMS instabilty
+including crashes. In addition the agents involved are not
+being monitored full time as expected. Therefore it is important
+to resolve the issues and restore normal function.
+
+Recovery plan: Investigate the Agents involved and resolve
+issue if needed.
+----------------------------------------------------------------
+
+TEMSAUDIT1056W
+Text: Missing Application/Table/Column string count times
+
+Tracing: error
+(591116EF.0000-EEC:kdspmcat.c,979,"CompilerCatalog") Column ATFSTAT in Table LIMS_SYSS for Application KIP Not Found.
+
+Meaning: This means application support is missing or
+backlevel. The impact is that situations and real time
+reports will not be run as expected.
+
+Recovery plan: Install the missing application support.
 ----------------------------------------------------------------
 
