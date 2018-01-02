@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.47000;
+my $gVersion = 1.48000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -130,6 +130,7 @@ my $opt_v;
 my $opt_ss;                                      # create SendStatus report
 my $opt_o;
 my $opt_odir;                                    # directory for all output files
+my $opt_ossdir;                                  # directory for ss output files
 my $opt_nohdr = 0;
 my $workdel = "";
 my $opt_inplace = 1;
@@ -219,6 +220,7 @@ my %advcx = (
               "TEMSAUDIT1036W" => "60",
               "TEMSAUDIT1037E" => "100",
               "TEMSAUDIT1038W" => "80",
+              "TEMSAUDIT1039W" => "95",
             );
 
 my %advtextx = ();
@@ -248,6 +250,9 @@ my %lociex = (                    # generic loci counter exclusion
              );
 my $stage2 = "";
 my $stage2_ct = 0;
+
+my %commex;
+my $comme_ct = 0;
 
 my %atrwx;                        # collection of attribute warnings
 my $atrwx_ct = 0;                 # collection of attribute warnings
@@ -376,6 +381,10 @@ while (@ARGV) {
       shift(@ARGV);
       $opt_odir = shift(@ARGV);
       die "odir specified but no path found\n" if !defined $opt_odir;
+   } elsif ($ARGV[0] eq "-ossdir") {
+      shift(@ARGV);
+      $opt_ossdir = shift(@ARGV);
+      die "ossdir specified but no path found\n" if !defined $opt_ossdir;
    } elsif ($ARGV[0] eq "-workpath") {
       shift(@ARGV);
       $opt_workpath = shift(@ARGV);
@@ -407,6 +416,7 @@ if (!defined $opt_v) {$opt_v = 0;}
 if (!defined $opt_ss) {$opt_ss = 0;}
 if (!defined $opt_o) {$opt_o = "temsaud.csv";}
 if (!defined $opt_odir) {$opt_odir = "";}
+if (!defined $opt_ossdir) {$opt_ossdir = "";}
 if (!defined $opt_expslot) {$opt_expslot = 60;}
 
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
@@ -427,6 +437,10 @@ if (!$opt_inplace) {
 if ($opt_odir ne "") {
    $opt_odir =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
    $opt_odir .= '/' if substr($opt_odir,-1,1) ne '/';
+}
+if ($opt_ossdir ne "") {
+   $opt_ossdir =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+   $opt_ossdir .= '/' if substr($opt_ossdir,-1,1) ne '/';
 }
 
 my $pwd;
@@ -801,8 +815,8 @@ my $inwritect;
 my %table_rowsize = ();
 
 my $histcnt = 0;
-my $total_histrows = 0;
-my $total_histsecs = 0;
+my $total_hist_rows;
+my $total_hist_bytes;
 
 
 my $hist_sec;
@@ -1204,6 +1218,7 @@ for(;;)
          if (!defined $loci_ref) {
             my %lociref = (
                              count => 0,
+                             first => $oneline,
                           );
              $loci_ref = \%lociref;
             $locix{$logloci} = \%lociref;
@@ -1336,6 +1351,43 @@ for(;;)
          }
       }
    }
+   # signal(s) for communication failures
+   # (57BE11EA.0006-2:kdcc1sr.c,485,"rpc__sar") Connection lost: "ip.pipe:#172.27.2.10:7025", 1C010001:1DE0004D, 0, 130(0), FFFA/30, D140831.1:1.1.1.13, tms_ctbs630fp5:d5135a
+   if (substr($logunit,0,9) eq "kdcc1sr.c") {
+      if ($logentry eq "rpc__sar") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       #  Connection lost: "ip.pipe:#172.27.2.10:7025", 1C010001:1DE0004D, 0, 130(0), FFFA/30, D140831.1:1.1.1.13, tms_ctbs630fp5:d5135a
+         if (substr($rest,1,15) eq "Connection lost") {
+            $rest =~ /\"(.*?):(.*?)\", (\w+):(\w+),/;
+            my $iprotocol = $1;
+            my $iaddrport = $2;
+            my $ierror = $3 . ":" . $4;
+            my $addrkey = $1 . ":" . $2;
+            my $error_ref = $commex{$ierror};
+            if (!defined $error_ref) {
+               my %errorref = (
+                                 count => 0,
+                                 targets => {},
+                              );
+               $error_ref = \%errorref;
+               $commex{$ierror} = \%errorref;
+            }
+            $error_ref->{count} += 1;
+            $comme_ct += 1;
+            my $addr_ref = $commex{$ierror}->{targets}{$addrkey};
+            if (!defined $addr_ref) {
+               my %addrref = (
+                                 count => 0,
+                              );
+               $addr_ref = \%addrref;
+               $commex{$ierror}->{targets}{$addrkey} = \%addrref;
+            }
+            $addr_ref->{count} += 1;
+            next;
+         }
+      }
+   }
+
 
    # signals for port scanning
    # (571C6FD5.0000-F6:kdhsiqm.c,772,"KDHS_InboundQueueManager") Unsupported request method "NESSUS"
@@ -1349,6 +1401,7 @@ for(;;)
          } elsif (substr($rest,1,21) eq "error in HTTP request") {
             $portscan++ if index($rest,"unknown method in request") != -1;
          }
+         next;
       }
    }
    # (55C14E21.0001-8B:kdebp0r.c,235,"receive_pipe") Status 1DE00074=KDE1_STC_DATASTREAMINTEGRITYLOST
@@ -3463,8 +3516,29 @@ if ($timex_ct > 0) {
    }
 }
 
-my $total_hist_rows = 0;
-my $total_hist_bytes = 0;
+if ($comme_ct > 0) {
+   $advi++;$advonline[$advi] = "Remote Procedure Connection lost $comme_ct";
+   $advcode[$advi] = "TEMSAUDIT1039W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "RPCFail";
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="RPC Error report\n";
+   $cnt++;$oline[$cnt]="Error,Target,Count\n";
+   foreach $f ( sort { $commex{$b}->{count} <=> $commex{$a}->{count} } keys %commex) {
+      my $perror = $f;
+      foreach my $g ( sort { $a cmp $b } keys %{$commex{$f}->{targets}} ) {
+         my $ptarget = $g;
+         my $pcount = $commex{$f}->{targets}{$g}->{count};
+         $outl = $perror . ',';
+         $outl .= $ptarget . ",";
+         $outl .= $pcount . ",";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+      }
+   }
+}
+
+$total_hist_rows = 0;
+$total_hist_bytes = 0;
 $hist_elapsed_time = $hist_max_time - $hist_min_time;
 my $time_elapsed;
 
@@ -3640,12 +3714,13 @@ if ($loci_ct > 0) {
    my $worry_ct = int(($loci_ct*$opt_nominal_loci)/100);
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Loci Count Report - $loci_ct found\n";
-   $cnt++;$oline[$cnt]="Locus,Count,PerCent,\n";
+   $cnt++;$oline[$cnt]="Locus,Count,PerCent,Example_Line\n";
    foreach $f ( sort { $locix{$b}->{count} <=> $locix{$a}->{count} || $a cmp $b } keys %locix) {
       last if $locix{$f}->{count} < $worry_ct;
       my $res_pc = int(($locix{$f}->{count}*100)/$loci_ct);
       my $ppc = sprintf '%.0f%%', $res_pc;
       $outl = $f . "," . $locix{$f}->{count} . "," . $ppc . ",";
+      $outl .=  $locix{$f}->{first} . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
       $loci_worry += 1;
    }
@@ -3711,7 +3786,9 @@ close(OH);
 
 if ($opt_sr == 1) {
    if ($soap_burst_minute != -1) {
-      my $opt_sr_fn = $opt_odir . "soap_detail.txt";
+
+      my $opt_sr_fn = $opt_ossdir . "soap_detail.txt";
+
       open SOAP, ">$opt_sr_fn" or die "Unable to open SOAP Detail output file $opt_sr_fn\n";
       select SOAP;              # print will use SOAP instead of STDOUT
       print "Secs   Count Line   Log-segment\n";
@@ -3731,7 +3808,7 @@ if ($opt_sr == 1) {
 
 if ($opt_ss == 1) {
    if ($ssi != -1) {
-      my $opt_ss_fn = $opt_nodeid . "_sendstatus_detail.txt";
+      my $opt_ss_fn = $opt_ossdir . $opt_nodeid . "_sendstatus_detail.txt";
       open SEND, ">$opt_ss_fn" or die "Unable to open SEND Detail output file $opt_ss_fn\n";
       for (my $i=0;$i<=$ssi;$i++) {
          print SEND "$ssout[$i]\n";
@@ -3988,6 +4065,9 @@ exit;
 # 1.46000 - Add advisory on multiple remote TEMS reconnects
 # 1.47000 - Add advisory on port scanning from four messages
 #         - Add initial trace settings
+# 1.48000 - Add example [first] line to locui report
+#         - Add advisory on lost connections
+#         - Add -ossdir to control sendstatus summary report location
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -4671,5 +4751,31 @@ Only use these settings when IBM L3 support/development or very experienced
 other IBM support people advise.
 
 Recovery plan: Avoid such use unless advised by IBM Support.
+--------------------------------------------------------------
+
+TEMSAUDIT1039W
+Text: Remote Procedure call Connection lost count - see following report
+
+Tracing: error
+Diag Log: (57BE11EA.0006-2:kdcc1sr.c,485,"rpc__sar") Connection lost: "ip.pipe:#172.27.2.10:7025", 1C010001:1DE0004D, 0, 130(0), FFFA/30, D140831.1:1.1.1.13, tms_ctbs630fp5:d5135a
+
+Meaning: Remote Procedure call failed. Most of ITM communications
+is performed via remote procedure calls using the Network Communication
+Services architecture. Connection losts at a high frequency imply
+a serious network issue and ITM processing is often unstable. At a low
+level ITM basic services will recover and run normally.
+
+If ITM is unstable, work with your local networking support people and
+resolve whatever is causing the network failures.
+
+IDE0004D corresponds to KDE1_STC_INVALIDTRANSPORTCORRELATOR which often
+means the tcp socket connect was closed unexpectedly. There are many
+such codes. There has been an increase in cases where customer
+networking firewall rules close tcp socket connections which are idle
+for some fixed time. This probably benefits overall networking efficiency
+but it often has a major negative impact on ITM stablity and usefulness.
+
+Recovery plan: IBM Support can help in understanding the basic issues but
+resolution depends on customer network support.
 --------------------------------------------------------------
 
