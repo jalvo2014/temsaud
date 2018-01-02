@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.48000;
+my $gVersion = 1.49000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -153,6 +153,7 @@ my $opt_driver = "";                             # Driver
 my $opt_sum;                                     # Summary text
 my $opt_nodeid = "";                             # TEMS nodeid
 my $opt_tems = "";                               # *HUB or *REMOTE
+my $opt_sqldetail;                               # detail SQL report wanted
 my $ssi = -1;
 my @ssout;
 
@@ -169,6 +170,7 @@ my @syncdist_time;
 my $oneline;
 my $sumline;
 my $sql_frag;
+my $sql_source = "";
 my $key;
 my $hist_stamp;
 my $iagent;
@@ -176,6 +178,7 @@ my $pos;
 my $rc;
 
 sub gettime;                             # get time
+sub capture_sqlrun;
 
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
@@ -221,6 +224,8 @@ my %advcx = (
               "TEMSAUDIT1037E" => "100",
               "TEMSAUDIT1038W" => "80",
               "TEMSAUDIT1039W" => "95",
+              "TEMSAUDIT1040E" => "100",
+              "TEMSAUDIT1041E" => "100",
             );
 
 my %advtextx = ();
@@ -241,6 +246,8 @@ my $logloci;
 my %lociex = (                    # generic loci counter exclusion
                 "RAS1|CTBLD" => 1,
                 "kdyshdlib.cpp|issueNodeStatusOpenThread" => 1,
+                "kdyshdlib.cpp|issueNodeStatusOpenThread" => 1,
+                "kdyctrl.cpp|rTEMSSynchThread" => 1,
                 "kpxreqhb.cpp|HeartbeatInserter" => 1,
                 "kdepnpc.c|KDEP_NewPCB" => 1,
                 "kdebpli.c|KDEBP_Listen" => 1,
@@ -269,6 +276,10 @@ my $atrf_ref;
 my %inodex;
 
 my $portscan = 0;
+my $portscan_Unsupported = 0;
+my $portscan_HTTP = 0;
+my $portscan_integrity = 0;
+my $portscan_suspend = 0;
 
 while (<main::DATA>)
 {
@@ -314,7 +325,7 @@ my $opt_max_listen        = 16;              # maximum listen count allowed by d
 my $opt_nominal_soap_burst = 300;            # maximum burst of 300 per minute
 my $opt_nominal_agto_mult = 1;               # amount of allowed repeat onlines
 my $opt_nominal_max_impact = 50;                     # Above this impact level, return exit code non-zero
-my $opt_nominal_loci = 2;                     # Above this percent, record in loci report
+my $opt_nominal_loci = 1;                     # Above this percent, record in loci report
 
 my $arg_start = join(" ",@ARGV);
 $hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
@@ -347,6 +358,9 @@ while (@ARGV) {
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-cmdall") {
       $opt_cmdall = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-sqldetail") {
+      $opt_sqldetail = 1;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-jitall") {
       $opt_jitall = 1;
@@ -411,6 +425,7 @@ if (!defined $opt_b) {$opt_b = 0;}
 if (!defined $opt_sum) {$opt_sum = 0;}
 if (!defined $opt_sr) {$opt_sr = 0;}
 if (!defined $opt_cmdall) {$opt_cmdall = 0;}
+if (!defined $opt_sqldetail) {$opt_sqldetail = 0;}
 if (!defined $opt_jitall) {$opt_jitall = 0;}
 if (!defined $opt_v) {$opt_v = 0;}
 if (!defined $opt_ss) {$opt_ss = 0;}
@@ -513,7 +528,7 @@ if (-e $opt_ini) {
          die "Advisory code with no advisory impact" if !defined $words[1];
          $advcx{$words[0]} = $words[1];
       } else {
-         die "unknown control in temsaud.ini line $l unknown control $words[0]"
+         die "unknown control in temsaud.ini line $l unknown control $words[0]";
       }
    }
 }
@@ -537,10 +552,14 @@ my %etablex = ();
 my $etable;
 my %dtablex = ();
 my $dtable;
+my %itablex = ();
+my $itable;
 my %derrorx = ();
 my $derror;
 my %rtablex = ();
 my $rtable;
+my %rdtablex = ();
+my $rdtable;
 my $rindex;
 
 
@@ -557,7 +576,7 @@ my %advx = ();
 my $max_impact = 0;
 
 if ($logfn eq "") {
-   $pattern = "_ms(_kdsmain)?\.inv";
+   $pattern = "[_ms|_MS](_kdsmain)?\.inv";
    @results = ();
    opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n"); # get list of files
    @results = grep {/$pattern/} readdir(DIR);
@@ -684,8 +703,8 @@ my $soapct_tot;             # total count of SQLs
 my $soap_burst_start = 0;   # start of SOAP burst calculation
 my $soap_bursti = -1;       # count of SOAP call minutes
 my @soap_burst = ();        # SOAP calls in each minute
-my $soap_burst_minute;      # current minute from start
-my $soap_burst_count;       # current minute count
+my $soap_burst_minute = -1; # current minute from start
+my $soap_burst_count = 0;   # current minute count
 my $soap_burst_max = 0;     # Maximum SOAP count in a minute
 my $soap_burst_max_log = ""; # Maximum SOAP - log segment
 my $soap_burst_max_l = 0;   # Maximum SOAP - log segment line
@@ -758,9 +777,16 @@ my $sqli = -1;                               # number of SQLs spotted
 my @sql = ();                                # Array of SQLs
 my %sqlx = ();                               # SQL to index has
 my @sql_ct = ();                             # count of SQLs
+my @sql_src = ();
+
+my %sqlsourcex;                               # detailed tracking of SQL by source and table and text
+my %sqlrunx;                                  # track sql fragments by process number
+my $sqlrun_ct;                                #
+my $sqlrun_ref;
 
 my $sql_start = 0;
 my $sql_end = 0;
+my $sql_count = 0;
 
 my $sqltabi = -1;                            # number of SQL tables spotted
 my @sqltab = ();                             # Array of SQL tables
@@ -906,6 +932,7 @@ for(;;)
       last;
    }
    $l++;
+#   last if $l > 300000;
 #print STDERR "Working on $l\n";
 # following two lines are used to debug errors. First you flood the
 # output with the working on log lines, while merging stdout and stderr
@@ -1228,47 +1255,6 @@ for(;;)
       }
    }
 
-   # looking for a continuaion of sql line
-   if ($sql_state == 1) {
-      my $sql_frag_line = 1;
-      if (substr($logunit,0,10) ne "kdssqprs.c") {
-         $sql_frag_line = 0;
-         $sql_state = 0;
-      } elsif ($logentry ne "PRS_ParseSql") {
-         $sql_frag_line = 0;
-         $sql_state = 0;
-      } else {
-         $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;
-         if (!defined $2) {
-            $rest = " " x 100;
-            $sql_frag_line = 0;
-            $sql_state = 0;
-         } elsif (substr($rest,1,19) eq "SQL to be parsed is") {
-            $sql_frag_line = 0;
-            $sql_state = 0;
-         }
-      }
-      #(540CE6F4.0047-C:kdssqprs.c,658,"PRS_ParseSql") SELECT TRANSID,GBLTMSTMP,TARGETMSN,CMSNAME,RESERVED2,RETVAL,RETMSGPARM,G
-      if ($sql_frag_line == 1) {
-         $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;
-         $sql_frag .= substr($rest,1,73);
-         next;
-      }
-      # at this point we have a completed SQL to process
-      $sql_frag =~ s/\s+$//;                    # strip trailing blanks
-      $sx = $sqlx{$sql_frag};
-      if (!defined $sx) {
-         $sqli += 1;
-         $sx = $sqli;
-         $sql[$sx] = $sql_frag;
-         $sqlx{$sql_frag} = $sx;
-         $sql_ct[$sx] = 0;
-      }
-      $sql_ct[$sx] += 1;
-      $sql_state = 0;
-   }
    $syncdist_first_time = $logtime if !defined $syncdist_first_time;
 
    # Extract the TEMS nodeid
@@ -1398,8 +1384,10 @@ for(;;)
          $rest = $2;                       # Unsupported request method "NESSUS"
          if (substr($rest,1,26) eq "Unsupported request method") {
             $portscan++;
+            $portscan_Unsupported++;
          } elsif (substr($rest,1,21) eq "error in HTTP request") {
             $portscan++ if index($rest,"unknown method in request") != -1;
+            $portscan_HTTP++;
          }
          next;
       }
@@ -1408,9 +1396,10 @@ for(;;)
    if (substr($logunit,0,9) eq "kdebp0r.c") {
       if ($logentry eq "receive_pipe") {
          $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;                       # Unsupported request method "NESSUS"
+         $rest = $2;                       # DATASTREAMINTEGRITYLOST
          if (substr($rest,1,48) eq "Status 1DE00074=KDE1_STC_DATASTREAMINTEGRITYLOST") {
             $portscan++;
+            $portscan_integrity++;
          }
       }
    }
@@ -1418,8 +1407,11 @@ for(;;)
    if (substr($logunit,0,9) eq "kdebpli.c") {
       if ($logentry eq "pipe_listener") {
          $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;                       # Unsupported request method "NESSUS"
-         $portscan++ if index($rest,"suspending new connections") != -1;
+         $rest = $2;                       # suspending new connections
+         if (index($rest,"suspending new connections") != -1) {
+            $portscan++;
+            $portscan_suspend++;
+         }
       }
    }
 
@@ -1690,7 +1682,9 @@ for(;;)
    }
 
    #(569D717B.007C-4A:kglkycbt.c,1212,"kglky1ar") iaddrec2 failed - status = -1, errno = 9,file = QA1CSTSC, index = PrimaryIndex, key = qbe_prd_ux_systembusy_c         TEMSP01
+   #(57F7D605.003B-C:kglkycbt.c,1212,"kglky1ar") iaddrec2 failed - status = -1, errno = 9,file = QA1CNODL, index = PrimaryIndex, key = *ALL_ORACLE                     CCBCFG2:tr2_au02qdb251teax2:ORA
    #(569C6BDD.001D-26:kglkycbt.c,1498,"kglky1dr") idelrec failed - status = -1, errno = 0,file = RKCFAPLN, index = PrimaryIndex
+   #(57DAB05B.000E-6:kglkycbt.c,2091,"InitReqObj") Open index failed. errno = 12,file = QA1CSTSH. index = PrimaryIndex,
    if (substr($logunit,0,10) eq "kglkycbt.c") {
       if ($logentry eq "kglky1ar") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -1708,6 +1702,24 @@ for(;;)
             $etable_ref = \%etableref;
          }
          $etable_ref->{count} += 1;
+         next;
+      }
+      if ($logentry eq "InitReqObj") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Open index failed. errno = 12,file = QA1CSTSH. index = PrimaryIndex,
+         next if substr($rest,1,18) ne "Open index failed.";
+         $rest =~ /file \= (\S+)\./;
+         $etable = $1;
+         next if !defined $etable;
+         my $itable_ref = $itablex{$etable};
+         if (!defined $itable_ref) {
+            my %itableref = (
+                               count => 0,
+                            );
+            $itablex{$etable} = \%itableref;
+            $itable_ref = \%itableref;
+         }
+         $itable_ref->{count} += 1;
          next;
       }
       if ($logentry eq "kglky1dr") {
@@ -1749,6 +1761,29 @@ for(;;)
                $dtable_ref = \%dtableref;
             }
             $dtable_ref->{count} += 1;
+            next;
+         }
+      }
+   }
+
+   # (587E44A6.0002-7:kdsruc1.c,6623,"GetRule") Read error status: 5 reason: 26 Rule name: KOY.VKOYSRVR
+   if (substr($logunit,0,9) eq "kdsruc1.c") {
+      if ($logentry eq "GetRule") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       #  Read error status: 5 reason: 26 Rule name: KOY.VKOYSRVR
+         if (substr($rest,1,10) eq "Read error") {
+            $rest =~ / name: (\S+)/;
+            $rdtable = $1;
+            next if !defined $rdtable;
+            my $rdtable_ref = $rdtablex{$rdtable};
+            if (!defined $rdtable_ref) {
+               my %rdtableref = (
+                                   count => 0,
+                                );
+               $rdtablex{$rdtable} = \%rdtableref;
+               $rdtable_ref = \%rdtableref;
+            }
+            $rdtable_ref->{count} += 1;
             next;
          }
       }
@@ -2572,28 +2607,69 @@ for(;;)
       next;
    }
 
+
    if (substr($logunit,0,10) eq "kdssqprs.c") {
       if ($logentry eq "PRS_ParseSql") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;
          if (defined $2) {
-            if (substr($rest,1,19) eq "SQL to be parsed is") {
-               $sql_state = 1;
-               $sql_frag = "";
-               if ($sql_start == 0) {
-                  $sql_start = $logtime;
-                  $sql_end = $logtime;
+            $sqlrun_ref = $sqlrunx{$logthread};
+            if (defined $sqlrun_ref) {
+               # if we are starting a new capture while one currently is running, extract the SQL for resport
+               if (substr($rest,1,14) eq "SQL source is:" or substr($rest,1,19) eq "SQL to be parsed is") {
+                  if ($sqlrun_ref->{state} == 2) { # state 2 means an SQL has been captured
+                     capture_sqlrun($sqlrun_ref); #completed an sqlrun capture
+                     delete $sqlrunx{$logthread};
+                  }
                }
-               if ($logtime < $sql_start) {
-                  $sql_start = $logtime;
+            }
+            if (substr($rest,1,14) eq "SQL source is:") { # SQL source is: User=SRVR01 Net=ip.spipe:#146.243.106.75[3660].
+               $rest =~ / is: (.*)$/;
+               $sql_source = $1 if defined $1;
+               $sql_source = "" if !defined $1;
+               $sql_source =~ s/\s+$//;                              # strip trailing blanks
+               $sqlrun_ref = $sqlrunx{$logthread};
+               if (!defined $sqlrun_ref) {
+                  my %sqlrunref = (
+                                     state => 0,
+                                     start => $logtime,
+                                     frag => "",
+                                     source => $sql_source,
+                                     pos => $l,
+                                  );
+                  $sqlrun_ref = \%sqlrunref;
+                  $sqlrunx{$logthread} = \%sqlrunref;
                }
-               if ($logtime > $sql_end) {
-                  $sql_end = $logtime;
+               next;
+            }
+            if (substr($rest,1,19) eq "SQL to be parsed is") { # SQL to be parsed is ... Ascii 0x00550000.
+               $sqlrun_ref = $sqlrunx{$logthread};
+               if (!defined $sqlrun_ref) {                # trace without METRICS so no source
+                  my %sqlrunref = (
+                                     state => 0,
+                                     start => $logtime,
+                                     frag => "",
+                                     source => "NotAvailable",
+                                     pos => $l,
+                                  );
+                  $sqlrun_ref = \%sqlrunref;
+                  $sqlrunx{$logthread} = \%sqlrunref;
+               }
+               $sqlrun_ref->{state} = 1;      # enter capture mode
+               next;
+            }
+            $sqlrun_ref = $sqlrunx{$logthread};
+            if (defined $sqlrun_ref) {
+               if ($sqlrun_ref->{state} >= 1) {
+                  #(540CE6F4.0047-C:kdssqprs.c,658,"PRS_ParseSql") SELECT TRANSID,GBLTMSTMP,TARGETMSN,CMSNAME,RESERVED2,RETVAL,RETMSGPARM,G
+                  $rest .= " " x 100;
+                  $sqlrun_ref->{frag} .= substr($rest,1,72);
+                  $sqlrun_ref->{state} = 2;      #Captured at least one fragment
+                  next;
                }
             }
          }
       }
-      next;
    }
 
    next if substr($logunit,0,12) ne "kpxrpcrq.cpp";
@@ -2767,6 +2843,14 @@ if ($tdur == 0)  {
    $tdur = 1000;
 }
 
+# capture sqlrun check
+foreach my $f (keys %sqlrunx) {
+   $sqlrun_ref = $sqlrunx{$f};
+   if ($sqlrun_ref->{state} == 2) { # state 2 means an SQL has been captured
+      capture_sqlrun($sqlrun_ref); #completed an sqlrun capture
+   }
+}
+%sqlrunx = ();
 
 $hdri++;$hdr[$hdri] = "$opt_nodeid $opt_tems";
 
@@ -2933,7 +3017,12 @@ if ($stage2_ct > 2) {
 }
 
 if ($portscan > 0) {
-   $advi++;$advonline[$advi] = "Indications of port scanning [$portscan] which can destabilize any ITM process including TEMS";
+   my $scantype = "";
+   $scantype .= "Unsupported(" . $portscan_Unsupported . ") " if $portscan_Unsupported > 0;
+   $scantype .= "HTTP(" . $portscan_HTTP . ") " if $portscan_HTTP > 0;
+   $scantype .= "integrity(" . $portscan_integrity . ") " if $portscan_integrity > 0;
+   $scantype .= "suspend(" . $portscan_suspend . ") " if $portscan_suspend > 0;
+   $advi++;$advonline[$advi] = "Indications of port scanning [$portscan] $scantype which can destabilize any ITM process including TEMS";
    $advcode[$advi] = "TEMSAUDIT1037E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Portscan";
@@ -2984,6 +3073,28 @@ if ($et > 0) {
       my $etct = $dtablex{$f}->{count};
       $advi++;$advonline[$advi] = "TEMS database table with $etct Duplicate Record errors";
       $advcode[$advi] = "TEMSAUDIT1023W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = $f;
+   }
+}
+
+$et = scalar keys %rdtablex;
+if ($et > 0) {
+   foreach my $f (keys %rdtablex) {
+      my $etct = $rdtablex{$f}->{count};
+      $advi++;$advonline[$advi] = "TEMS database table with $etct Read errors";
+      $advcode[$advi] = "TEMSAUDIT1041E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = $f;
+   }
+}
+
+$et = scalar keys %itablex;
+if ($et > 0) {
+   foreach my $f (keys %itablex) {
+      my $etct = $itablex{$f}->{count};
+      $advi++;$advonline[$advi] = "TEMS database table with $etct Open Index errors";
+      $advcode[$advi] = "TEMSAUDIT1040E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = $f;
    }
@@ -3177,6 +3288,7 @@ if ($sqli != -1) {
    foreach $f ( sort { $sql_ct[$sqlx{$b}] <=> $sql_ct[$sqlx{$a}] || $a cmp $b } keys %sqlx ) {
       $i = $sqlx{$f};
       $outl = $sql_ct[$i] . ",";
+      $outl .= $sql_src[$i] . "," if $sql_src[$i] ne "";
       my $psql =  $sql[$i];
       $psql =~ s/\"/\'/g;
       $outl .= "\"" . $psql . "\",";
@@ -3186,6 +3298,63 @@ if ($sqli != -1) {
    $outl = "duration" . " " . $sql_duration . ",";
    $outl .= $sql_ct_total . ",";
    $cnt++;$oline[$cnt]=$outl . "\n";
+
+   my $sql_rate;
+   my $ppc;
+   if ($opt_sqldetail == 1) {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="SQL Detail Report\n";
+      $cnt++;$oline[$cnt]="Type,Count,Duration,Rate,Source,Table,SQL\n";
+      $outl = "total" . ",";
+      $outl .= $sql_ct_total . ",";
+      $outl .= $sql_duration . ",";
+      $sql_rate = ($sql_ct_total*60)/$sql_duration;
+      $ppc = sprintf '%.2f', $sql_rate;
+      $outl .= $ppc . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      foreach $f ( sort { $sqlsourcex{$b}->{count} <=> $sqlsourcex{$a}->{count} } keys %sqlsourcex ) {
+         my $source_ref = $sqlsourcex{$f};
+         $outl = "source" . ",";
+         $outl .= $source_ref->{count} . ",";
+         my $sql_dur = $source_ref->{end} - $source_ref->{start};
+         $sql_dur = 1 if $sql_dur == 0;
+         $outl .= $sql_dur . ",";
+         $sql_rate = ($source_ref->{count}*60)/$sql_dur;
+         my $ppc = sprintf '%.2f', $sql_rate;
+         $outl .= $ppc . ",";
+         $outl .= $f . ",";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+         foreach $g ( sort { $source_ref->{tables}{$b}->{count} <=> $source_ref->{tables}{$a}->{count} } keys %{$source_ref->{tables}}) {
+            my $table_ref = $source_ref->{tables}{$g};
+            $outl = "table" . ",";
+            $outl .= $table_ref->{count} . ",";
+            $sql_dur = $table_ref->{end} - $table_ref->{start};
+            $sql_dur = 1 if $sql_dur == 0;
+            $outl .= $sql_dur . ",";
+            $sql_rate = ($table_ref->{count}*60)/$sql_dur;
+            $ppc = sprintf '%.2f', $sql_rate;
+            $outl .= $ppc . ",,";
+            $outl .= $g . ",";
+            $cnt++;$oline[$cnt]=$outl . "\n";
+            foreach $h ( sort { $table_ref->{sqls}{$b}->{count} <=> $table_ref->{sqls}{$a}->{count} } keys %{$table_ref->{sqls}}) {
+               my $sql_ref = $table_ref->{sqls}{$h};
+               $outl = "sql" . ",";
+               $outl .= $sql_ref->{count} . ",";
+               $sql_dur = $sql_ref->{end} - $sql_ref->{start};
+               $sql_dur = 1 if $sql_dur == 0;
+               $outl .= $sql_dur . ",";
+               $sql_rate = ($sql_ref->{count}*60)/$sql_dur;
+               $ppc = sprintf '%.2f', $sql_rate;
+               $outl .= $ppc . ",,,";
+               $outl .= $h . ",";
+               $outl .= $sql_ref->{pos} . ",";
+               $cnt++;$oline[$cnt]=$outl . "\n";
+            }
+         }
+         $cnt++;$oline[$cnt]="\n";
+      }
+   }
+
 }
 
 if ($soapi != -1) {
@@ -3847,6 +4016,119 @@ $rc = 1 if $max_impact >= $opt_nominal_max_impact;
 
 exit $rc;
 
+sub capture_sqlrun {
+   my ($sqlrun_ref) = @_;
+   $sql_frag = $sqlrun_ref->{frag};
+   $sql_frag =~ s/^\s+|\s+$//;                         # strip leading and trailing blanks
+   $sx = $sqlx{$sql_frag};
+   if (!defined $sx) {
+      $sqli += 1;
+      $sx = $sqli;
+      $sql[$sx] = $sql_frag;
+      $sqlx{$sql_frag} = $sx;
+      $sql_ct[$sx] = 0;
+      $sql_src[$sx] = "";
+      $sql_src[$sx] = $sql_source if $sql_source ne "";
+   }
+   $sql_ct[$sx] += 1;
+   if ($sql_start == 0) {
+      $sql_start = $sqlrun_ref->{start};
+      $sql_end = $sqlrun_ref->{start};
+   }
+   if ($sqlrun_ref->{start} < $sql_start) {
+      $sql_start = $sqlrun_ref->{start};
+   }
+   if ($sqlrun_ref->{start} > $sql_end) {
+      $sql_end = $sqlrun_ref->{start};
+   }
+   $sql_source = $sqlrun_ref->{source};
+   if ($sql_source ne "") {
+      my $source_ref = $sqlsourcex{$sql_source};
+      if (!defined $source_ref) {
+         my %sourceref = (
+                            count => 0,
+                            start => 0,
+                            end => 0,
+                            tables => {},
+                         );
+         $source_ref = \%sourceref;
+         $sqlsourcex{$sql_source} = \%sourceref;
+      }
+      $source_ref->{count} += 1;
+      if ($source_ref->{start} == 0) {
+         $source_ref->{start} = $logtime;
+         $source_ref->{end} = $logtime;
+      }
+      if ($logtime < $source_ref->{start}) {
+         $source_ref->{start} = $logtime;
+      }
+      if ($logtime > $source_ref->{end}) {
+         $source_ref->{end} = $logtime;
+      }
+      my $sql_table = "";
+      if (substr($sql_frag,0,6) eq "SELECT") {
+         $sql_frag =~ / FROM\s+(\S+)/;
+         $sql_table = $1;
+      } elsif (substr($sql_frag,0,6) eq "DELETE") {
+         $sql_frag =~ / FROM\s+(\S+)/;
+         $sql_table = $1;
+      } elsif (substr($sql_frag,0,6) eq "INSERT") {
+         $sql_frag =~ / INTO\s+(\S+)/;
+         $sql_table = $1;
+      } elsif (substr($sql_frag,0,6) eq "UPDATE") {
+         $sql_frag =~ /UPDATE\s+(\S+)/;
+         $sql_table = $1;
+      } else {
+         $sql_table = "Unknown";
+      }
+      my $table_ref = $source_ref->{tables}{$sql_table};
+#$DB::single=2 if !defined $sql_table;
+      if (!defined $table_ref) {
+         my %tableref = (
+                            count => 0,
+                            start => 0,
+                            end => 0,
+                            sqls => {},
+                         );
+         $table_ref = \%tableref;
+         $source_ref->{tables}{$sql_table} = \%tableref;
+      }
+      $table_ref->{count} += 1;
+      if ($table_ref->{start} == 0) {
+         $table_ref->{start} = $logtime;
+         $table_ref->{end} = $logtime;
+      }
+      if ($logtime < $table_ref->{start}) {
+         $table_ref->{start} = $logtime;
+      }
+      if ($logtime > $table_ref->{end}) {
+         $table_ref->{end} = $logtime;
+      }
+      my $frag_ref = $table_ref->{sqls}{$sql_frag};
+      if (!defined $frag_ref) {
+         my %fragref = (
+                          count => 0,
+                          start => 0,
+                          end => 0,
+                          pos => $l,
+                       );
+         $frag_ref = \%fragref;
+         $table_ref->{sqls}{$sql_frag} = \%fragref;
+      }
+      $frag_ref->{count} += 1;
+      if ($frag_ref->{start} == 0) {
+         $frag_ref->{start} = $logtime;
+         $frag_ref->{end} = $logtime;
+      }
+      if ($logtime < $frag_ref->{start}) {
+         $frag_ref->{start} = $logtime;
+      }
+      if ($logtime > $frag_ref->{end}) {
+         $frag_ref->{end} = $logtime;
+      }
+   }
+}
+
 
 sub open_kib {
    # get list of files
@@ -4068,6 +4350,11 @@ exit;
 # 1.48000 - Add example [first] line to locui report
 #         - Add advisory on lost connections
 #         - Add -ossdir to control sendstatus summary report location
+# 1.49000 - handle -sr with no tracing better
+#         - add types of portscan counts to advisory
+#         - add advisory on Open Index database errors
+#         - add advisory on Read error cases, seen in SITDB/QA1CRULD
+#         - add optional SQL detail report
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -4777,5 +5064,30 @@ but it often has a major negative impact on ITM stablity and usefulness.
 
 Recovery plan: IBM Support can help in understanding the basic issues but
 resolution depends on customer network support.
+--------------------------------------------------------------
+
+TEMSAUDIT1040E
+Text: TEMS database table with num Open Index errors
+
+Tracing: error
+Diag Log: (57DAB05B.000E-6:kglkycbt.c,2091,"InitReqObj") Open index failed. errno = 12,file = QA1CSTSH. index = PrimaryIndex
+
+Meaning: Count of TEMS Open Index database errors.
+
+Recovery plan:  Work with IBM Support. The issue is severe
+and needs prompt attention.
+--------------------------------------------------------------
+
+TEMSAUDIT1041E
+Text: TEMS database table with num Read errors
+
+Tracing: error
+Diag Log: (587E44A6.0002-7:kdsruc1.c,6623,"GetRule") Read error status: 5 reason: 26 Rule name: KOY.VKOYSRVR
+
+Meaning: Count of Read Errors. In this case it was a rule
+from SITDB table or QA1CRULD.
+
+Recovery plan:  Work with IBM Support. The issue is severe
+and needs prompt attention.
 --------------------------------------------------------------
 
