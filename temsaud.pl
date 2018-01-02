@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.52000;
+my $gVersion = 1.53000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -243,6 +243,9 @@ my %advcx = (
               "TEMSAUDIT1041E" => "100",
               "TEMSAUDIT1042E" => "100",
               "TEMSAUDIT1043E" => "110",
+              "TEMSAUDIT1044E" => "100",
+              "TEMSAUDIT1045W" => "95",
+              "TEMSAUDIT1046W" => "90",
             );
 
 my %advtextx = ();
@@ -597,6 +600,8 @@ my %rtablex = ();
 my $rtable;
 my %rdtablex = ();
 my $rdtable;
+my %vtablex = ();
+my $vtable;
 my $rindex;
 
 
@@ -872,6 +877,9 @@ my @pevt_ct = ();
 
 my $pe_etime = 0;
 my $pe_stime = 0;
+
+my $invalid_checkpoint_count = 0;
+my $kcf_count = 0;
 
 
 my $agtoi = -1;                              # Agent online records
@@ -1761,12 +1769,18 @@ for(;;)
 
       }
    }
+   # (58DE3A4E.007A-12:kcfccmmt.cpp,674,"CMConfigMgrThread::indicateBackground") Error in pthread_attr_setschedparam,
+   if (substr($logunit,0,3) eq "kcf") {
+      $kcf_count += 1;
+      next;
+   }
 
    #(569D717B.007C-4A:kglkycbt.c,1212,"kglky1ar") iaddrec2 failed - status = -1, errno = 9,file = QA1CSTSC, index = PrimaryIndex, key = qbe_prd_ux_systembusy_c         TEMSP01
    #(57F7D605.003B-C:kglkycbt.c,1212,"kglky1ar") iaddrec2 failed - status = -1, errno = 9,file = QA1CNODL, index = PrimaryIndex, key = *ALL_ORACLE                     CCBCFG2:tr2_au02qdb251teax2:ORA
    #(569C6BDD.001D-26:kglkycbt.c,1498,"kglky1dr") idelrec failed - status = -1, errno = 0,file = RKCFAPLN, index = PrimaryIndex
    #(57DAB05B.000E-6:kglkycbt.c,2091,"InitReqObj") Open index failed. errno = 12,file = QA1CSTSH. index = PrimaryIndex,
    #(58B7E159.0002-3:kglkycbt.c,835,"kglky1rs") isam error. errno = 7.file = QA1CSITF, index = PrimaryIndex,
+   #(58DD7571.002C-1:kglisopn.c,949,"I_ifopen") Verify of QA1CNODL.IDX failed
    if (substr($logunit,0,10) eq "kglkycbt.c") {
       if ($logentry eq "kglky1ar") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -1867,6 +1881,29 @@ for(;;)
       }
    }
 
+   #(58DD7571.002C-1:kglisopn.c,949,"I_ifopen") Verify of QA1CNODL.IDX failed
+   if (substr($logunit,0,10) eq "kglisopn.c") {
+      if ($logentry eq "I_ifopen") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Verify of QA1CNODL.IDX failed
+         if (substr($rest,1,9) eq "Verify of") {
+            $rest =~ / of (\S+)\.IDX/;
+            $vtable = $1;
+            next if !defined $vtable;
+            my $vtable_ref = $vtablex{$vtable};
+            if (!defined $vtable_ref) {
+               my %vtableref = (
+                                  count => 0,
+                               );
+               $vtablex{$vtable} = \%vtableref;
+               $vtable_ref = \%vtableref;
+            }
+            $vtable_ref->{count} += 1;
+            next;
+         }
+      }
+   }
+
    # (587E44A6.0002-7:kdsruc1.c,6623,"GetRule") Read error status: 5 reason: 26 Rule name: KOY.VKOYSRVR
    if (substr($logunit,0,9) eq "kdsruc1.c") {
       if ($logentry eq "GetRule") {
@@ -1946,6 +1983,17 @@ for(;;)
       }
    }
 
+   # (58C49DE0.0000-B:kqmchkpt.cpp,619,"checkPoint::setGblTimestamp") Invalid checkpoint timestamp - ignoring. NAME = <M:LOCALNODESTS> TIMESTAMP <1170312020051000>,
+   if (substr($logunit,0,12) eq "kqmchkpt.cpp") {
+      if ($logentry eq "checkPoint::setGblTimestamp") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Invalid checkpoint timestamp - ignoring. NAME = <M:LOCALNODESTS> TIMESTAMP <1170312020051000>,
+         next if substr($rest,1,28) ne "Invalid checkpoint timestamp";
+         $invalid_checkpoint_count += 1;
+         next;
+      }
+   }
+
    # (54EA2C3A.0002-AD:kpxreqhb.cpp,924,"HeartbeatInserter") Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
    if (substr($logunit,0,12) eq "kpxreqhb.cpp") {
       if ($logentry eq "HeartbeatInserter") {
@@ -1978,6 +2026,7 @@ for(;;)
       }
       next;
    }
+
    # (5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
    if (substr($logunit,0,10) eq "kfaprpst.c") {
       if ($logentry eq "HandleSimpleHeartbeat") {
@@ -3215,6 +3264,15 @@ if ($anic_total > 0) {
    $advsit[$advi] = "ANIC";
 }
 
+if ($kcf_count > 0) {
+   if ($opt_tems eq "*REMOTE") {
+      $advi++;$advonline[$advi] = "MQ/Config or Config should run only on hub TEMS and is a remote TEMS";
+      $advcode[$advi] = "TEMSAUDIT1046W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "KCF";
+   }
+}
+
 foreach my $f (keys %miss_tablex) {
    $advi++;$advonline[$advi] = "Application.table $f missing $miss_tablex{$f} times";
    $advcode[$advi] = "TEMSAUDIT1011W";
@@ -3244,11 +3302,29 @@ if ($et > 0) {
    }
 }
 
+if ($invalid_checkpoint_count > 0) {
+   $advi++;$advonline[$advi] = "TEMS TCHECKPT Timestamp invalid $invalid_checkpoint_count time(s)";
+   $advcode[$advi] = "TEMSAUDIT1045W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "FTO";
+}
+
+$et = scalar keys %vtablex;
+if ($et > 0) {
+   foreach my $f (keys %vtablex) {
+      my $etct = $vtablex{$f}->{count};
+      $advi++;$advonline[$advi] = "TEMS database table with $etct Verify Index errors";
+      $advcode[$advi] = "TEMSAUDIT1044E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = $f;
+   }
+}
+
 $et = scalar keys %rdtablex;
 if ($et > 0) {
    foreach my $f (keys %rdtablex) {
       my $etct = $rdtablex{$f}->{count};
-      $advi++;$advonline[$advi] = "TEMS database table with $etct Read errors";
+      $advi++;$advonline[$advi] = "TEMS database table SITDB with $etct Read errors";
       $advcode[$advi] = "TEMSAUDIT1041E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = $f;
@@ -4568,6 +4644,9 @@ exit;
 # 1.51000 - add Historical data bytes to Summary
 #         - add Situation Result by Time report
 # 1.52000 - add Activity not a Call advisory
+#         - Add advisory for verify index failures
+# 1.53000 - Add advisory for invalid FTO timestamp
+#         - correct wording on 1041E issue.
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -5293,16 +5372,17 @@ and needs prompt attention.
 --------------------------------------------------------------
 
 TEMSAUDIT1041E
-Text: TEMS database table with num Read errors
+Text: TEMS database table SITDB [QA1CRULD] with num Read errors
 
 Tracing: error
 Diag Log: (587E44A6.0002-7:kdsruc1.c,6623,"GetRule") Read error status: 5 reason: 26 Rule name: KOY.VKOYSRVR
 
-Meaning: Count of Read Errors. In this case it was a rule
-from SITDB table or QA1CRULD.
+Meaning: Count of Read Errors on the QA1CRULD - SITDB - database file.
+This means certain situations are not running.
 
 Recovery plan:  Work with IBM Support. The issue is severe
-and needs prompt attention.
+and needs prompt attention. It can usually be resolved by
+resetting QA1CRULD and QA1CCOBJ to emptytable status.
 --------------------------------------------------------------
 
 TEMSAUDIT1042E
@@ -5354,5 +5434,66 @@ system running the remote TEMS has less than needed capacity.
 
 Recovery plan:  Work with IBM support to diagnose and correct
 the condition.
+----------------------------------------------------------------
+
+TEMSAUDIT1044E
+Text: TEMS database table with $etct Verify Index errors
+
+Tracing: error
+(58DD7571.002C-1:kglisopn.c,949,"I_ifopen") Verify of QA1CNODL.IDX failed
+
+Meaning: When a TEMS starts up after a failure, the TEMS
+database files have an index verify performed. If this
+fails that means things are seriously wrong and the
+TEMS will be unstable or fail again.
+
+Recovery plan:  Work with IBM support to correct the condition.
+----------------------------------------------------------------
+
+TEMSAUDIT1045W
+Text: TEMS TCHECKPT Timestamp invalid count time(s)
+
+Tracing: error
+(58C49DE0.0000-B:kqmchkpt.cpp,619,"checkPoint::setGblTimestamp") Invalid checkpoint timestamp - ignoring. NAME = <M:LOCALNODESTS> TIMESTAMP <1170312020051000>,
+
+Meaning: The TCHECKPT table is critical for proper operation
+of the Fault Tolerant Option [FTO]. This message suggests
+that the FTO process is not working as planned.
+
+Usually the related database files can be reset to emptytable
+status on both primary and backup hub TEMS to restore normal
+operation.
+
+Recovery plan:  Work with IBM support to correct the condition.
+----------------------------------------------------------------
+
+TEMSAUDIT1046W
+Text: MQ/Config or Config should run only on hub TEMS and not a remote TEMS
+
+Tracing: error
+(58DE3A4E.007A-12:kcfccmmt.cpp,674,"CMConfigMgrThread::indicateBackground") Error in pthread_attr_setschedparam,
+
+Meaning: The Config process is designed to run only on a
+hub TEMS. When operating on a remote TEMS the best case is
+excess hub TEMS workload. The worst case is remote TEMS
+instability.
+
+It should not be configured on a hub TEMS using FTO. Best
+practive is to set up a separate hub TEMS just for Config
+in that case.
+
+Recovery plan: Unconfigure Config from the remote TEMS.
+
+Windows: remove KCFFEPRB.KCFCCTII from KDS_RUN from
+  <installdir>\cms\KBBENV
+
+Linux/Unix: remove KCFFEPRB.KCFCCTII from KDS_RUN from
+  <installdir>/tables/<temsnodeid>/KBBENV and
+  <installdir>/config/kbbenv.ini
+
+zOS: remove KCFFEPRB.KCFCCTII from KDS_RUN from
+  RKANDATU(KMSENV)
+
+and recycle the remote TEMS.
 ----------------------------------------------------------------
 
