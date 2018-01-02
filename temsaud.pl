@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.53000;
+my $gVersion = 1.54000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -246,6 +246,7 @@ my %advcx = (
               "TEMSAUDIT1044E" => "100",
               "TEMSAUDIT1045W" => "95",
               "TEMSAUDIT1046W" => "90",
+              "TEMSAUDIT1047W" => "95",
             );
 
 my %advtextx = ();
@@ -280,6 +281,10 @@ my %lociex = (                    # generic loci counter exclusion
 my %rdx;
 my $rd_ref;
 my $sit_ref;
+
+my %codex;
+my $code_ref;
+my $conv_ref;
 
 
 my $stage2 = "";
@@ -814,6 +819,7 @@ my $pt_total_total = 0;
 my $nmr_total = 0;          # no matching request count
 my $anic_total = 0;         # Activity not in call count
 my $fsync_enabled = 1;      # assume fsync is enabled
+my $kds_writenos = "";      # assume kds_writenos not specified
 
 my $lp_high = -1;
 my $lp_balance = -1;
@@ -1364,6 +1370,20 @@ for(;;)
       }
    }
 
+   #(58CE9A38.0002-1:kbbssge.c,72,"BSS1_GetEnv") KDS_WRITENOS="YES"
+   if ($kds_writenos eq "") {
+      if (substr($logunit,0,9) eq "kbbssge.c") {
+         if ($logentry eq "BSS1_GetEnv") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # KDS_WRITENOS="YES"
+            if (substr($rest,1,12) eq "KDS_WRITENOS") {
+               $rest =~ /KDS_WRITENOS=\"(\S+)\"/;
+               $kds_writenos = $1;
+            }
+         }
+      }
+   }
+
    # (540827D1.001C-4:kbbracd.c,126,"set_filter") *** KDC_DEBUG=Y is in effect
    if ($opt_kdc_debug eq "") {
       if (substr($logunit,0,9) eq "kbbracd.c") {
@@ -1458,6 +1478,50 @@ for(;;)
          $rest = $2;                       # status=1c010008, "activity not in call", ncs/KDC1_STC_NOT_IN_CALL
          if (substr($rest,1,15) eq "status=1c010008") {
             $anic_total += 1;
+         }
+      }
+   }
+
+   # Following seen when KDC_DEBUG=Y - more details about ANIC
+   # (58CC5929.0001-1579:kdcc1sr.c,924,"rpc__sar") Conversation timeout: "ip.spipe:#129.39.23.114:3660", 1C010008:00000000, 0, 121(0), FFFF/1, D140831.1:1.1.1.13, tms_ctbs630fp5:d5135a
+   # (588789D2.0000-2B2:kdcc1sr.c,642,"rpc__sar") Endpoint unresponsive: "ip.spipe:#0.0.1.41:7757", 1C010001:1DE0000F, 210, 131(0), FFFF/181, D140831.1:1.1.1.13, tms_ctbs630fp5:d5135a
+   if (substr($logunit,0,9) eq "kdcc1sr.c") {
+      if ($logentry eq "rpc__sar") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Conversation timeout: "ip.spipe:#129.39.23.114:3660", 1C010008:00000000, 0, 121(0), FFFF/1, D140831.1:1.1.1.13, tms_ctbs630fp5:d5135a
+         if (index($rest,":#") != -1) {
+            my $itext = "";
+            my $isource = "";
+            my $icode = "";
+            my $ilevel = "";
+            $rest =~ /\"(\S+)\", (\S+):.*(tms\S+)$/;
+            $rest =~ /(.*?): \"(\S+)\", (\S+), .*(tms\S+)/;
+            $itext = $1 if defined $1;
+            $isource = $2 if defined $2;
+            $icode = $3 if defined $3;
+            $ilevel = $4 if defined $4;
+            next if $isource eq "";
+            $code_ref = $codex{$icode};
+            if (!defined $code_ref) {
+               my %coderef = (
+                                count => 0,
+                                text => $itext,
+                                conv => {},
+                             );
+               $code_ref = \%coderef;
+               $codex{$icode} = \%coderef;
+            }
+            $code_ref->{count} += 1;
+            $conv_ref = $code_ref->{conv}{$isource};
+            if (!defined $conv_ref) {
+               my %convref = (
+                                count => 0,
+                                level => $ilevel,
+                             );
+               $conv_ref = \%convref;
+               $code_ref->{conv}{$isource} = \%convref;
+            }
+            $conv_ref->{count} += 1;
          }
       }
    }
@@ -3241,6 +3305,13 @@ if ($fsync_enabled == 0) {
       $advsit[$advi] = "fsync";
    }
 
+if ($kds_writenos eq "YES") {
+      $advi++;$advonline[$advi] = "TEMS configured with KDS_WRITENOS=YES";
+      $advcode[$advi] = "TEMSAUDIT1047W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "writenos";
+   }
+
 if ($lp_high != -1) {
    $cnt++;$oline[$cnt] = "Listen Pipe Report listen=$lp_high balance=$lp_balance threads=$lp_threads pipes=$lp_pipes\n";
    $cnt++;$oline[$cnt]="\n";
@@ -3478,6 +3549,28 @@ if ($opt_rd == 1) {
          $res_pc = ($cum_bytes*100)/$rd_ref->{bytes};
          $ppc = sprintf '%.2f%%', $res_pc;
          $outl .= $ppc . ",";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+      }
+      $cnt++;$oline[$cnt]="\n";
+   }
+}
+
+$et = scalar keys %codex;
+if ($et > 0) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Endpoint Communication Problem Report\n";
+   $cnt++;$oline[$cnt]="Code,Text,Count,Source,Level\n";
+   foreach my $f ( sort { $a cmp $b } keys %codex ) {
+      $code_ref = $codex{$f};
+      $outl = $f . ",";
+      $outl .= $code_ref->{text} . ",";
+      $outl .= $code_ref->{count} . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      foreach my $g ( sort { $a cmp $b } keys %{$code_ref->{conv}} ) {
+         my $conv_ref = $code_ref->{conv}{$g};
+         $outl = ",," . $conv_ref->{count} . ",";
+         $outl .= $g . ",";
+         $outl .= $conv_ref->{level} . ",";
          $cnt++;$oline[$cnt]=$outl . "\n";
       }
       $cnt++;$oline[$cnt]="\n";
@@ -4647,6 +4740,8 @@ exit;
 #         - Add advisory for verify index failures
 # 1.53000 - Add advisory for invalid FTO timestamp
 #         - correct wording on 1041E issue.
+# 1.54000 - Add Endpoint Communication Problem Report
+#         - Add advisory on WRITENOS=YES
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -5495,5 +5590,25 @@ zOS: remove KCFFEPRB.KCFCCTII from KDS_RUN from
   RKANDATU(KMSENV)
 
 and recycle the remote TEMS.
+----------------------------------------------------------------
+
+TEMSAUDIT1047W
+Text: TEMS configured with KDS_WRITENOS=YES
+
+Tracing: error
+(58CE9A38.0002-1:kbbssge.c,72,"BSS1_GetEnv") KDS_WRITENOS="YES"
+
+Meaning: This option causes TEMS to keep a disk copy of
+the node status table. It was created during ITM development
+many years ago and has not been tested since perhaps
+2001. It has never been publically documented.
+
+The impact is worse TEMS performance and possible TEMS
+instability because of no testing.
+
+Recovery plan: Remove the setting. In the most recent case
+it was discoved in <installdir>/config/kbbenv.ini file, but
+it could be anyplace. If you cannot locate it, contact
+IBM Support to assist.
 ----------------------------------------------------------------
 
