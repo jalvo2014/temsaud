@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.42000;
+my $gVersion = 1.43000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -206,6 +206,7 @@ my %advcx = (
               "TEMSAUDIT1031E" => "0",
               "TEMSAUDIT1032E" => "100",
               "TEMSAUDIT1033W" => "90",
+              "TEMSAUDIT1034W" => "75",
             );
 
 my %advtextx = ();
@@ -219,6 +220,7 @@ my $val_ref;
 my %valx;
 my $valkey;
 my %vcontx;
+my %reflexx;
 
 my %atrwx;                        # collection of attribute warnings
 my $atrwx_ct = 0;                 # collection of attribute warnings
@@ -2253,6 +2255,29 @@ for(;;)
          }
       }
    }
+   #(578F8F57.0001-6:ko4sit.cpp,1573,"Situation::slice") Error : Sit SAPNP_SAP_BO_Process_Down : reflex emulation command returned 4.
+   if (substr($logunit,0,10) eq "ko4sit.cpp") {
+      if ($logentry eq "Situation::slice") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                                # Error : Sit SAPNP_SAP_BO_Process_Down : reflex emulation command returned 4.
+         if (substr($rest,1,11) eq "Error : Sit") {
+            $rest =~ /Error : Sit (\S+).*?returned (\d+)\./;
+            my $isit = $1;
+            my $istatus = $2;
+            my $reflex_ref = $reflexx{$isit};
+            if (!defined $reflex_ref) {
+               my %reflexref = (
+                                  status => $istatus,
+                                  count => 0,
+                               );
+               $reflex_ref = \%reflexref;
+               $reflexx{$isit} = \%reflexref;
+            }
+            $reflex_ref->{count} += 1;
+         }
+      }
+   }
+
    #(577D74E2.0000-1A:kfavalid.c,512,"validate") Invalid character discovered.  Integer value:<34> at position 0.
    #(577D74E2.0001-1A:kfavalid.c,575,"ValidateNodeEntry") Validation for node failed.
    #(577D74E2.0002-1A:kfavalid.c,1017,"KFA_InvalidNameMessage") Unsupported Nodelist or Node Status record.  Contents follow:
@@ -3003,17 +3028,37 @@ my $invi = keys %valvx;
 if ($invi > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Invalid Node Name Report\n";
-   $cnt++;$oline[$cnt]="Node,Count,\n";
+   $cnt++;$oline[$cnt]="Node,Count,Type\n";
    foreach $f (sort {$a cmp $b} keys %valvx) {
 # 1.37000 - add 1025E for send event failures, prepare for AOA usage
       $outl = $f . ",";
       $outl .= $valvx{$f}->{count} . ",";
+      $outl .= $valvx{$f}->{type} . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
    $advi++;$advonline[$advi] = "Illegal Node Names rejected - $invi";
    $advcode[$advi] = "TEMSAUDIT1029W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "InvalidNodes";
+}
+
+my $refxi = keys %reflexx;
+if ($refxi > 0) {
+   my $refx_ct = 0;
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Reflex [Action] Command failures\n";
+   $cnt++;$oline[$cnt]="Situation,Status,Count\n";
+   foreach $f (sort {$a cmp $b} keys %reflexx) {
+      $outl = $f . ",";
+      $outl .= $reflexx{$f}->{status} . ",";
+      $outl .= $reflexx{$f}->{count} . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      $refx_ct += $reflexx{$f}->{count};
+   }
+   $advi++;$advonline[$advi] = "Reflex [Action] Command $refx_ct failues in $refxi situation(s)";
+   $advcode[$advi] = "TEMSAUDIT1034W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "CommandFailures";
 }
 
 my $agtsh_dur = $agtsh_etime - $agtsh_stime;
@@ -3149,7 +3194,6 @@ if ($agtsh_dur > 0) {
    }
 }
 
-#$DB::single=2;
 my $inodex_ct = scalar keys %inodex;
 if ($inodex_ct > 0) {
    $cnt++;$oline[$cnt]="\n";
@@ -3683,6 +3727,8 @@ exit;
 # 1.41000 - Add advisory for missing ERROR in traces
 # 1.42000 - Add advisory on node status update
 #         - Adjust jitter logic to avoid silly duplicate advisories
+# 1.43000 - Better logic for invalid names
+#           Add advisory for reflex command failures
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -4263,14 +4309,40 @@ RAS1 Filter data area.
 TEMSAUDIT1033W
 Text: Node <nodename> has <count> at <addr> sendstatus - possible duplicate agent
 
-Tracing: none
-Diag Log: (57A0B2C2.000D-48:kfastinh.c,1187,"KFA_InsertNodests") Sending Node Status : node <vsmp8288:VA ...
+Tracing: error (UNIT:kfastinh,ENTRY="KFA_InsertNodests" out er)
+Diag Log: (57A0B2C2.000D-48:kfastinh.c,1187,"KFA_InsertNodests") Sending Node Status : node <vsmp8288:VA ... continues for a long way
 
-Meaning: This will be seen in one case of duplciate agent names.
+Meaning: This will be seen in one case of duplicate agent names.
 Usually it means two agents are running on the same system with the
 same system name. See later report for details.
 
 Recovery plan: This is likely normal if the agent has reconnected.
 Otherwise this is abnormal and only one should be running on a system.
+--------------------------------------------------------------
+
+TEMSAUDIT1034W
+Text: Reflex [Action] Command count failures in count situation(s)
+
+Tracing: none
+Diag Log: (578F9048.0009-6:ko4sit.cpp,1573,"Situation::slice") Error : Sit SAPP_DB2_Failedarchive : reflex emulation command returned 4.
+
+Meaning: The TEMS ran an action commands which failed
+with a status. The status is not the command exit code. The meaning
+is platform dependent can mean failed to start or suffered an exception
+[crash] while running. At the least it means that the action command
+did not do what was intended.
+
+There are many potential issues with action commands. Here is a technote
+that explores many of them:
+
+http://www.ibm.com/support/docview.wss?uid=swg21407744
+
+The following diagnostic trace string will capture more information about
+the action commands run.
+
+error (unit:kraafira,Entry="runAutomationCommand" all)(unit:kglhc1c all)
+
+Recovery plan: Rework the action commands so they run as expected. Or perhaps
+find a way to do the work without action commands.
 --------------------------------------------------------------
 
