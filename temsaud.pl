@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.44000;
+my $gVersion = 1.46000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -127,6 +127,7 @@ my $opt_workpath;
 my $full_logfn;
 my $logfn;
 my $opt_v;
+my $opt_ss;                                      # create SendStatus report
 my $opt_o;
 my $opt_odir;                                    # directory for all output files
 my $opt_nohdr = 0;
@@ -146,6 +147,8 @@ my $opt_driver = "";                             # Driver
 my $opt_sum;                                     # Summary text
 my $opt_nodeid = "";                             # TEMS nodeid
 my $opt_tems = "";                               # *HUB or *REMOTE
+my $ssi = -1;
+my @ssout;
 
 my @seg = ();
 my $segcurr;
@@ -208,6 +211,8 @@ my %advcx = (
               "TEMSAUDIT1033W" => "90",
               "TEMSAUDIT1034W" => "75",
               "TEMSAUDIT1035W" => "80",
+              "TEMSAUDIT1036W" => "60",
+              "TEMSAUDIT1037E" => "100",
             );
 
 my %advtextx = ();
@@ -235,6 +240,8 @@ my %lociex = (                    # generic loci counter exclusion
                 "kpxrwhpx.cpp|LookupWarehouse" => 1,
                 "kfaprpst.c|KFA_UpdateNodestatusAtHub" => 1,
              );
+my $stage2 = "";
+my $stage2_ct = 0;
 
 my %atrwx;                        # collection of attribute warnings
 my $atrwx_ct = 0;                 # collection of attribute warnings
@@ -249,6 +256,8 @@ my $atrn_ref;
 my $atrf_ref;
 
 my %inodex;
+
+my $portscan = 0;
 
 while (<main::DATA>)
 {
@@ -340,6 +349,9 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-v") {
       $opt_v = 1;
       shift(@ARGV);
+   } elsif ($ARGV[0] eq "-ss") {
+      $opt_ss = 1;
+      shift(@ARGV);
    } elsif ($ARGV[0] eq "-nohdr") {
       $opt_nohdr = 1;
       shift(@ARGV);
@@ -386,6 +398,7 @@ if (!defined $opt_sr) {$opt_sr = 0;}
 if (!defined $opt_cmdall) {$opt_cmdall = 0;}
 if (!defined $opt_jitall) {$opt_jitall = 0;}
 if (!defined $opt_v) {$opt_v = 0;}
+if (!defined $opt_ss) {$opt_ss = 0;}
 if (!defined $opt_o) {$opt_o = "temsaud.csv";}
 if (!defined $opt_odir) {$opt_odir = "";}
 if (!defined $opt_expslot) {$opt_expslot = 60;}
@@ -1274,6 +1287,36 @@ for(;;)
          }
       }
    }
+   # one signal for port scanning
+   # (571C6FD5.0000-F6:kdhsiqm.c,772,"KDHS_InboundQueueManager") Unsupported request method "NESSUS"
+   if (substr($logunit,0,9) eq "kdhsiqm.c") {
+      if ($logentry eq "KDHS_InboundQueueManager") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Unsupported request method "NESSUS"
+         if (substr($rest,1,26) eq "Unsupported request method") {
+            $portscan++;
+         }
+      }
+   }
+
+   # capture hub TEMS connection timings
+   # (57B1FB8E.0064-8:ko4crtsq.cpp,6931,"IBInterface::doStageTwoProcess") Begin stage 2 processing. Database and IB Cache synchronization with the hub
+   # (57B1FB93.0008-8:ko4crtsq.cpp,7146,"IBInterface::doStageTwoProcess") End stage 2 processing. Database and IB Cache synchronization with the hub with return code: 0
+   if (substr($logunit,0,12) eq "ko4crtsq.cpp") {
+      if ($logentry eq "IBInterface::doStageTwoProcess") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Begin stage 2 processing. Database and IB Cache synchronization with the hub
+         if (substr($rest,1,13) eq "Begin stage 2") {
+            $stage2_ct += 1;
+            $stage2 .= "Begin-" . $logtime . ":";
+         } elsif (substr($rest,1,11) eq "End stage 2") {
+            $stage2_ct += 1;
+            $stage2 .= "End-" . $logtime . ":";
+         }
+         next;
+      }
+   }
+
    # capture attribute file warnings - following is one example
    #(56CB01BD.0001-1:kglatrvl.c,193,"add_to_index") Warning: attribute name conflict
    #(56CB01BD.0002-1:kglatrvl.c,194,"add_to_index") Block <946C150> name <Diagnostic.Node> id <30001>
@@ -1454,7 +1497,7 @@ for(;;)
             my $iexpiryint = $4;
             my $iexpirytime = $5;
             my $online = $6;
-            my $o4online = $7;
+            my $io4online = $7;
             my $iproduct = $8;
             my $iversion = $9;
             my $iaffinities = $10;
@@ -1463,6 +1506,26 @@ for(;;)
             my $ihostaddr = $13;
             my $ireserved = $14;
             my $ihrtbeattime = $15;
+            if (($opt_ss == 1) and ($iproduct ne "EM")){
+               $outl = "KFA_InsertNodests,";
+               $outl .= $logtime . ",";
+               $outl .= $inode . ",";
+               $outl .= $inodetype . ",";
+               $outl .= $ithrunode . ",";
+               $outl .= $iexpiryint . ",";
+               $outl .= $iexpirytime . ",";
+               $outl .= $online . ",";
+               $outl .= $io4online . ",";
+               $outl .= $iproduct . ",";
+               $outl .= $iversion . ",";
+               $outl .= $iaffinities . ",";
+               $outl .= $ihostinfo . ",";
+               $outl .= $ihostloc . ",";
+               $outl .= $ihostaddr . ",";
+               $outl .= $ireserved . ",";
+               $outl .= $ihrtbeattime . ",";
+               $ssi++;$ssout[$ssi] = $outl;
+            }
             $inode =~ s/\s+$//;                    # strip trailing blanks
             $ithrunode =~ s/\s+$//;                    # strip trailing blanks
             $iaffinities =~ s/\s+$//;                    # strip trailing blanks
@@ -1490,6 +1553,7 @@ for(;;)
                                  reserved => $ireserved,
                                  expirytime => $iexpirytime,
                                  product => $iproduct,
+                                 o4online => $io4online,
                                  count => 0,
                               );
                 $inodei_ref = \%inodeiref;
@@ -2706,6 +2770,21 @@ if ($syncdist_early > -1) {
       $advsit[$advi] = "Sync";
    }
 
+if ($stage2_ct > 2) {
+   my $pct = int(($stage2_ct+1)/2);
+   $advi++;$advonline[$advi] = "Reconnection from remote TEMS to hub TEMS - $pct times - $stage2";
+   $advcode[$advi] = "TEMSAUDIT1036W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Reconnect";
+}
+
+if ($portscan > 0) {
+   $advi++;$advonline[$advi] = "Indications of port scanning [$portscan] which can destabilize any ITM process including TEMS";
+   $advcode[$advi] = "TEMSAUDIT1037E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Portscan";
+}
+
 if ($fsync_enabled == 0) {
       $advi++;$advonline[$advi] = "KGLCB_FSYNC_ENABLED set to 0 - risky for TEMS database files";
       $advcode[$advi] = "TEMSAUDIT1009E";
@@ -3096,7 +3175,7 @@ if ($refxi > 0) {
       $cnt++;$oline[$cnt]=$outl . "\n";
       $refx_ct += $reflexx{$f}->{count};
    }
-   $advi++;$advonline[$advi] = "Reflex [Action] Command $refx_ct failues in $refxi situation(s)";
+   $advi++;$advonline[$advi] = "Reflex [Action] Command $refx_ct failures in $refxi situation(s)";
    $advcode[$advi] = "TEMSAUDIT1034W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "CommandFailures";
@@ -3527,6 +3606,7 @@ if ($advi != -1) {
    }
 }
 print OH "\n";
+close(OH);
 
 if ($opt_sr == 1) {
    if ($soap_burst_minute != -1) {
@@ -3547,7 +3627,17 @@ if ($opt_sr == 1) {
       close SOAP;
    }
 }
-close(OH);
+
+if ($opt_ss == 1) {
+   if ($ssi != -1) {
+      my $opt_ss_fn = $opt_nodeid . "_sendstatus_detail.txt";
+      open SEND, ">$opt_ss_fn" or die "Unable to open SEND Detail output file $opt_ss_fn\n";
+      for (my $i=0;$i<=$ssi;$i++) {
+         print SEND "$ssout[$i]\n";
+      }
+      close SEND;
+   }
+}
 
 
 if ($opt_sum != 0) {
@@ -3793,6 +3883,8 @@ exit;
 # 1.43000 - Better logic for invalid names
 #           Add advisory for reflex command failures
 # 1.44000 - Add loci frequency report and advisory
+# 1.45000 - Add -ss option
+# 1.46000 - Add advisory on multiple remote TEMS reconnects
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -4431,5 +4523,31 @@ list of normal messages will be updated over time based on experience.
 
 Recovery plan: If you are experiencing symptoms, involve IBM Support. If
 not use your own best judgement.
+--------------------------------------------------------------
+
+TEMSAUDIT1036W
+Text: Reconnection from remote TEMS to hub TEMS - count times - times
+
+Tracing: error
+Diag Log: (57B25924.001A-8:ko4crtsq.cpp,6931,"IBInterface::doStageTwoProcess") Begin stage 2 processing. Database and IB Cache synchronization with the hu
+
+Meaning: The remote TEMS has reconnected with the hub TEMS multiple
+times. This has many origins including hub TEMS overload, configuration
+problems and communications issues.
+
+Recovery plan: Involve IBM support.
+--------------------------------------------------------------
+
+TEMSAUDIT1037E
+Text: Indications of port scanning [portscan] which can destabilize any ITM process including TEMS
+
+Tracing: error
+Diag Log: (571C6FD5.0000-F6:kdhsiqm.c,772,"KDHS_InboundQueueManager") Unsupported request method "NESSUS"
+
+Meaning: ITM processes do not defend against port scanning. After 120
+such detected cases the TEMS will shutdown.
+
+Recovery plan: Work with security team to NOT do port scanning against
+known valid ITM ports.
 --------------------------------------------------------------
 
