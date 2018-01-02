@@ -27,7 +27,7 @@
 ## Count of pcb adds and deletes
 
 
-my $gVersion = 1.57000;
+my $gVersion = 1.58000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -1556,6 +1556,7 @@ for(;;)
                                addr => {},
                                newPCB => 0,
                                deletePCB => 0,
+                               agents => {},
                             );
                $pcb_ref = \%pcbref;
                $pcbx{$iip} = \%pcbref;
@@ -1919,8 +1920,16 @@ for(;;)
                 $inode_ref->{instances}{$inodeikey} = \%inodeiref;
             }
             $inodei_ref->{count} += 1;
+            # cross-ref with pcbx
+            $ihostaddr =~ /:#(\S+)\[(\S+)\]/;
+            my $ip_addr = $1;
+            if (defined $ip_addr) {
+               my $pcb_ref = $pcbx{$ip_addr};
+               if (defined $pcb_ref) {
+                  $pcb_ref->{agents}{$inode} += 1;
+               }
+            }
          }
-
       }
    }
    # (58DE3A4E.007A-12:kcfccmmt.cpp,674,"CMConfigMgrThread::indicateBackground") Error in pthread_attr_setschedparam,
@@ -4424,11 +4433,16 @@ if ($loci_ct > 0) {
 if ($pcb_deletePCB > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Communications Problem Report - $pcb_deletePCB systems\n";
-   $cnt++;$oline[$cnt]="ip_address,Count,NewPCB,DeletePCB\n";
+   $cnt++;$oline[$cnt]="ip_address,Count,NewPCB,DeletePCB,Agents(count),\n";
    foreach $f ( sort { $pcbx{$b}->{deletePCB} <=> $pcbx{$a}->{deletePCB} || $a cmp $b } keys %pcbx) {
       my $pcb_ref = $pcbx{$f};
       last if $pcb_ref->{deletePCB} < 2;
       $outl = $f . "," . $pcbx{$f}->{count} . "," . $pcbx{$f}->{newPCB} . "," . $pcbx{$f}->{deletePCB} . ",";
+      my $pagents = "";
+      foreach $g (keys %{$pcb_ref->{agents}}) {
+        $pagents .= $g . "(" . $pcb_ref->{agents}{$g} . ") ";
+      }
+      $outl .= $pagents . ",";
       $cnt++;$oline[$cnt]="$outl\n";
    }
 }
@@ -4909,6 +4923,7 @@ exit;
 #         - More information on port scanning
 # 1.56000 - Add advisory on DeletePCB cases
 # 1.57000 - Add advisories on connection to hub TEMS loss
+# 1.58000 - Improve DeletePCB report to include possible agents involved
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
