@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.40000;
+my $gVersion = 1.41000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -135,6 +135,7 @@ my $opt_inplace = 1;
 my $opt_work    = 0;
 my $opt_nofile = 0;                              # number of file descriptors, zero means not found
 my $opt_stack = 0;                               # Stack limit zero means not found
+my $opt_kbb_ras1 = "";                           # KBB_RAS1 setting
 my $opt_sr;                                      # Soap Report
 my $opt_cmdall;                                  # show all commands
 my $opt_jitall;                                  # show all jitter
@@ -203,6 +204,7 @@ my %advcx = (
               "TEMSAUDIT1029W" => "75",
               "TEMSAUDIT1030W" => "50",
               "TEMSAUDIT1031E" => "0",
+              "TEMSAUDIT1032E" => "100",
             );
 
 my %advtextx = ();
@@ -1037,6 +1039,19 @@ for(;;)
                       $opt_stack *= 1024*1024 if $modi eq "M";
                    }
                 }
+             }
+         }
+      }
+   }
+   if ($opt_kbb_ras1 eq "") {
+      if (substr($oneline,0,1) eq "+") {
+          $opt_kbb_ras1 = "n/a" if substr($oneline,14,11) eq " ==========";
+          # +56B8B325.0000         KBB_RAS1: <not specified>
+          if ($opt_kbb_ras1 eq "") {
+             my $pi = index($oneline,"KBB_RAS1:");
+             if ($pi != -1) {
+               $oneline =~ /KBB_RAS1:(.*)/;
+               $opt_kbb_ras1 = $1;
              }
          }
       }
@@ -2493,6 +2508,16 @@ if ($opt_stack > 0) {
    }
 }
 
+if ($opt_kbb_ras1 ne "") {
+   my $test_ras1 = lc $opt_kbb_ras1;
+   if (index($test_ras1,"error") == -1) {
+      $advi++;$advonline[$advi] = "KBB_RAS1 missing the very important ERROR specification";
+      $advcode[$advi] = "TEMSAUDIT1032E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "Ras1";
+   }
+}
+
 
 my $res_pc = 0;
 my $trc_pc = 0;
@@ -3566,6 +3591,7 @@ exit;
 #         - add 1029W for invalid nodes rejected
 # 1.39000 - add 1030W for attribute definition conflicts
 # 1.40000 - Adjust impact of 1024E to 100 and add 1031E at 0
+# 1.41000 - Add advisory for missing ERROR in traces
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -4126,5 +4152,20 @@ ITM 630 FP6 level and the APAR change had an error. ITM 630 FP7
 will contain APAR  IV87174 fix to eliminate the spurious error.
 
 Recovery plan:  Ignore message.
+--------------------------------------------------------------
+
+TEMSAUDIT1032E
+Text: KBB_RAS1 missing the very important ERROR specification
+
+Tracing: none
+Diag Log: +56B8B325.0000         KBB_RAS1: <not specified>
+
+Meaning: If this is missing from the TEMS environment, the
+diagnostic log will be almost worthless in diagnosing issues.
+
+Recovery plan: Make sure KBB_RAS1 specification has the ERROR
+specification included. In Windows, this would be usually seen
+in the MTEMS Advanced->Edit Trace Parms... dialog box in the
+RAS1 Filter data area.
 --------------------------------------------------------------
 
