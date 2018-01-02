@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.46000;
+my $gVersion = 1.47000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -137,6 +137,11 @@ my $opt_work    = 0;
 my $opt_nofile = 0;                              # number of file descriptors, zero means not found
 my $opt_stack = 0;                               # Stack limit zero means not found
 my $opt_kbb_ras1 = "";                           # KBB_RAS1 setting
+my $opt_kdc_debug = "";                          # KDC_DEBUG setting
+my $opt_kde_debug = "";                          # KDE_DEBUG setting
+my $opt_kdh_debug = "";                          # KDH_DEBUG setting
+my $opt_kbs_debug = "";                          # KBS_DEBUG setting
+my $opt_com_debug = 0;                           # KBS_DEBUG setting
 my $opt_sr;                                      # Soap Report
 my $opt_cmdall;                                  # show all commands
 my $opt_jitall;                                  # show all jitter
@@ -213,6 +218,7 @@ my %advcx = (
               "TEMSAUDIT1035W" => "80",
               "TEMSAUDIT1036W" => "60",
               "TEMSAUDIT1037E" => "100",
+              "TEMSAUDIT1038W" => "80",
             );
 
 my %advtextx = ();
@@ -1155,7 +1161,6 @@ for(;;)
       }
    }
    if (substr($oneline,0,1) ne "(") {next;}
-#$DB::single=2 if $l == 32;
    $oneline =~ /^(\S+).*$/;          # extract locus part of line
    $locus = $1;
    if ($opt_z == 0) {                # distributed has five pieces
@@ -1190,30 +1195,24 @@ for(;;)
          }
       }
    }
-#$DB::single=2;
    $logunit =~ /(.*?)\,(\d+)/;
    if (defined $2) {
    my $locitest = $1 . "|" . $logentry;
       if (!defined $lociex{$locitest}) {
-#$DB::single=2;
          my $logloci = $1 . "|" . $logentry . "|" . $2;
          my $loci_ref = $locix{$logloci};
          if (!defined $loci_ref) {
-#$DB::single=2;
             my %lociref = (
                              count => 0,
                           );
              $loci_ref = \%lociref;
             $locix{$logloci} = \%lociref;
-#$DB::single=2;
-#my $x = 1;
          }
          $loci_ref->{count} += 1;
          $loci_ct += 1;
-#$DB::single=2;
-#my $x = 1;
       }
    }
+
    # looking for a continuaion of sql line
    if ($sql_state == 1) {
       my $sql_frag_line = 1;
@@ -1226,7 +1225,6 @@ for(;;)
       } else {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;
-#DB::single=2 if !defined $2;
          if (!defined $2) {
             $rest = " " x 100;
             $sql_frag_line = 0;
@@ -1287,15 +1285,88 @@ for(;;)
          }
       }
    }
-   # one signal for port scanning
+
+   # (540827D1.001C-4:kbbracd.c,126,"set_filter") *** KDC_DEBUG=Y is in effect
+   if ($opt_kdc_debug eq "") {
+      if (substr($logunit,0,9) eq "kbbracd.c") {
+         if ($logentry eq "set_filter") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # *** KDC_DEBUG=Y is in effect
+            if (substr($rest,1,13) eq "*** KDC_DEBUG") {
+               $rest =~ /KDC_DEBUG=(\S+) /;
+               $opt_kdc_debug = $1;
+            }
+         }
+      }
+   }
+   # (540827D1.001F-4:kbbracd.c,126,"set_filter") *** KDE_DEBUG=Y is in effect
+   if ($opt_kde_debug eq "") {
+      if (substr($logunit,0,9) eq "kbbracd.c") {
+         if ($logentry eq "set_filter") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # *** KDE_DEBUG=Y is in effect
+            if (substr($rest,1,13) eq "*** KDE_DEBUG") {
+               $rest =~ /KDE_DEBUG=(\S+) /;
+               $opt_kde_debug = $1;
+            }
+         }
+      }
+   }
+   if ($opt_kdh_debug eq "") {
+      if (substr($logunit,0,9) eq "kbbracd.c") {
+         if ($logentry eq "set_filter") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # *** KDH_DEBUG=Y is in effect
+            if (substr($rest,1,13) eq "*** KDH_DEBUG") {
+               $rest =~ /KDH_DEBUG=(\S+) /;
+               $opt_kdh_debug = $1;
+            }
+         }
+      }
+   }
+   if ($opt_kbs_debug eq "") {
+      if (substr($logunit,0,9) eq "kbbracd.c") {
+         if ($logentry eq "set_filter") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # *** KBS_DEBUG=Y is in effect
+            if (substr($rest,1,13) eq "*** KBS_DEBUG") {
+               $rest =~ /KBS_DEBUG=(\S+) /;
+               $opt_kbs_debug = $1;
+            }
+         }
+      }
+   }
+
+   # signals for port scanning
    # (571C6FD5.0000-F6:kdhsiqm.c,772,"KDHS_InboundQueueManager") Unsupported request method "NESSUS"
+   # (55C14E21.0002-89:kdhsiqm.c,548,"KDHS_InboundQueueManager") error in HTTP request from ip.ssl:#10.107.19.12:33992, status=7C4C803A, "unknown method in request"
    if (substr($logunit,0,9) eq "kdhsiqm.c") {
       if ($logentry eq "KDHS_InboundQueueManager") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Unsupported request method "NESSUS"
          if (substr($rest,1,26) eq "Unsupported request method") {
             $portscan++;
+         } elsif (substr($rest,1,21) eq "error in HTTP request") {
+            $portscan++ if index($rest,"unknown method in request") != -1;
          }
+      }
+   }
+   # (55C14E21.0001-8B:kdebp0r.c,235,"receive_pipe") Status 1DE00074=KDE1_STC_DATASTREAMINTEGRITYLOST
+   if (substr($logunit,0,9) eq "kdebp0r.c") {
+      if ($logentry eq "receive_pipe") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Unsupported request method "NESSUS"
+         if (substr($rest,1,48) eq "Status 1DE00074=KDE1_STC_DATASTREAMINTEGRITYLOST") {
+            $portscan++;
+         }
+      }
+   }
+   # (55C220BB.0003-5B:kdebpli.c,115,"pipe_listener") ip.spipe suspending new connections: 1DE0000D
+   if (substr($logunit,0,9) eq "kdebpli.c") {
+      if ($logentry eq "pipe_listener") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Unsupported request method "NESSUS"
+         $portscan++ if index($rest,"suspending new connections") != -1;
       }
    }
 
@@ -2647,10 +2718,12 @@ if ($tdur == 0)  {
 $hdri++;$hdr[$hdri] = "$opt_nodeid $opt_tems";
 
 
+
 # produce output report
 my @oline = ();
 
 my $cnt = -1;
+
 
 if ($toobigi != -1) {
    $cnt++;$oline[$cnt]="Too Big Report\n";
@@ -2735,6 +2808,34 @@ if ($trespermin > $opt_nominal_results) {
 }
 
 $cnt++;$oline[$cnt]="\n";
+$outl = "KBB_RAS1=" . $opt_kbb_ras1;
+$cnt++;$oline[$cnt]=$outl . "\n";
+if ($opt_kdc_debug ne "") {
+   $outl = "KDC_DEBUG=" . $opt_kdc_debug;
+   $cnt++;$oline[$cnt]=$outl . "\n";
+   $opt_com_debug++;
+}
+if ($opt_kde_debug ne "") {
+   $outl = "KDE_DEBUG=" . $opt_kde_debug;
+   $cnt++;$oline[$cnt]=$outl . "\n";
+   $opt_com_debug++;
+}
+if ($opt_kdh_debug ne "") {
+   $outl = "KDH_DEBUG=" . $opt_kdh_debug;
+   $cnt++;$oline[$cnt]=$outl . "\n";
+   $opt_com_debug++;
+}
+if ($opt_kbs_debug ne "") {
+   $outl = "KBS_DEBUG=" . $opt_kbs_debug;
+   $cnt++;$oline[$cnt]=$outl . "\n";
+   $opt_com_debug++;
+}
+if ($opt_com_debug > 0) {
+   $advi++;$advonline[$advi] = "Communication Tracing set: only use on advisement";
+   $advcode[$advi] = "TEMSAUDIT1038W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Trace";
+}
 $cnt++;$oline[$cnt]="Trace duration (seconds),,,$tdur\n";
 my $trace_lines_minute = int($trace_ct / ($tdur / 60));
 $cnt++;$oline[$cnt]="Trace Lines Per Minute,,,$trace_lines_minute\n";
@@ -2744,7 +2845,7 @@ $cnt++;$oline[$cnt]="\n";
 if ($trace_size_minute > $opt_nominal_trace) {
    $trc_pc = int((($trace_size_minute - $opt_nominal_trace)*100)/$opt_nominal_trace);
    my $ppc = sprintf '%.0f%%', $trc_pc;
-   $advi++;$advonline[$advi] = "Trace bytes per minute $ppc higher then nominal $opt_nominal_trace";     ;
+   $advi++;$advonline[$advi] = "Trace bytes per minute $ppc higher then nominal $opt_nominal_trace";
    $advcode[$advi] = "TEMSAUDIT1007W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Trace";
@@ -3885,6 +3986,8 @@ exit;
 # 1.44000 - Add loci frequency report and advisory
 # 1.45000 - Add -ss option
 # 1.46000 - Add advisory on multiple remote TEMS reconnects
+# 1.47000 - Add advisory on port scanning from four messages
+#         - Add initial trace settings
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -4543,11 +4646,30 @@ Text: Indications of port scanning [portscan] which can destabilize any ITM proc
 
 Tracing: error
 Diag Log: (571C6FD5.0000-F6:kdhsiqm.c,772,"KDHS_InboundQueueManager") Unsupported request method "NESSUS"
+          (5C220BB.0003-5B:kdebpli.c,115,"pipe_listener") ip.spipe suspending new connections: 1DE0000D
+          (55C14E21.0001-8B:kdebp0r.c,235,"receive_pipe") Status 1DE00074=KDE1_STC_DATASTREAMINTEGRITYLOST
+          (55C14E21.0002-89:kdhsiqm.c,548,"KDHS_InboundQueueManager") error in HTTP request from ip.ssl:#10.107.19.12:33992, status=7C4C803A, "unknown method in request"
 
 Meaning: ITM processes do not defend against port scanning. After 120
-such detected cases the TEMS will shutdown.
+such detected cases the affected port will stop listening.
 
 Recovery plan: Work with security team to NOT do port scanning against
-known valid ITM ports.
+known valid ITM listening ports.
+--------------------------------------------------------------
+
+TEMSAUDIT1038W
+Text: Communication Tracing set - only use on advisement
+
+Tracing: error
+Diag Log: (540827D1.001C-4:kbbracd.c,126,"set_filter") *** KDC_DEBUG=Y is in effect
+
+Meaning: Communication tracing is very powerful. However it consumes
+an enormous proportion of the limited tracing logs and often hides
+important information. This can delay diagnostic work considerably.
+
+Only use these settings when IBM L3 support/development or very experienced
+other IBM support people advise.
+
+Recovery plan: Avoid such use unless advised by IBM Support.
 --------------------------------------------------------------
 
