@@ -24,7 +24,7 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 
-my $gVersion = 1.49000;
+my $gVersion = 1.51000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -154,8 +154,23 @@ my $opt_sum;                                     # Summary text
 my $opt_nodeid = "";                             # TEMS nodeid
 my $opt_tems = "";                               # *HUB or *REMOTE
 my $opt_sqldetail;                               # detail SQL report wanted
+my $opt_rd;                                      # result detail wanted
+my $opt_rdslot;                                  # number of seconds for result detail slot, default 60 seconds
+my $opt_rdtop;                                   # number of situations to display
 my $ssi = -1;
 my @ssout;
+
+my $test_logfn;
+my $invfile;
+my $invpath;
+my $testfn;
+my @invfn;
+my @invdir;
+my $logspath;
+my $logsinv;
+my $endfnp;
+my $invlogtime = 0;
+
 
 my @seg = ();
 my $segcurr;
@@ -254,7 +269,14 @@ my %lociex = (                    # generic loci counter exclusion
                 "kdepdpc.c|KDEP_DeletePCB" => 1,
                 "kpxrwhpx.cpp|LookupWarehouse" => 1,
                 "kfaprpst.c|KFA_UpdateNodestatusAtHub" => 1,
+                "kfastins.c|KFA_PutSitRecord" => 1,
              );
+
+my %rdx;
+my $rd_ref;
+my $sit_ref;
+
+
 my $stage2 = "";
 my $stage2_ct = 0;
 
@@ -380,6 +402,15 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-nohdr") {
       $opt_nohdr = 1;
       shift(@ARGV);
+   } elsif ($ARGV[0] eq "-rd") {
+      $opt_rd = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-rdslot") {
+      shift(@ARGV);
+      $opt_rdslot = shift(@ARGV);
+   } elsif ($ARGV[0] eq "-rdtop") {
+      shift(@ARGV);
+      $opt_rdtop = shift(@ARGV);
    } elsif ($ARGV[0] eq "-expslot") {
       shift(@ARGV);
       $opt_expslot = shift(@ARGV);
@@ -433,6 +464,9 @@ if (!defined $opt_o) {$opt_o = "temsaud.csv";}
 if (!defined $opt_odir) {$opt_odir = "";}
 if (!defined $opt_ossdir) {$opt_ossdir = "";}
 if (!defined $opt_expslot) {$opt_expslot = 60;}
+if (!defined $opt_rd) {$opt_rd = 60;}
+if (!defined $opt_rdslot) {$opt_rdslot = 1;}
+if (!defined $opt_rdtop) {$opt_rdtop = 5;}
 
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
@@ -576,17 +610,44 @@ my %advx = ();
 my $max_impact = 0;
 
 if ($logfn eq "") {
-   $pattern = "[_ms|_MS](_kdsmain)?\.inv";
+   $pattern = "(_ms|_MS)(_kdsmain)?\.inv";
    @results = ();
    opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n"); # get list of files
    @results = grep {/$pattern/} readdir(DIR);
    closedir(DIR);
    die "No _ms.inv found\n" if $#results == -1;
-   if ($#results > 0) {         # more than one inv file - complain and exit
-      my $invlist = join(" ",@results);
-      die "multiple invfiles [$invlist] - only one expected\n";
-   }
    $logfn =  $results[0];
+   if ($#results > 0) {
+      # found 2+ inv files
+      # review all inv files, some may contain illegal or missing files so need to check all.
+      for (my $i=0;$i<=$#results;$i++) {
+         my $testinvfn = $opt_logpath . "/" . $results[$i];
+         next if !open( INV, "< $testinvfn" );
+         $inline = <INV>;
+         close(INV);
+         chomp $inline;
+         $inline =~ s|\\|\/|g;  # convert backslash to forward slash, needed for Perl
+         my $lpos = rindex($inline,"/");
+         my $endfn = substr($inline,$lpos+1);
+         $lpos = rindex($endfn,"-");
+         my $front_line = substr($endfn,0,$lpos);
+         $test_logfn = $opt_logpath . "/" . $endfn;
+         next if !open( LOG, "< $test_logfn" );
+         $inline = <LOG>;
+         close(LOG);
+         chomp $inline;
+         my $testime;
+         eval {$testime = hex(substr($inline,1,8))};
+         next if $@;
+         if ($invlogtime < $testime) {
+            $invlogtime = $testime;
+            $logfn = $results[$i];   # record inv file with most recent log record
+#my $x = 1;
+         }
+#my $x = 1;
+      }
+#my $x = 1;
+   }
 }
 
 
@@ -616,6 +677,9 @@ die "-expslot [$opt_expslot] is not positive number from 1 to 60" if  ($opt_exps
 
 #??? doubt the next line works
 die "-expslot [$opt_expslot] is not an even multiple of 60" if  (int(60/$opt_expslot) * $opt_expslot) != 60;
+
+die "-rdslot [$opt_rdslot] is not numeric" if  $opt_rdslot !~ /^\d+$/;
+die "-rdslot [$opt_rdslot] is not positive number from 1 to 60" if  ($opt_expslot < 1) or ($opt_expslot > 60);
 
 sub open_kib;
 sub read_kib;
@@ -653,6 +717,7 @@ my @sitnoded = ();          # array of hashes about each node and arrival times 
 my $sitct_tot = 0;          # total results
 my $sitrows_tot = 0;        # total rows
 my $sitres_tot = 0;         # total size
+my $uadvisor_bytes = 0;     # Uadvisor size
 my $sitstime = 0;           # smallest time seen - distributed
 my $sitetime = 0;           # largest time seen  - distributed
 my $trcstime = 0;           # trace smallest time seen - distributed
@@ -1685,6 +1750,7 @@ for(;;)
    #(57F7D605.003B-C:kglkycbt.c,1212,"kglky1ar") iaddrec2 failed - status = -1, errno = 9,file = QA1CNODL, index = PrimaryIndex, key = *ALL_ORACLE                     CCBCFG2:tr2_au02qdb251teax2:ORA
    #(569C6BDD.001D-26:kglkycbt.c,1498,"kglky1dr") idelrec failed - status = -1, errno = 0,file = RKCFAPLN, index = PrimaryIndex
    #(57DAB05B.000E-6:kglkycbt.c,2091,"InitReqObj") Open index failed. errno = 12,file = QA1CSTSH. index = PrimaryIndex,
+   #(58B7E159.0002-3:kglkycbt.c,835,"kglky1rs") isam error. errno = 7.file = QA1CSITF, index = PrimaryIndex,
    if (substr($logunit,0,10) eq "kglkycbt.c") {
       if ($logentry eq "kglky1ar") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -1726,6 +1792,25 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # idelrec failed - status = -1, errno = 0,file = RKCFAPLN, index = PrimaryIndex
          if (substr($rest,1,14) eq "idelrec failed") {
+            $rest =~ /file \= (\S+),/;
+            $etable = $1;
+            next if !defined $etable;
+            my $etable_ref = $etablex{$etable};
+            if (!defined $etable_ref) {
+               my %etableref = (
+                                  count => 0,
+                               );
+               $etablex{$etable} = \%etableref;
+               $etable_ref = \%etableref;
+            }
+            $etable_ref->{count} += 1;
+            next;
+         }
+      }
+      if ($logentry eq "kglky1rs") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # isam error. errno = 7.file = QA1CSITF, index = PrimaryIndex,
+         if (substr($rest,1,11) eq "isam error.") {
             $rest =~ /file \= (\S+),/;
             $etable = $1;
             next if !defined $etable;
@@ -2744,6 +2829,7 @@ for(;;)
       }
    $sitres[$sx] += $insize;
    $sitres_tot  += $insize;
+   $uadvisor_bytes += $insize if substr($isit,0,8) eq "UADVISOR";
    if ($opt_ri == 1) {
       my $res_stamp = $res_stampx{$logtime};
       my $logstime;
@@ -2778,6 +2864,45 @@ for(;;)
       $res_ref->{bytes} += $insize;
       ${$res_ref->{sitx}}{$isit} = 0 if !defined ${$res_ref->{sitx}}{$isit};
       ${$res_ref->{sitx}}{$isit} += 1;
+   }
+   if ($opt_rd == 1) {
+      # calculate the slotted time stamp. This reuses some variables/logic in historical export slotting logic.
+      $hist_min = (localtime($logtime))[1];
+      $hist_min = int($hist_min/$opt_rdslot) * $opt_rdslot;
+      $hist_min = '00' . $hist_min;
+      $hist_hour = '00' . (localtime($logtime))[2];
+      $hist_day  = '00' . (localtime($logtime))[3];
+      $hist_month = (localtime($logtime))[4] + 1;
+      $hist_month = '00' . $hist_month;
+      $hist_year =  (localtime($logtime))[5] + 1900;
+      $hist_stamp = $hist_year . substr($hist_month,-2,2) . substr($hist_day,-2,2) .  substr($hist_hour,-2,2) .  substr($hist_min,-2,2);
+      $rd_ref = $rdx{$hist_stamp};
+      if (!defined $rd_ref) {
+         my %rdref = (
+                        count => 0,
+                        rows => 0,
+                        bytes => 0,
+                        sitx => {},
+                     );
+        $rd_ref = \%rdref;
+        $rdx{$hist_stamp} = \%rdref;
+      }
+      $rd_ref->{count} += 1;
+      $rd_ref->{rows} += $irows;
+      $rd_ref->{bytes} += $insize;
+      my $sit_ref = $rd_ref->{sitx}{$isit};
+      if (!defined $sit_ref) {
+         my %sitref = (
+                         count => 0,
+                         rows => 0,
+                         bytes => 0,
+                      );
+        $sit_ref = \%sitref;
+        $rd_ref->{sitx}{$isit} = \%sitref;
+      }
+      $sit_ref->{count} += 1;
+      $sit_ref->{rows} += $irows;
+      $sit_ref->{bytes} += $insize;
    }
 
    if ($opt_b == 0) {next if $isit eq "HEARTBEAT";}
@@ -2934,6 +3059,15 @@ $cnt++;$oline[$cnt]="Total Rows,,,$sitrows_tot\n";
 $cnt++;$oline[$cnt]="Total Result (bytes),,,$sitres_tot\n";
 my $trespermin = int($sitres_tot / ($dur / 60));
 $cnt++;$oline[$cnt]="Total Results per minute,,,$trespermin\n";
+if ($uadvisor_bytes>0) {
+   $cnt++;$oline[$cnt]="Total UADVISOR (bytes),,,$uadvisor_bytes\n";
+   my $res_pc = int(($uadvisor_bytes*100)/$sitres_tot);
+   my $ppc = sprintf '%.0f%%', $res_pc;
+   $cnt++;$oline[$cnt]="Total UADVISOR (percent),,,$res_pc\n";
+   $trespermin = int($uadvisor_bytes / ($dur / 60));
+   $cnt++;$oline[$cnt]="Total UADVISOR per minute,,,$trespermin\n";
+}
+
 if ($trespermin > $opt_nominal_results) {
    $res_pc = int((($trespermin - $opt_nominal_results)*100)/$opt_nominal_results);
    my $ppc = sprintf '%.0f%%', $res_pc;
@@ -3137,6 +3271,7 @@ my $lag_fraction = 0;
 
 my $situation_max = "";
 
+
 $cnt++;$oline[$cnt]="Situation Summary Report\n";
 $cnt++;$oline[$cnt]="Situation,Table,Count,Rows,ResultBytes,Result/Min,Fraction,Cumulative%,MinResults,MaxResults,MaxNode\n";
 foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] ||
@@ -3205,6 +3340,41 @@ $outl .= $sitres_tot . ",";
 $respermin = int($sitres_tot / ($dur / 60));
 $outl .= $respermin;
 $cnt++;$oline[$cnt]=$outl . "\n";
+
+if ($opt_rd == 1) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Situation Result Over Time Report [Top $opt_rdtop situation contributors]\n";
+   $cnt++;$oline[$cnt]="Time,Situation,Count,Rows,Bytes,Percent,Cumulative_Percent,\n";
+   foreach $f ( sort { $a <=> $b } keys %rdx ) {
+      $rd_ref = $rdx{$f};
+      $outl = $f . ",,";
+      $outl .= $rd_ref->{count} . ",";
+      $outl .= $rd_ref->{rows} . ",";
+      $outl .= $rd_ref->{bytes} . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      my $toprd = 0;
+      my $cum_bytes = 0;
+      foreach $g ( sort { $rd_ref->{sitx}{$b}->{bytes} <=> $rd_ref->{sitx}{$a}->{bytes} || $a cmp $b } keys %{$rd_ref->{sitx}} ) {
+         $sit_ref= $rd_ref->{sitx}{$g};
+         last if $sit_ref->{bytes} == 0;
+         $toprd += 1;
+         last if $toprd > $opt_rdtop;
+         $outl = "," . $g . ",";
+         $outl .= $sit_ref->{count} . ",";
+         $outl .= $sit_ref->{rows} . ",";
+         $outl .= $sit_ref->{bytes} . ",";
+         $cum_bytes += $sit_ref->{bytes};
+         my $res_pc = ($sit_ref->{bytes}*100)/$rd_ref->{bytes};
+         my $ppc = sprintf '%.2f%%', $res_pc;
+         $outl .= $ppc . ",";
+         $res_pc = ($cum_bytes*100)/$rd_ref->{bytes};
+         $ppc = sprintf '%.2f%%', $res_pc;
+         $outl .= $ppc . ",";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+      }
+      $cnt++;$oline[$cnt]="\n";
+   }
+}
 
 my $act_ct_total = 0;
 my $act_ct_error = 0;
@@ -4150,16 +4320,23 @@ sub open_kib {
    }
 
    if (defined $logpat) {
-      opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n");
-      my @dlogfiles = grep {/$logpat/} readdir(DIR);
-      closedir(DIR);
-      die "no log files found with given specifcation\n" if $#dlogfiles == -1;
-
       my $dlog;          # fully qualified name of diagnostic log
+      opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n");
+      my @rlogfiles = grep {/$logpat/} readdir(DIR);
+      closedir(DIR);
+      die "no log files found with given specifcation\n" if $#rlogfiles == -1;
+      my @dlogfiles;
+      for $f (@rlogfiles) {
+         $dlog = $opt_logpath . $f;
+         next if ! -e $dlog;
+         next if ! -s $dlog;
+         push(@dlogfiles,$f);
+      }
+
       my $oneline;       # local variable
       my $tlimit = 100;  # search this many times for a timestamp at begining of a log
       my $t;
-      my $tgot;          # track if timestamp found
+      my $tgot = 0;          # track if timestamp found
       my $itime;
 
       foreach $f (@dlogfiles) {
@@ -4167,10 +4344,10 @@ sub open_kib {
          $segmax = $1 if $segmax eq "";
          $segmax = $1 if $segmax < $1;
          $dlog = $opt_logpath . $f;
-         my $dh;
-         open($dh, "< $dlog") || die("Could not open log $dlog\n");
+         open( DIAG, "< $dlog" ) or die "Cannot open Diagnostic file $dlog : $!";
          for ($t=0;$t<$tlimit;$t++) {
-            $oneline = <$dh>;                      # read one line
+            $oneline = <DIAG>;                      # read one line
+            last if !defined $oneline;
             next if $oneline !~ /^.(.*?)\./;       # see if distributed timestamp in position 1 ending with a period
             $oneline =~ /^.(.*?)\./;               # extract value
             $itime = $1;
@@ -4184,7 +4361,7 @@ sub open_kib {
             next;
          }
          $todo{$dlog} = hex($itime);               # Add to array of logs
-         close($dh);
+         close(DIAG);
       }
       $segmax -= 1;
 
@@ -4204,9 +4381,8 @@ sub read_kib {
    if ($segp == -1) {
       $segp = 0;
       if ($segmax > 0) {
-         my $seg_diff_time = $seg_time[1] - $seg_time[0];
-         if ($seg_diff_time > 3600) {
-            $skipzero = 1;
+         if (defined $seg_time[1]) {
+            $skipzero = 1 if ($seg_time[1] - $seg_time[0]) > 3600;
          }
       }
       $segcurr = $seg[$segp];
@@ -4355,6 +4531,10 @@ exit;
 #         - add advisory on Open Index database errors
 #         - add advisory on Read error cases, seen in SITDB/QA1CRULD
 #         - add optional SQL detail report
+# 1.50000 - add another 1040E type key problem
+#         - handle multiple .inv records better
+# 1.51000 - add Historical data bytes to Summary
+#         - add Situation Result by Time report
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -5071,6 +5251,7 @@ Text: TEMS database table with num Open Index errors
 
 Tracing: error
 Diag Log: (57DAB05B.000E-6:kglkycbt.c,2091,"InitReqObj") Open index failed. errno = 12,file = QA1CSTSH. index = PrimaryIndex
+          (58B7E159.0002-3:kglkycbt.c,835,"kglky1rs") isam error. errno = 7.file = QA1CSITF, index = PrimaryIndex,
 
 Meaning: Count of TEMS Open Index database errors.
 
