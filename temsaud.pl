@@ -23,11 +23,10 @@
 ##  (5459ADD0.0000-23:kpxreqi.cpp,126,"InitializeClass") *INFO : Using 20 CTIRA_Recursive_lock objects for class RequestImp
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
-## Fp7 trace adds Richard added
 ## kglaffam.c|AFF1_IsPartOf|294,16618,10%,(58231CDA.0002-18:kglaffam.c,294,"AFF1_IsPartOf") Warning: No affinity entry for <&IBM.CAM7_WAS>
 
 
-my $gVersion = 1.59000;
+my $gVersion = 1.60000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -2279,60 +2278,62 @@ for(;;)
          if ($opt_flip == 1) {
             $oneline =~ /^\((\S+)\)(.+)$/;
             $rest = $2;                       #  Host info/loc/addr change detected for node <uuc_wtwavwq9:06                 > thrunode <REMOTE_usitmpl8057-itm2         > hostAddr: <ip.spipe:#192.168.10.72[4206]<NM>uuc_wtwavwq9</NM>          >
-            $rest =~ / (.*?) change detected for node \<(.*?)\>(.+)$/;
-            my $idesc = $1;
-            my $inode = $2;
-            $rest = $3;
-            $rest =~ /thrunode \<(.*?)\>(.+)$/;
-            my $ithrunode = $1;
-            $rest = $2;
-            my $ioldthrunode = "";
-            if (index($rest,"Old thrunode") != -1) {
-               $rest =~ /Old thrunode \<(.*?)\>(.+)$/;
-               $ioldthrunode = $1;
+            if (index($rest,"for node") != -1) {
+               $rest =~ / (.*?) change detected for node \<(.*?)\>(.+)$/;
+               my $idesc = $1;
+               my $inode = $2;
+               $rest = $3;
+               $rest =~ /thrunode \<(.*?)\>(.+)$/;
+               my $ithrunode = $1;
                $rest = $2;
+               my $ioldthrunode = "";
+               if (index($rest,"Old thrunode") != -1) {
+                  $rest =~ /Old thrunode \<(.*?)\>(.+)$/;
+                  $ioldthrunode = $1;
+                  $rest = $2;
+               }
+               $rest =~ /hostAddr\: \<(.*?)\[/;
+               my $ihostaddr = $1;
+               $inode =~ s/\s+$//;   #trim trailing whitespace
+               $ithrunode =~ s/\s+$//;   #trim trailing whitespace
+               $ioldthrunode =~ s/\s+$//;   #trim trailing whitespace
+               $ihostaddr =~ s/\s+$//;   #trim trailing whitespace
+               my $change_ref = $changex{$idesc};
+               $changex_ct += 1;
+               if (!defined $change_ref) {
+                  my %changeref = (
+                                     count => 0,
+                                     nodes => {},
+                                  );
+                  $change_ref = \%changeref;
+                  $changex{$idesc} = \%changeref;
+               }
+               $change_ref->{count} += 1;
+               my $change_node_ref = $change_ref->{nodes}{$inode};
+               if (!defined $change_node_ref) {
+                  my %changenoderef = (
+                                         count => 0,
+                                         instances => {},
+                                  );
+                  $change_node_ref = \%changenoderef;
+                  $change_ref->{nodes}{$inode} = \%changenoderef;
+               }
+               $change_node_ref->{count} += 1;
+               my $changekey = $ithrunode . "|" . $ihostaddr;
+               my $change_instance_ref = $change_node_ref->{instances}{$changekey};
+               if (!defined $change_instance_ref) {
+                  my %changeinstanceref = (
+                                             count => 0,
+                                             hostaddr =>$ihostaddr,
+                                             thrunode =>$ithrunode,
+                                             oldthrunode =>$ioldthrunode,
+                                  );
+                  $change_instance_ref = \%changeinstanceref;
+                  $change_node_ref->{instances}{$changekey} = \%changeinstanceref;
+               }
+               $change_instance_ref->{count} += 1;
+               next;
             }
-            $rest =~ /hostAddr\: \<(.*?)\[/;
-            my $ihostaddr = $1;
-            $inode =~ s/\s+$//;   #trim trailing whitespace
-            $ithrunode =~ s/\s+$//;   #trim trailing whitespace
-            $ioldthrunode =~ s/\s+$//;   #trim trailing whitespace
-            $ihostaddr =~ s/\s+$//;   #trim trailing whitespace
-            my $change_ref = $changex{$idesc};
-            $changex_ct += 1;
-            if (!defined $change_ref) {
-               my %changeref = (
-                                  count => 0,
-                                  nodes => {},
-                               );
-               $change_ref = \%changeref;
-               $changex{$idesc} = \%changeref;
-            }
-            $change_ref->{count} += 1;
-            my $change_node_ref = $change_ref->{nodes}{$inode};
-            if (!defined $change_node_ref) {
-               my %changenoderef = (
-                                      count => 0,
-                                      instances => {},
-                               );
-               $change_node_ref = \%changenoderef;
-               $change_ref->{nodes}{$inode} = \%changenoderef;
-            }
-            $change_node_ref->{count} += 1;
-            my $changekey = $ithrunode . "|" . $ihostaddr;
-            my $change_instance_ref = $change_node_ref->{instances}{$changekey};
-            if (!defined $change_instance_ref) {
-               my %changeinstanceref = (
-                                          count => 0,
-                                          hostaddr =>$ihostaddr,
-                                          thrunode =>$ithrunode,
-                                          oldthrunode =>$ioldthrunode,
-                               );
-               $change_instance_ref = \%changeinstanceref;
-               $change_node_ref->{instances}{$changekey} = \%changeinstanceref;
-            }
-            $change_instance_ref->{count} += 1;
-            next;
          }
       }
    }
@@ -3646,7 +3647,8 @@ if ($pcb_deletePCB > 0) {
 
 $soaperror_ct = scalar keys %soaperror;
 if ($soaperror_ct >= 0) {
-   $advi++;$advonline[$advi] = "SOAP Errors Types [$soaperror_ct] Detected - See following report";
+   my $pcnt = $soaperror_ct + 1;
+   $advi++;$advonline[$advi] = "SOAP Errors Types [$pcnt] Detected - See following report";
    $advcode[$advi] = "TEMSAUDIT1054W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "SOAP";
@@ -4022,7 +4024,7 @@ if ($sqli != -1) {
    if ($opt_sqldetail == 1) {
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="SQL Detail Report\n";
-      $cnt++;$oline[$cnt]="Type,Count,Duration,Rate,Source,Table,SQL\n";
+      $cnt++;$oline[$cnt]="Type,Count,Duration,Rate/Min,Source,Table,SQL\n";
       $outl = "total" . ",";
       $outl .= $sql_ct_total . ",";
       $outl .= $sql_duration . ",";
@@ -4637,7 +4639,7 @@ if ($pcb_deletePCB > 0) {
 }
 
 $soaperror_ct = scalar keys %soaperror;
-if ($soaperror_ct > 0) {
+if ($soaperror_ct >= 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="SOAP Error Report\n";
    $cnt++;$oline[$cnt]="Count,Fault,\n";
@@ -5158,6 +5160,7 @@ exit;
 #         - Add advisory for SOAP errors
 #         - Add advisory and report for Agent Location Flipping
 #         - Add advisory for missing application data
+# 1.60000 - Avoid errors when Agent Location Flipping data prior to FP7
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
