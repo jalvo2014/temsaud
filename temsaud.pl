@@ -74,7 +74,7 @@
 
 ## KBB_RAS1=    warn of this case
 
-my $gVersion = 1.7300;
+my $gVersion = 1.7400;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -3530,7 +3530,7 @@ my $x = 1;
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Unable to get attributes for table tree TOBJACCL
          if (substr($rest,1,24) eq "Unable to get attributes") {
-            $rest =~ /table tree (\S+)$/;
+            $rest =~ /table tree (\S+).*/;
             my $itable = $1;
             if (defined $itable) {
                $soapcat{$itable} += 1;
@@ -6418,43 +6418,49 @@ if ($dnode_ct > 0) {
 # new report of last N lines of the itm_config.log and itm_install.log - record of recent start/stops/config operations
 
 if ($opt_last == 1) {
-   $rptkey = "TEMSREPORT043";$advrptx{$rptkey} = 1;         # record report key
-   $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="$rptkey: ITM Config and Install last few lines\n";
-   $cnt++;$oline[$cnt]="itm_config.log\n";
-
    my $config_itm_log = $opt_logpath . "itm_config.log";
    my $logsize = -s $config_itm_log;
-   my $displ = 0;
-   $displ = $logsize - 1000 if $logsize > 1000;
-   my $logdata = "";
-   open(FILE,$config_itm_log);
-   seek(FILE,$displ,0);
-   read(FILE,$logdata,1000);
-   close(FILE);
-   my $lc = -1;
-   while($logdata=~/([^\n]+)\n?/g){
-     $lc += 1;
-     next if $lc < 1;
-     $cnt++;$oline[$cnt]="$1\n";
-   }
-   $cnt++;$oline[$cnt]="\n";
+   my $displ;
+   my $logdata;
+   my $lc;
+   if (defined $logsize) {
+      $rptkey = "TEMSREPORT043";$advrptx{$rptkey} = 1;         # record report key
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="$rptkey: ITM Config and Install last few lines\n";
+      $cnt++;$oline[$cnt]="itm_config.log\n";
 
-   $cnt++;$oline[$cnt]="itm_install.log\n";
+      $displ = 0;
+      $displ = $logsize - 1000 if $logsize > 1000;
+      $logdata = "";
+      open(FILE,$config_itm_log);
+      seek(FILE,$displ,0);
+      read(FILE,$logdata,1000);
+      close(FILE);
+      $lc = -1;
+      while($logdata=~/([^\n]+)\n?/g){
+        $lc += 1;
+        next if $lc < 1;
+        $cnt++;$oline[$cnt]="$1\n";
+      }
+      $cnt++;$oline[$cnt]="\n";
+   }
    my $install_itm_log = $opt_logpath . "itm_install.log";
    $logsize = -s $install_itm_log;
-   $displ = 0;
-   $displ = $logsize - 1000 if $logsize > 1000;
-   $logdata = "";
-   open(FILE,$install_itm_log);
-   seek(FILE,$displ,0);
-   read(FILE,$logdata,1000);
-   close(FILE);
-   $lc = -1;
-   while($logdata=~/([^\n]+)\n?/g){
-     $lc += 1;
-     next if $lc < 1;
-     $cnt++;$oline[$cnt]="$1\n";
+   if (defined $logsize) {
+      $cnt++;$oline[$cnt]="itm_install.log\n";
+      $displ = 0;
+      $displ = $logsize - 1000 if $logsize > 1000;
+      $logdata = "";
+      open(FILE,$install_itm_log);
+      seek(FILE,$displ,0);
+      read(FILE,$logdata,1000);
+      close(FILE);
+      $lc = -1;
+      while($logdata=~/([^\n]+)\n?/g){
+        $lc += 1;
+        next if $lc < 1;
+        $cnt++;$oline[$cnt]="$1\n";
+      }
    }
 }
 
@@ -7072,6 +7078,7 @@ exit;
 #          Add portscan report over time
 #          Add report of recent install and config operations
 #1.73000 - Advisory when KBB_RAS1 starts with a single quote
+#1.74000 - test advisory 1067 logic
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
