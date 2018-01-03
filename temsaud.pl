@@ -42,7 +42,25 @@
 
 ## extract out last 10 lines of itm_config.log
 
-## kdspmou2.c,3077,"PM1_VPM2_AllocateLiteral") Literal Pool Boundary Violated (61/7/64304)
+## (56CF3C07.0000-8:kdspmou2.c,3077,"PM1_VPM2_AllocateLiteral") Literal Pool Boundary Violated (61/7/64304)
+## (56CF3C07.0001-8:kdspmou1.c,721,"PM1_CompilerOutput") Cannot build table object, status = 201
+## (56CF3C07.0002-8:kdspmcv.c,1063,"CreateTable") VPM1_Output Failed status: 201
+## (56CF3C07.0003-8:kdspmcv.c,1064,"CreateTable") Compiler output error, status = 201
+## (56CF3C07.0004-8:kdsvws1.c,1371,"CreateServerView") Bad status from VPM1_CreateTable, 201
+## (56CF3C07.0005-8:kdspac1.c,2011,"VPA1_CreateRequest") Create request failed with return code 201
+## (56CF3C07.0006-8:kdsruc1.c,5815,"CreateRequest") Cannot create request, status = 201
+## (56CF3C07.0007-8:kdsruc1.c,6378,"DecomposePredicate") Cannot create request, status = 201
+## (56CF3C07.0008-8:kdsruc1.c,4439,"CreateRuleTree") Cannot create rule tree, status = 201
+## (56CF3C07.0009-8:kdssnc1.c,967,"CreateSituation") Cannot create the RULE tree
+## (56CF3C07.000A-8:kdspmou1.c,716,"PM1_CompilerOutput") Cannot set root table, status = 201
+## (56CF3C07.000B-8:kdspmcv.c,1063,"CreateTable") VPM1_Output Failed status: 201
+## (56CF3C07.000C-8:kdspmcv.c,1064,"CreateTable") Compiler output error, status = 201
+## (56CF3C07.000D-8:kdsvws1.c,1371,"CreateServerView") Bad status from VPM1_CreateTable, 201
+## (56CF3C07.000E-8:kdspac1.c,2011,"VPA1_CreateRequest") Create request failed with return code 201
+## (56CF3C07.000F-8:ko4async.cpp,2685,"IBInterface::sendAsyncRequest") createRequest failure prepare <12D9A1B70>
+## (56CF3C07.0010-8:ko4sitma.cpp,935,"IBInterface::lodge") error: Lodge <1131>
+## (56CF3C07.0011-8:ko4ibstr.cpp,686,"IBStream::op_ls_req") IB Err: 1131
+## (56CF3C07.0012-8:ko4sit.cpp,870,"Situation::slice") Sit vil_fss_xuxc_mediatn: Unable to lodge - giving up.
 
 ## Can't initialize filter plan, PRB1_InitFilterPlan status 58
 
@@ -54,7 +72,9 @@
 ## ??
 ## (5940BF37.0046-261F:kdebp0r.c,591,"receive_vectors") ephemeral ip.spipe: peer address translated
 
-my $gVersion = 1.7100;
+## KBB_RAS1=    warn of this case
+
+my $gVersion = 1.7200;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -196,6 +216,10 @@ my @ssout;
 my $opt_flip = 1;
 my $opt_eph;                                     # produce ephemeral report
 my $opt_ephdir;                                  # produce ephemeral report
+my $start_date = "";
+my $start_time = "";
+my $local_diff = -1;
+
 
 my $test_logfn;
 my $invfile;
@@ -449,6 +473,7 @@ my $portscan_HTTP = 0;
 my $portscan_integrity = 0;
 my $portscan_suspend = 0;
 my $portscan_72 = 0;
+my %portscan_timex;
 
 while (<main::DATA>)
 {
@@ -495,6 +520,8 @@ my $opt_nominal_soap_burst = 300;            # maximum burst of 300 per minute
 my $opt_nominal_agto_mult = 1;               # amount of allowed repeat onlines
 my $opt_nominal_max_impact = 50;                     # Above this impact level, return exit code non-zero
 my $opt_nominal_loci = 1;                     # Above this percent, record in loci report
+my $opt_portscan = 1;                         # portscan report
+my $opt_last = 1;
 
 my $arg_start = join(" ",@ARGV);
 $hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
@@ -565,6 +592,9 @@ while (@ARGV) {
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-rd") {
       $opt_rd = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-noportscan") {
+      $opt_portscan = 0;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-rdslot") {
       shift(@ARGV);
@@ -1338,6 +1368,22 @@ for(;;)
          }
       }
    }
+   if ($start_date eq "") {
+      if (substr($oneline,0,1) eq "+") {
+         if (index($oneline,"Start Date:") != -1) {
+            $oneline =~ /Start Date: (\d{4}\/\d{2}\/\d{2})/;
+            $start_date = $1 if defined $1;
+         }
+      }
+   }
+   if ($start_time eq "") {
+      if (substr($oneline,0,1) eq "+") {
+         if (index($oneline,"Start Time:") != -1) {
+            $oneline =~ /Start Time: (\d{2}:\d{2}:\d{2})/;
+            $start_time = $1 if defined $1;
+         }
+      }
+    }
       # Extract the Stack Limit - a Linux/Unix concern.
       # We recommend a maximum of 10 megabytes for a TEMS
       #+52BE1DCC.0000     Nofile Limit: None                       Stack Limit: 32M
@@ -1607,6 +1653,20 @@ for(;;)
       $logtimehex = sprintf("%X",$logtime);
       $logunit = $2;
       $logentry = $3;
+   }
+   if ($local_diff == -1) {
+      if ($start_time ne "") {
+         if ($start_date ne "") {
+            my $iyear = substr($start_date,0,4) - 1900;
+            my $imonth = substr($start_date,5,2) - 1;
+            my $iday = substr($start_date,8,2);
+            my $ihour = substr($start_time,0,2);
+            my $imin = substr($start_time,3,2);
+            my $isec = substr($start_time,6,2);
+            my $ltime = timelocal($isec,$imin,$ihour,$iday,$imonth,$iyear);
+            $local_diff = $logtime - $ltime;
+         }
+      }
    }
    if ($skipzero == 0) {
       if (($segmax <= 1) or ($segp > 0)) {
@@ -2081,12 +2141,21 @@ for(;;)
       if ($logentry eq "KDHS_InboundQueueManager") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Unsupported request method "NESSUS"
+         my @scantype;
          if (substr($rest,1,26) eq "Unsupported request method") {
             $portscan++;
             $portscan_Unsupported++;
+$DB::single=2;
+            push (@{$portscan_timex{$logtimehex}},"unsupported");
+$DB::single=2;
+my $x = 1;
          } elsif (substr($rest,1,21) eq "error in HTTP request") {
             $portscan++ if index($rest,"unknown method in request") != -1;
             $portscan_HTTP++;
+$DB::single=2;
+            push (@{$portscan_timex{$logtimehex}},"http");
+$DB::single=2;
+my $x = 1;
          }
          next;
       }
@@ -2100,6 +2169,10 @@ for(;;)
          if (substr($rest,1,48) eq "Status 1DE00074=KDE1_STC_DATASTREAMINTEGRITYLOST") {
             $portscan++;
             $portscan_integrity++;
+$DB::single=2;
+            push (@{$portscan_timex{$logtimehex}},"integrity");
+$DB::single=2;
+my $x = 1;
          }
       }
    }
@@ -2111,6 +2184,10 @@ for(;;)
          if (index($rest,"suspending new connections") != -1) {
             $portscan++;
             $portscan_suspend++;
+$DB::single=2;
+            push (@{$portscan_timex{$logtimehex}},"suspend");
+$DB::single=2;
+my $x = 1;
          }
       }
    }
@@ -2122,6 +2199,7 @@ for(;;)
          if (index($rest,"KDE1_STC_IOERROR=72") != -1) {
             $portscan++;
             $portscan_72++;
+            push (@{$portscan_timex{$logtimehex}},"error72");
          }
       }
    }
@@ -2993,7 +3071,6 @@ my $x = 1;
       # (58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
       # (58A73630.0253-DB:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'gto_it06qam020xjbxm:07          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'N', expiryInterval: '-1', online: '  ', hostAddr: 'ip.spipe:#158.98.138.32[7757]<NM>gto_it06qam020xjbxm</NM>   '
       if ($logentry eq "UpdateNodeStatus") {
-#$DB::single=2 if $l == 78106;
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
          if (substr($rest,1,5) eq "Node:") {
@@ -3002,17 +3079,23 @@ my $x = 1;
             #    parse var remainder . "Node: '"endpoint . "', thrunode: '" thrunode . "', flags: '" flags . "', curOnline: '" curonline . "', newOnline: '" newOnline . "', expiryInterval: '" expireInt . "'" .
 
 
-            $rest =~ /Node: \'([^']*)\', thrunode: \'([^']*)\', flags: \'([^']*)\', curOnline: \'([^']*)\', newOnline: \'([^']*)\', expiryInterval: \'([^']*)\'[,]* online: \'([^']*)\'[,]* (.*)$/;
+#           $rest =~ /Node: \'([^']*)\', thrunode: \'([^']*)\', flags: \'([^']*)\', curOnline: \'([^']*)\', newOnline: \'([^']*)\', expiryInterval: \'([^']*)\'[,]* online: \'([^']*)\'[,]* (.*)$/;
+            $rest =~ /Node: \'([^']*)\', thrunode: \'([^']*)\', flags: \'([^']*)\', curOnline: \'([^']*)\', newOnline: \'([^']*)\', expiryInterval: \'([^']*)\'[,]*(.*)$/;
             $inode = $1;
             $ithrunode = $2;
             my $iflags = $3;
             my $icurOnline = $4;
             my $inewOnline = $5;
             my $iexpireInt = $6;
-            my $ionline = $7;
-            $rest= $8;            # hostAddr was added at recent maintenance levels, so capture it only if available
+            $rest= $7;            # online and hostAddr was added at recent maintenance levels, so capture it only if available
             $inode =~ s/\s+$//;   #trim trailing whitespace
             $ithrunode =~ s/\s+$//;   #trim trailing whitespace
+            my $ionline = "";
+            if (index($rest,"online") != -1) {
+               $rest =~ /online: \'([^']*)\'[,]* (.*)$/;
+               $ionline = $1;
+               $rest = $2;
+            }
             my $ihostAddr = "";
             my $isystem = "";
             my $iport = "";
@@ -4338,8 +4421,8 @@ my $cnt = -1;
 
 
 if ($toobigi != -1) {
-   $rptkey = "TEMSREPORT001";
-   $cnt++;$oline[$cnt]="Too Big Report - See Report $rptkey\n";
+   $rptkey = "TEMSREPORT001";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="$rptkey: Too Big Report\n";
    $cnt++;$oline[$cnt]="Situation,Table,FilterSize,Count\n";
    for ($i = 0; $i <= $toobigi; $i++) {
       $outl = $toobigsit[$i] . ",";
@@ -4349,7 +4432,6 @@ if ($toobigi != -1) {
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
    $cnt++;$oline[$cnt]="\n";
-   $advrptx{$rptkey} = 1;         # record report key
 }
 if ($toobigi > -1) {
       my $ptoobigi = $toobigi + 1;
@@ -4542,6 +4624,24 @@ if (($portscan_suspend + $portscan_72) > 0) {
    $advcode[$advi] = "TEMSAUDIT1049E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Portscan";
+}
+
+my $portscan_timex_ct = scalar keys %portscan_timex;
+if ($opt_portscan == 1) {
+   if ($portscan_timex_ct != -1) {
+      $rptkey = "TEMSREPORT042";$advrptx{$rptkey} = 1;         # record report key
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="$rptkey: Portscan Time Report\n";
+      $cnt++;$oline[$cnt]="Epoch,Local_Time,Scan_Types,\n";
+      foreach $f ( sort { $a cmp $b } keys %portscan_timex) {
+         $outl = $f . ",";
+         $outl .= sec2time(hex($f)+$local_diff) . ",";
+         my $pscans = join(" ",@{$portscan_timex{$f}});
+         $outl .= $pscans . ",";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+      }
+      $cnt++;$oline[$cnt]="\n";
+   }
 }
 
 if ($fsync_enabled == 0) {
@@ -6308,7 +6408,50 @@ if ($dnode_ct > 0) {
 #     read(FILE,$ab,100); #note the last 100 bytes get stored in $ab
 #     close(FILE);
 
-# new report of last N lines of the itm_config.log - record of recent start/stops/config operations
+# new report of last N lines of the itm_config.log and itm_install.log - record of recent start/stops/config operations
+
+if ($opt_last == 1) {
+   $rptkey = "TEMSREPORT043";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: ITM Config and Install last few lines\n";
+   $cnt++;$oline[$cnt]="itm_config.log\n";
+
+   my $config_itm_log = $opt_logpath . "itm_config.log";
+   my $logsize = -s $config_itm_log;
+   my $displ = 0;
+   $displ = $logsize - 1000 if $logsize > 1000;
+   my $logdata = "";
+   open(FILE,$config_itm_log);
+   seek(FILE,$displ,0);
+   read(FILE,$logdata,1000);
+   close(FILE);
+   my $lc = -1;
+   while($logdata=~/([^\n]+)\n?/g){
+     $lc += 1;
+     next if $lc < 1;
+     $cnt++;$oline[$cnt]="$1\n";
+   }
+   $cnt++;$oline[$cnt]="\n";
+
+   $cnt++;$oline[$cnt]="itm_install.log\n";
+   my $install_itm_log = $opt_logpath . "itm_install.log";
+   $logsize = -s $install_itm_log;
+   $displ = 0;
+   $displ = $logsize - 1000 if $logsize > 1000;
+   $logdata = "";
+   open(FILE,$install_itm_log);
+   seek(FILE,$displ,0);
+   read(FILE,$logdata,1000);
+   close(FILE);
+   $lc = -1;
+   while($logdata=~/([^\n]+)\n?/g){
+     $lc += 1;
+     next if $lc < 1;
+     $cnt++;$oline[$cnt]="$1\n";
+   }
+}
+
+
 
 
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
@@ -6918,6 +7061,9 @@ exit;
 #1.71000 - Advisory on KDEB_INTERFACELIST and KDCB0_HOSTNAME
 #        - Advisory on same agent name different affinity
 #        - Added inline report explanations.
+#1.72000 - handle RB capture better on earlier maintenance levels.
+#          Add portscan report over time
+#          Add report of recent install and config operations
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -9513,10 +9659,45 @@ Trace: error (UNIT:kfaprpst ER ST)
 
 Meaning
 
-[example to be added later].
+TEMSREPORT041: Node Validity Duplicate Node Report
+Count,Node,Thrunode,Product,Thrunode_new,Product_new,
+1,DB2plex:DB2plex:Plexview,WD01:CMS,DP,temdhdq01v_hub,D5,
+1,DB2plex:DB2plex:Plexview,WD03:CMS,DP,temdhdq01v_hub,D5,
 
 This shows hub TEMS detected node duplication. This usually means
 duplicate agent name cases.
+
+Recovery plan: Involve IBM support to resolve issues.
+----------------------------------------------------------------
+
+TEMSREPORT042
+Text: Portscan Time Report
+
+Trace: error
+Parameter: -portscan
+
+Meaning
+
+[example to be added later].
+
+This shows hex time and the local time when the possible portscan
+cases occured. This may be useful in finding the underlying cause.
+
+Recovery plan: Involve IBM support to resolve issues.
+----------------------------------------------------------------
+
+TEMSREPORT043
+Text: ITM Config and Install last few lines
+
+Trace: error
+
+Meaning
+
+[example to be added later].
+
+This shows the lines from the last 1000 bytes of the
+itm_config.log and itm_install.log. In can be useful in
+understanding what has happened recently.
 
 Recovery plan: Involve IBM support to resolve issues.
 ----------------------------------------------------------------
