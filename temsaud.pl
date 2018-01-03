@@ -38,7 +38,9 @@
 
 ## (591ACD2E.0000-7C:kshcat.cpp,296,"RetrieveTableByTableName") Unable to get attributes for table tree TOBJACCL
 
-my $gVersion = 1.64000;
+## monitor cases where port != 1918/3660 + N*4096, or +1
+
+my $gVersion = 1.65000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -186,6 +188,7 @@ my $logspath;
 my $logsinv;
 my $endfnp;
 my $invlogtime = 0;
+my $tempInt;
 
 
 my @seg = ();
@@ -285,6 +288,11 @@ my %advcx = (
               "TEMSAUDIT1065W" => "75",
               "TEMSAUDIT1066W" => "75",
               "TEMSAUDIT1067E" => "100",
+              "TEMSAUDIT1068W" => "85",
+              "TEMSAUDIT1069W" => "85",
+              "TEMSAUDIT1070W" => "85",
+              "TEMSAUDIT1071W" => "85",
+              "TEMSAUDIT1072W" => "85",
             );
 
 my %advtextx = ();
@@ -327,7 +335,6 @@ my %lociex = (                    # generic loci counter exclusion
                 "kdebpli.c|KDEBP_Listen" => 1,
                 "kdepdpc.c|KDEP_DeletePCB" => 1,
                 "kpxrwhpx.cpp|LookupWarehouse" => 1,
-                "kfaprpst.c|KFA_UpdateNodestatusAtHub" => 1,
                 "kfastins.c|KFA_PutSitRecord" => 1,
              );
 
@@ -341,6 +348,10 @@ my $conv_ref;
 
 my %pcbx;
 my %pcbr;
+
+my %rbdupx;
+my $rbdup_ref;
+my $grace = 1;   # minutes
 
 my $hublost_total = 0;
 my $gskit_nocipher = 0;
@@ -822,6 +833,7 @@ my $sx;                     # index
 my $insize;                 # calculated
 my $csvdata;
 my @words;
+my $ithrunode;
 
 my $mani = -1;              # count of managed systems
 my @man = ();               # managed system name
@@ -1609,35 +1621,6 @@ for(;;)
       }
    }
    # signal for KDEB_INTERFACELIST conflicts
-   # (58DA4E42.0511-73:kdepnpc.c,138,"KDEP_NewPCB") 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
-   if (substr($logunit,0,9) eq "kdepnpc.c") {
-      if ($logentry eq "KDEP_NewPCB") {
-         $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;                       # 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
-         if (substr($rest,-7) eq "created") {
-            $rest =~ / (\S+): (\S+),/;
-            my $iip = $1;
-            my $iaddr = "X" . $2;
-            my $pcb_ref = $pcbx{$iip};
-            if (!defined $pcb_ref) {
-               my %pcbref = (
-                               addr => {},
-                               newPCB => 0,
-                               deletePCB => 0,
-                               agents => {},
-                            );
-               $pcb_ref = \%pcbref;
-               $pcbx{$iip} = \%pcbref;
-            }
-            $pcb_ref->{count} += 1;
-            $pcb_ref->{newPCB} += 1;
-            $pcb_ref->{addr}{$iaddr}=1;
-            $pcbr{$iaddr} = $iip;
-            next;
-         }
-      }
-   }
-   # signal for KDEB_INTERFACELIST conflicts
    # (58DA4EFE.00B1-174:kdepdpc.c,62,"KDEP_DeletePCB") 10B0C8C6: KDEP_pcb_t deleted
    if (substr($logunit,0,9) eq "kdepdpc.c") {
       if ($logentry eq "KDEP_DeletePCB") {
@@ -1834,7 +1817,7 @@ for(;;)
          if (substr($rest,1,19) eq "Affinity not loaded") {
             $rest =~ /\<(\S+)\> thrunode \<(\S+)\>/;
             my $inode = $1;
-            my $ithrunode = $2;
+            $ithrunode = $2;
             $node_ignorex{$inode} = $ithrunode;
          }
       }
@@ -2078,6 +2061,37 @@ for(;;)
       }
       next;
    }
+   next if $skipzero;
+
+   # signal for KDEB_INTERFACELIST conflicts
+   # (58DA4E42.0511-73:kdepnpc.c,138,"KDEP_NewPCB") 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
+   if (substr($logunit,0,9) eq "kdepnpc.c") {
+      if ($logentry eq "KDEP_NewPCB") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
+         if (substr($rest,-7) eq "created") {
+            $rest =~ / (\S+): (\S+),/;
+            my $iip = $1;
+            my $iaddr = "X" . $2;
+            my $pcb_ref = $pcbx{$iip};
+            if (!defined $pcb_ref) {
+               my %pcbref = (
+                               addr => {},
+                               newPCB => 0,
+                               deletePCB => 0,
+                               agents => {},
+                            );
+               $pcb_ref = \%pcbref;
+               $pcbx{$iip} = \%pcbref;
+            }
+            $pcb_ref->{count} += 1;
+            $pcb_ref->{newPCB} += 1;
+            $pcb_ref->{addr}{$iaddr}=1;
+            $pcbr{$iaddr} = $iip;
+            next;
+         }
+      }
+   }
 
    #(57A0B2C2.000D-48:kfastinh.c,1187,"KFA_InsertNodests") Sending Node Status : node <vsmp8288:VA                     > nodetype <V> thrunode <remote_apsp0562                 > expiryint <-1> expirytime <9               > online <  > o4online <Y> product <VA> version <06.20.01> affinities <00000000G000000000000000000000000400004w0a7 > hostinfo <AIX~6.1         > hostloc <                > hostaddr <ip.pipe:#10.125.108.65[57760]<NM>vsmp8288</NM>                                                                                                                                                                                                                  > reserved <A=02:aix523;C=06.20.01.00:aix523;G=06.20.01.00:aix523;          > hrtbeattime <1160802094349000>
    if (substr($logunit,0,10) eq "kfastinh.c") {
@@ -2088,7 +2102,7 @@ for(;;)
             $rest =~ /node <(.*?)> nodetype <(.*?)> thrunode <(.*?)> expiryint <(.*?)> expirytime <(.*?)> online <(.*?)> o4online <(.*?)> product <(.*?)> version <(.*?)> affinities <(.*?)> hostinfo <(.*?)> hostloc <(.*?)> hostaddr <(.*?)> reserved <(.*?)> hrtbeattime <(.*?)>/;
             my $inode = $1;
             my $inodetype = $2;
-            my $ithrunode = $3;
+            $ithrunode = $3;
             my $iexpiryint = $4;
             my $iexpirytime = $5;
             my $online = $6;
@@ -2431,9 +2445,12 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
          if (substr($rest,1,26) eq "Simple heartbeat from node") {
-            $rest =~ /.*?\<(.*?)\>/;
+#$DB::single=2 if $l >= 113810;
+            $rest =~ /node \<(.*?)\> thrunode, \<(.*?)\>/;
             $iagent = $1;
+            $ithrunode = $2;
             $iagent =~ s/\s+$//;                    # strip trailing blanks
+            $ithrunode =~ s/\s+$//;                    # strip trailing blanks
             my $ax = $agtshx{$iagent};
             if (!defined $ax) {
                $agtshi += 1;
@@ -2469,8 +2486,276 @@ for(;;)
             if ($logtime > $agtsh_etime) {
                $agtsh_etime = $logtime;
             }
+            # Richard Bennett logic from FindDupAgents.rex
+            $inode = $iagent;
+            $rbdup_ref = $rbdupx{$inode};
+            if (!defined $rbdup_ref) {
+               my %rbdupref = (
+                                 thruname => "",
+                                 curstatus => "N",
+                                 interval => 0,
+                                 inttmp => 0,
+                                 lasttime => 0,
+                                 thruchg => 0,
+                                 simpleneg => 0,
+                                 dupflag => 0,
+                                 Ycnt => 0,
+                                 offline => 0,
+                                 online => 0,
+                                 newonline1 => 0,
+                                 duplicate_reasons => {},
+                                 thrunodes => {},
+                                 hostaddrs => {},
+                                 hostaddr => 0,
+                              );
+               $rbdup_ref = \%rbdupref;
+               $rbdupx{$inode} = \%rbdupref;
+            }
+
+            # if we have not yet determined an interval for this endpoint, then we
+            # never really saw a normal first online heartbeat. This occurs when
+            # these is log overwrite.
+            if ($rbdup_ref->{interval} == 0) {
+
+               # If we have encountered three or more of these simple heartbeats, then we can see if                 ##2
+               # the intervals between pairs match. if they do, we want to save the interval
+               # and reset things so processing continues in the future for this endpoint with
+               # known interval value.
+               if ($rbdup_ref->{inttmp} > 0) {
+                  $tempInt = $logtime - $rbdup_ref->{lasttime};   # number of seconds between heartbeats
+                  my $minutes = 0;
+                  my $leftover;
+
+                  # if the interval between the last two heartbeats is about equal to the
+                  # previous heartbeat interval, then we will use that as the interval if
+                  # the interval is one minute.
+                  if (($tempInt >= $rbdup_ref->{inttmp} - $grace) & ($tempInt <= $rbdup_ref->{inttmp} + $grace)) {
+                     $leftover = $tempInt%60;                                                                   ##4
+                     $leftover = 0 if $leftover == 59;
+                     $minutes = int($tempInt/60) if $leftover <= 1;                                                              ##5
+                     if ($minutes == 0) {
+$DB::single=2;                                                                                                       ##5
+                        # Too many seconds left over, so this is a likely duplicate. Increment that
+                        # count. Then add the interval to the previous interval.
+                        $rbdup_ref->{dupflag} += 1;
+                        $rbdup_ref->{duplicate_reasons}{"leftover_seconds"} += 1;
+                        $rbdup_ref->{inttmp} += $tempInt;
+
+                        # If the total interval is now on a minute boundary, then
+                        # that is likely the interval we are looking for.
+                        $leftover = $rbdup_ref->{lasttime}%60;
+                        $leftover = 0 if $leftover == 59;
+                        $minutes = int($tempInt/60) if $leftover <= 1;                                                ##5
+$DB::single=2;
+my $x = 1;
+                     }
+                  } else {                                                                                            ##4
+                     # The two heartbeat are not close in interval, so this is a likely                               ##5
+                     # duplicate. Increment that count. Then add the interval to the
+                     # previous interval.
+                     $rbdup_ref->{dupflag} += 1;
+                     $rbdup_ref->{duplicate_reasons}{"heartbeat_outside_grace"} += 1;
+                     $rbdup_ref->{inttmp} += $tempInt;
+
+                     # If the total interval is now on a minute boundary, then
+                     # that is likely the interval we are looking for.
+                     $leftover = $rbdup_ref->{lasttime}%60;
+                     $leftover = 0 if $leftover == 59;
+                     $minutes = int($tempInt/60) if $leftover <= 1;                                                ##5
+                  }
+
+                  # if we have something in minutes, then that is our interval */
+                  if ($minutes != 0) {
+                     $rbdup_ref->{interval} = $minutes*60;   # in seconds  */                                         ##6
+                     $rbdup_ref->{inttmp} = 0;                                                                        ##6
+                  }  else {
+                  }
+
+
+               # Otherwise if this is the second simple heartbeat for this endpoint, then determine
+               # a temporary interval to check next time we get a simple heartbeat from this endpoint.
+               # If there is no difference in time between the two heartbeats, then this is a
+               # likely duplicate.
+
+               } elsif ($rbdup_ref->{lasttime} > 0) {
+                  $tempInt = $logtime - $rbdup_ref->{lasttime}; # number of seconds between heartbeats            ##6
+                  if ($tempInt == 0) {
+                     $rbdup_ref->{dupflag} += 1;                                                                  ##7
+                     $rbdup_ref->{duplicate_reasons}{"double_heartbeat"} += 1;
+                  } else {
+                     $rbdup_ref->{inttmp} = $tempInt;
+                  }
+
+               # Otherwise this is the first time we have seen this endpoint so save so info for next time
+               } else {                                                                                          ##6
+                  $rbdup_ref->{thruname} = $ithrunode;                                                            ##7
+                  $rbdup_ref->{curstatus} = "Y";                                                                 ##7
+               }
+
+            # Is the interval a positive number? If not then something is wrong. We should not be getting
+            # simple heartbeats when the interval is negative. */
+            } elsif ($rbdup_ref->{interval} < 0) {
+$DB::single=2;                                                                                                    ##6
+               $rbdup_ref->{simpleneg} += 1;
+$DB::single=2;
+my $x = 1;
+               # we have a simple heartbeat and we know what interval they should be at. If the interval is
+               # less than the expected interval then we may have a duplicate instance of the endpoint.
+               # Larger values are okay since there can be delays.
+            } else {  #                                                                                         ##5
+               # allow grace period to be early or late */
+               my $time_diff = $logtime - $rbdup_ref->{lasttime};                                                           ##5
+               if (($time_diff < ($rbdup_ref->{interval} - $grace)) or ($time_diff > ($rbdup_ref->{interval} - $grace))) {
+                  $rbdup_ref->{dupflag} += 1;                                                                               ##6
+                  $rbdup_ref->{duplicate_reasons}{"heartbeat_outside_grace"} += 1;
+               }
+            }
+
+            # always save the timestamp of the simple heartbeat */                                           #4
+            $rbdup_ref->{lasttime} = $logtime;
+            $rbdup_ref->{thruname} = $ithrunode if $rbdup_ref->{thruname} eq "";
+            # And check to see if the thrunode has changed. It should never change with a simple heartbeat */
+            if ($ithrunode ne $rbdup_ref->{thruname}) {
+               $rbdup_ref->{thruchg} += 1;                     #ntest
+               $rbdup_ref->{thruname} = $ithrunode;
+               $rbdup_ref->{thrunodes}{$ithrunode} += 1;
+            }
+            next;
          }
-         next;
+      }
+
+      # (58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
+      # (58A73630.0253-DB:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'gto_it06qam020xjbxm:07          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'N', expiryInterval: '-1', online: '  ', hostAddr: 'ip.spipe:#158.98.138.32[7757]<NM>gto_it06qam020xjbxm</NM>   '
+      if ($logentry eq "UpdateNodeStatus") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
+         if (substr($rest,1,5) eq "Node:") {
+            # Richard Bennett logic from FindDupAgents.rex
+            # Get the needed information. Simple heartbeats are always online = "Y"
+            #    parse var remainder . "Node: '"endpoint . "', thrunode: '" thrunode . "', flags: '" flags . "', curOnline: '" curonline . "', newOnline: '" newOnline . "', expiryInterval: '" expireInt . "'" .
+
+            $rest =~ /Node: \'(.*?)\', thrunode: \'(.*?)\', flags: \'(.*?)\', curOnline: \'(.*?)\', newOnline: \'(.*?)\', expiryInterval: \'(.*?)\'[,]* online: \'(.*?)\'[,]* (.*)$/;
+            $inode = $1;
+            $ithrunode = $2;
+            my $iflags = $3;
+            my $icurOnline = $4;
+            my $inewOnline = $5;
+            my $iexpireInt = $6;
+            my $ionline = $7;
+
+            # hostAddr was added at recent maintenance levels, so capture it if available
+            $rest= $8;
+            my $ihostAddr = "";
+            if (index($rest,"hostAddr") != -1) {
+               $rest =~ /hostAddr: \'.*?#(.*?\[\d+\]).*?\'/;
+               $ihostAddr = $1 if defined $1;
+            }
+            $inode =~ s/\s+$//;   #trim trailing whitespace
+            $ithrunode =~ s/\s+$//;   #trim trailing whitespace
+            $ihostAddr =~ s/\s+$//;   #trim trailing whitespace
+            $rbdup_ref = $rbdupx{$inode};
+            if (!defined $rbdup_ref) {
+               my %rbdupref = (
+                                 thruname => "",
+                                 curstatus => "N",
+                                 interval => 0,
+                                 inttmp => 0,
+                                 lasttime => 0,
+                                 thruchg => 0,
+                                 simpleneg => 0,
+                                 dupflag => 0,
+                                 Ycnt => 0,
+                                 offline => 0,
+                                 online => 0,
+                                 newonline1 => 0,
+                                 duplicate_reasons => {},
+                                 thrunodes => {},
+                                 hostaddrs => {},
+                                 hostaddr => 0,
+                              );
+               $rbdup_ref = \%rbdupref;
+               $rbdupx{$inode} = \%rbdupref;
+            }
+            $rbdup_ref->{hostaddrs}{$ihostAddr} = 1 if $ihostAddr ne "";
+            $rbdup_ref->{newonline1} += 1 if $inewOnline eq "1";
+            # We should not be getting an offline status for a node that is already offline
+
+            if (($rbdup_ref->{curstatus} eq "N") and ($inewOnline eq "N")) {
+               $rbdup_ref->{dupflag} += 1;
+               $rbdup_ref->{duplicate_reasons}{"double_offline"} += 1;
+            # if the endpoint is going offline then reset some things
+
+            } elsif ($inewOnline eq "N") {
+               $rbdup_ref->{thruname} = "";
+               $rbdup_ref->{interval} = 0;
+               $rbdup_ref->{lasttime} = 0;
+               $rbdup_ref->{curstatus} = "N";
+               $rbdup_ref->{offline} += 1;
+
+            # if the endpoint is currently offline then it must be coming online...  time to
+            # save some values.
+
+            } elsif ($rbdup_ref->{curstatus} eq "N"){
+               $rbdup_ref->{thruname} = $ithrunode;
+               $rbdup_ref->{thrunodes}{$ithrunode} += 1;
+               if (($iexpireInt > 100) or ($iexpireInt < 1)){
+                  $rbdup_ref->{interval} = 600;
+               } else {
+                  $rbdup_ref->{interval} = $iexpireInt*60;
+               }
+               $rbdup_ref->{lasttime} = $logtime;
+               $rbdup_ref->{curstatus} = "Y";
+               $rbdup_ref->{online} += 1;
+
+            # Endpoint is online and we are getting an online heartbeat...  check the interval */
+
+            # Is the interval a positive number? This is okay in most cases - usually just the RTEMS
+            # resending node statuses. But if the thrunode changes then there is a chance we have
+            # a duplicate endpoint. Thrunode changes are usually normal unless there are a lot
+            # of them.
+
+            } elsif ($rbdup_ref->{interval} < 0) {
+$DB::single=2;
+               if ($ithrunode ne $rbdup_ref->{thruname}) {
+$DB::single=2;
+                  $rbdup_ref->{thruchg} += 1;
+                  $rbdup_ref->{thruname} = $ithrunode;
+                  $rbdup_ref->{thrunodes}{$ithrunode} += 1;
+$DB::single=2;
+my $x = 1;
+               } elsif ($ithrunode ne $opt_nodeid) {
+$DB::single=2;
+                  $rbdup_ref->{Ycnt} += 1;
+$DB::single=2;
+my $x = 1;
+               }
+$DB::single=2;
+                    $rbdup_ref->{lasttime} = $logtime;
+$DB::single=2;
+my $x = 1;
+
+            # we have a heartbeat and we know what interval they should be at. If the thrunode changes
+            # then there is a chance we have a duplicate endpoint. Thrunode changes are usually normal unless
+            # there are a lot of them. We ignore the interval in this case since it is normal for a thrunode
+            # change to send in a heartbeat before the interval expires.
+
+            # if there is no thrunode change and the interval is
+            # less than the expected interval then we may have a duplicate instance of the endpoint.
+            # Larger values are okay since there can be delays.
+
+            } else {
+               if ($ithrunode ne $rbdup_ref->{thruname}) {
+                   $rbdup_ref->{thruchg} += 1;
+                   $rbdup_ref->{thruname} = $ithrunode;
+                   $rbdup_ref->{thrunodes}{$ithrunode} += 1;
+               } elsif (($logtime - $rbdup_ref->{lasttime}) < ($rbdup_ref->{interval} - 5)) { # allow grace period to be early */
+                   $rbdup_ref->{dupflag} += 1;
+                   $rbdup_ref->{duplicate_reasons}{"early_heartbeat"} += 1;
+               }
+            }
+            $rbdup_ref->{lasttime} = $logtime;         # always record last time
+            next;
+         }
       }
 
 
@@ -2488,7 +2773,7 @@ for(;;)
                my $inode = $2;
                $rest = $3;
                $rest =~ /thrunode \<(.*?)\>(.+)$/;
-               my $ithrunode = $1;
+               $ithrunode = $1;
                $rest = $2;
                $ithrunode =~ s/\s+$//;                    # strip trailing blanks
                if (index($ithrunode," ") != -1) {
@@ -2595,7 +2880,7 @@ for(;;)
                   if (length($rest) > 241) {                            # ignore short lines
                      if (substr($rest,241,1) eq "1") {                  # ignore node status updates for the moment
                         my $itime1 = substr($rest,1,16);
-                        my $ithrunode = substr($rest,17,32);
+                        $ithrunode = substr($rest,17,32);
                         $ithrunode =~ s/\s+$//;   #trim trailing whitespace
                         my $isitname = substr($rest,49,32);
                         $isitname =~ s/\s+$//;   #trim trailing whitespace
@@ -4616,9 +4901,6 @@ if ($agtsh_dur > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Fast Simple Heartbeat report\n";
    $cnt++;$oline[$cnt]="Node,Count,RatePerHour,NonModeCount,NonModeSum,InterArrivalTimes\n";
-#     foreach $f ( keys %agtshx) {
-#$DB::single=2 if !defined  $agsh_ct[$agtshx{$f}];
-#      }
    foreach $f ( sort { $agtsh_ct[$agtshx{$b}] <=> $agtsh_ct[$agtshx{$a}] } keys %agtshx) {
       my $ai = $agtshx{$f};
       next if $agtsh_ct[$ai] == 1;
@@ -4688,9 +4970,6 @@ if ($agtsh_dur > 0) {
          $ptime = substr("00" . $i,-2,2);
          $jitter_correlate{$ptime}{count} = 0;
       }
-#      foreach $f ( keys %agtshx) {
-#$DB::single=2 if !defined  $agsh_ct[$agtshx{$f}];
-#      }
       foreach $f ( sort { $agtsh_ct[$agtshx{$b}] <=> $agtsh_ct[$agtshx{$a}] } keys %agtshx) {
          my $ai = $agtshx{$f};
          next if $agtsh_ct[$ai] == 1;
@@ -5051,6 +5330,135 @@ if ($sit32_total > 0) {
    }
 }
 
+my $ct_rbdup = 0;
+my $ct_rbdup_thruchg = 0;
+my $ct_rbdup_simpleneg = 0;
+my $ct_rbdup_dupflag = 0;
+my $ct_rbdup_hostaddr = 0;
+my $ct_rbdup_newonline1 = 0;
+
+foreach $f ( sort { $a cmp $b } keys %rbdupx) {
+   $rbdup_ref = $rbdupx{$f};
+   $ct_rbdup += 1 if $rbdup_ref->{thruchg} > 0;
+   $ct_rbdup_thruchg += 1 if $rbdup_ref->{thruchg} > 0;
+   $ct_rbdup += 1 if $rbdup_ref->{simpleneg} > 0;
+   $ct_rbdup_simpleneg += 1 if $rbdup_ref->{simpleneg} > 0;
+   $ct_rbdup += 1 if $rbdup_ref->{dupflag} > 1;
+   $ct_rbdup_dupflag += 1 if $rbdup_ref->{dupflag} > 1;
+   $rbdup_ref->{hostaddr} = scalar keys %{$rbdup_ref->{hostaddrs}};
+   $ct_rbdup += 1 if $rbdup_ref->{hostaddr} > 1;
+   $ct_rbdup_hostaddr += 1 if $rbdup_ref->{hostaddr} > 1;
+   $ct_rbdup += 1 if $rbdup_ref->{newonline1} > 1;
+   $ct_rbdup_newonline1 += 1 if $rbdup_ref->{newonline1} > 1;
+}
+
+if ($ct_rbdup > 0 ) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="RB Node Status Unusual Behavior Reports\n";
+   if ($ct_rbdup_dupflag > 0) {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="RB Duplicate Node Evidence Report\n";
+      $cnt++;$oline[$cnt]="Node,HostAddr,Dup_count,Reason(s),\n";
+      foreach $f ( sort { $a cmp $b } keys %rbdupx) {
+         $rbdup_ref = $rbdupx{$f};
+         next if $rbdup_ref->{dupflag} < 2;
+         my $rstring = "";
+         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{duplicate_reasons}}) {
+            $rstring .= $g . "(" . $rbdup_ref->{duplicate_reasons}{$g} . ") ";
+         }
+         my $hostaddr1 = "";
+         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{hostaddrs}}) {
+            $hostaddr1 = $g;
+            last;
+         }
+         $cnt++;$oline[$cnt]= $f . "," . $hostaddr1 . "," . $rbdup_ref->{dupflag} . "," . $rstring . ",\n";
+      }
+      $advi++;$advonline[$advi] = "Duplicate Agent Evidence in $ct_rbdup_dupflag agents - See following report";
+      $advcode[$advi] = "TEMSAUDIT1068W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+   if ($ct_rbdup_thruchg > 0) {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="RB Thrunode Change Report\n";
+      $cnt++;$oline[$cnt]="Node,HostAddr,Thrunode_count,Thrunode(s),\n";
+      my $max_thruchg = 0;
+      foreach $f ( sort { $rbdupx{$b}->{thruchg} <=> $rbdupx{$a}->{thruchg}
+                          || $a cmp $b } keys %rbdupx) {
+         $rbdup_ref = $rbdupx{$f};
+         last if $rbdup_ref->{thruchg} == 0;
+         $max_thruchg = $rbdup_ref->{thruchg} if $max_thruchg == 0;
+         my $tstring = "";
+         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{thrunodes}}) {
+            $tstring .= $g . "(" . $rbdup_ref->{thrunodes}{$g} . ") ";
+         }
+         $cnt++;$oline[$cnt]= $f . "," . $rbdup_ref->{thruchg} . "," . $tstring . ",\n";
+      }
+      $advi++;$advonline[$advi] = "Agent Thrunode Changing Evidence in $ct_rbdup_thruchg agents max[$max_thruchg] - See following report";
+      $advcode[$advi] = "TEMSAUDIT1069W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+   if ($ct_rbdup_hostaddr > 0) {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="RB Multiple Hostaddr Report\n";
+      $cnt++;$oline[$cnt]="Node,HostAddr_count,HostAddr(s),\n";
+      my $max_hostaddr = 0;
+      foreach $f ( sort { $rbdupx{$b}->{hostaddr} <=> $rbdupx{$a}->{hostaddr}
+                          || $a cmp $b } keys %rbdupx) {
+
+         $rbdup_ref = $rbdupx{$f};
+         last if $rbdupx{$f}->{hostaddr} < 2;
+         $max_hostaddr = $rbdup_ref->{hostaddr} if $max_hostaddr == 0;
+         my $hstring = "";
+         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{hostaddrs}}) {
+            $hstring .= $g . " ";
+         }
+         $cnt++;$oline[$cnt]= $f . "," . $rbdupx{$f}->{hostaddr} . "," . $hstring . ",\n";
+      }
+      $advi++;$advonline[$advi] = "Agent Multiple Hostaddr Evidence in $ct_rbdup_hostaddr agents max[$max_hostaddr] - See following report";
+      $advcode[$advi] = "TEMSAUDIT1070W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+   if ($ct_rbdup_newonline1 > 0) {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="RB Multiple Agent Initial Status Report\n";
+      $cnt++;$oline[$cnt]="Node,HostAddr,InitialStatus_Count,\n";
+      my $max_newonline1 = 0;
+      foreach $f ( sort { $rbdupx{$b}->{newonline1} <=> $rbdupx{$a}->{newonline1}
+                          ||   $a cmp $b } keys %rbdupx) {
+         $rbdup_ref = $rbdupx{$f};
+         last if $rbdup_ref->{newonline1} < 2;
+         $max_newonline1 = $rbdup_ref->{newonline1} if $max_newonline1 == 0;
+         my $hostaddr1 = "";
+         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{hostaddrs}}) {
+            $hostaddr1 = $g;
+            last;
+         }
+         $cnt++;$oline[$cnt]= $f . "," . $hostaddr1 . "," . $rbdup_ref->{newonline1} . ",\n";
+      }
+      $advi++;$advonline[$advi] = "Agent Multiple Initial Status Evidence in $ct_rbdup_newonline1 agents max[$max_newonline1] - See following report";
+      $advcode[$advi] = "TEMSAUDIT1071W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+   if ($ct_rbdup_simpleneg > 0) {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="RB Negative Heartbeat Time Report\n";
+      $cnt++;$oline[$cnt]="Node,Negative_interval(s),\n";
+      foreach $f ( sort { $a cmp $b } keys %rbdupx) {
+         $rbdup_ref = $rbdupx{$f};
+         next if $rbdup_ref->{simpleneg} == 0;
+         $cnt++;$oline[$cnt]= $f . "," . $rbdup_ref->{simpleneg} . ",\n";
+      }
+      $advi++;$advonline[$advi] = "Agent Negative Heartbeat Time Evidence in $ct_rbdup_simpleneg agents - See following report";
+      $advcode[$advi] = "TEMSAUDIT1072W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+}
+
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
 open OH, ">$opt_o" or die "can't open $opt_o: $!";
@@ -5233,7 +5641,6 @@ sub capture_sqlrun {
          $sql_table = "Unknown";
       }
       my $table_ref = $source_ref->{tables}{$sql_table};
-#$DB::single=2 if !defined $sql_table;
       if (!defined $table_ref) {
          my %tableref = (
                             count => 0,
@@ -5568,6 +5975,7 @@ exit;
 #         - Add a number of advisories and reports based on recent diagnostics.
 # 1.64000 - remove two duplicated reports
 #         - add advisory on SOAP unable to get attributes
+# 1.65000 - Add RB FindDupAgents.rex logic
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -6806,3 +7214,103 @@ support files.
 Recovery plan: Work with IBM Support to resolve issue.
 ----------------------------------------------------------------
 
+TEMSAUDIT1068W
+Text: Duplicate Agent Evidence in count agents - See following report
+
+Tracing: error
+(5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+(58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
+
+Meaning: Some agents are showing evidence of a duplicate
+agent condition. This can lead to severe TEPS performance
+problems and instability/outage of the hub and/or remote
+TEMS.
+
+Following are the categories
+
+leftover_seconds: When estimating a node status update
+rate, the value was not near any minute boundary.
+
+heartbeat_outside_grace: Node Status arrived before or
+after the expected time.
+
+double_heartbeat: Two node status updates occurred rapidly.
+
+double_offline: Two node offline condition occured rapidly.
+
+early_heartbeat: A node status was seen before expected
+based on the heartbeat rate.
+
+Recovery plan:  Review the supplied report section to
+determine and correct the issues. This can be agents
+on different systems accidentally configured with the
+same name. It can also be agents double installed on the
+same system. It can be failed agent shutdown cases. The
+possibilities seem endless.
+----------------------------------------------------------------
+
+TEMSAUDIT1069W
+Text: Agent Thrunode Changing Evidence in count agents max[count] - See following report
+
+Tracing: error
+(5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+(58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
+
+Meaning: Some agents are showing evidence of a regular
+connection via different remote TEMSes. It can also show
+with managing agents and their sub-node agents. This can
+mean accidental duplicate agents. In any event monitoring
+is not running as expected.
+
+Recovery plan:  Review the supplied report section to
+determine and correct the issues.
+----------------------------------------------------------------
+
+TEMSAUDIT1070W
+Text: Agent Multiple Hostaddr Evidence in count agents max[count] - See following report
+
+Tracing: error
+(5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+(58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
+
+Meaning: Some agents are showing evidence of sending
+in an different ip_addr[port] at different times. This
+can mean accidental duplicate agents. It can also mean
+mis-configuration of multiple agents on the affected
+system.
+
+Recovery plan:  Review the supplied report section to
+determine and correct the issues.
+----------------------------------------------------------------
+
+TEMSAUDIT1071W
+Text: Agent Multiple Initial Status Evidence in count agents max[count] - See following report
+
+Tracing: error
+(5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+(58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
+
+Meaning: Some agents are showing evidence of sending
+an initial connection status multiple times. This usually
+means mis-configuration of multiple agents on the affected
+system.
+
+Recovery plan:  Review the supplied report section to
+determine and correct the issues.
+----------------------------------------------------------------
+
+TEMSAUDIT1072W
+Text: Agent Negative Heartbeat Time Evidence in count agents - See following report
+
+Tracing: error
+(5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+(58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
+
+Meaning: Some agents are showing evidence of a intervals
+calculated as negative time. This usually means the
+diagnostic logs got wrapped around and issue has no
+practical effect.
+
+Recovery plan:  If this occurs a lot, please contact
+IBM Support to diagnose the issue.
+----------------------------------------------------------------
