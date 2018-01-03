@@ -24,9 +24,12 @@
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
 ## kglaffam.c|AFF1_IsPartOf|294,16618,10%,(58231CDA.0002-18:kglaffam.c,294,"AFF1_IsPartOf") Warning: No affinity entry for <&IBM.CAM7_WAS>
+## socket_imp.c|_create_eipc_client|2020,1824,11%,(59198C7E.005E-A:socket_imp.c,2020,"_create_eipc_client") KDE1_StringToAddress returned 0x1DE00003 for none
+## kdsxoc2.c|VXO2_MakeTime|2081,3232,1%,(59199276.0204-39D:kdsxoc2.c,2081,"VXO2_MakeTime") MKTIME result is not a valid timestamp (mktime returned -1)
+## kdsruc1.c|GetRule|6624,2,0%,(59198D87.0003-9:kdsruc1.c,6624,"GetRule") Read error status: 5 reason: 26 Rule name: KQ5.VKQ5CLUSUM
+## kdssnc1.c|CreateSituation|967,2,0%,(59198D87.0005-9:kdssnc1.c,967,"CreateSituation") Cannot create the RULE tree
 
-
-my $gVersion = 1.61000;
+my $gVersion = 1.62000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -280,6 +283,7 @@ my %lociex = (                    # generic loci counter exclusion
                 "RAS1|CTBLD" => 1,
                 "kdyshdlib.cpp|issueNodeStatusOpenThread" => 1,
                 "kdyshdlib.cpp|issueNodeStatusOpenThread" => 1,
+                "kkdyinodests.cpp|selectNodeStatus" => 1,
                 "kdyctrl.cpp|rTEMSSynchThread" => 1,
                 "kpxreqhb.cpp|HeartbeatInserter" => 1,
                 "kdepnpc.c|KDEP_NewPCB" => 1,
@@ -2287,6 +2291,11 @@ for(;;)
                $rest =~ /thrunode \<(.*?)\>(.+)$/;
                my $ithrunode = $1;
                $rest = $2;
+               $ithrunode =~ s/\s+$//;                    # strip trailing blanks
+               if (index($ithrunode," ") != -1) {
+                  $ithrunode =~ /(.*?) /;
+                  $ithrunode = $1;
+               }
                my $ioldthrunode = "";
                if (index($rest,"Old thrunode") != -1) {
                   $rest =~ /Old thrunode \<(.*?)\>(.+)$/;
@@ -2295,6 +2304,7 @@ for(;;)
                }
                $rest =~ /hostAddr\: \<(.*?)\[/;
                my $ihostaddr = $1;
+               $ihostaddr = "" if !defined $1;
                $inode =~ s/\s+$//;   #trim trailing whitespace
                $ithrunode =~ s/\s+$//;   #trim trailing whitespace
                $ioldthrunode =~ s/\s+$//;   #trim trailing whitespace
@@ -3658,12 +3668,23 @@ if ($soaperror_ct > 0) {
 
 }
 
-if ($changex_ct > 0) {
-   $advi++;$advonline[$advi] = "Agent Location Flipping Changes Detected [$changex_ct] - See following report";
-   $advcode[$advi] = "TEMSAUDIT1055W";
-   $advimpact[$advi] = $advcx{$advcode[$advi]};
-   $advsit[$advi] = "Agent";
 
+my $change_real = 0;
+if ($changex_ct > 0) {
+   foreach my $f ( sort { $a cmp $b } keys %changex) {
+      my $change_ref = $changex{$f};
+      foreach my $g (keys %{$change_ref->{nodes}}) {
+         my $change_node_ref = $change_ref->{nodes}{$g};
+         next if $change_node_ref->{count} < 2;
+         $change_real += 1;
+      }
+   }
+   if ($change_real > 0) {
+      $advi++;$advonline[$advi] = "Agent Location Flipping Changes Detected [$change_real] - See following report";
+      $advcode[$advi] = "TEMSAUDIT1055W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "Agent";
+   }
 }
 
 $misscolx_ct = scalar keys %misscolx;
@@ -4659,7 +4680,7 @@ if ($soaperror_ct > 0) {
    }
 }
 
-if ($changex_ct > 0) {
+if ($change_real > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Agent Flipping Report\n";
    $cnt++;$oline[$cnt]="Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,\n";
@@ -4670,7 +4691,6 @@ if ($changex_ct > 0) {
          next if $change_node_ref->{count} < 2;
          foreach $h (keys %{$change_node_ref->{instances}}) {
             my $change_instance_ref = $change_node_ref->{instances}{$h};
-            next if $change_instance_ref->{count} < 2;
             $outl = $f . ",";
             $outl .= $change_node_ref->{count} . "," . $g . ",";
             $outl .= $change_instance_ref->{count} . ",";
@@ -5165,6 +5185,7 @@ exit;
 # 1.60000 - Avoid errors when Agent Location Flipping data prior to FP7
 # 1.61000 - Correct logic in 1056W advisory - was blocking TEMSAUDIT1011W
 #         - remove port number from Soap Error report client, hides counts of interest
+# 1.62000 - Correct logic in 1055W advisory - missing some cases
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
