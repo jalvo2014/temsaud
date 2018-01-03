@@ -86,6 +86,7 @@
 ## capture node status if available !1
 
 my $gVersion = 1.79000;
+my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -504,6 +505,7 @@ my %portscan_timex;
 while (<main::DATA>)
 {
   $advline = $_;
+  $advline =~ s/\x0d//g if $gWin == 0;
   if ($advkey eq "") {
      chomp $advline;
      $advkey = $advline;
@@ -687,7 +689,6 @@ if (!defined $opt_rdtop) {$opt_rdtop = 5;}
 if (!defined $opt_eph) {$opt_eph = 0;}
 if (!defined $opt_ephdir) {$opt_ephdir = "";}
 
-my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 if (!$opt_inplace) {
    if (!defined $opt_workpath) {
