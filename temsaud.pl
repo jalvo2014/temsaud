@@ -74,7 +74,7 @@
 
 ## KBB_RAS1=    warn of this case
 
-my $gVersion = 1.7400;
+my $gVersion = 1.7500;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -259,10 +259,13 @@ sub gettime;                             # get time
 sub capture_sqlrun;
 sub time2sec;
 sub sec2time;
+sub sec2ltime;
 sub getphys;
 
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
+
+my %mhmx = ();
 
 # allow user to set impact
 my %advcx = (
@@ -347,6 +350,7 @@ my %advcx = (
               "TEMSAUDIT1079W" => "85",
               "TEMSAUDIT1080E" => "100",
               "TEMSAUDIT1081E" => "100",
+              "TEMSAUDIT1082E" => "100",
             );
 
 my %advtextx = ();
@@ -445,6 +449,8 @@ my $changex_ct = 0;
 
 my %misscolx;
 my $misscolx_ct;
+
+my %nodestx;
 
 
 my $stage2 = "";
@@ -1665,7 +1671,7 @@ for(;;)
             my $imin = substr($start_time,3,2);
             my $isec = substr($start_time,6,2);
             my $ltime = timelocal($isec,$imin,$ihour,$iday,$imonth,$iyear);
-            $local_diff = $logtime - $ltime;
+            $local_diff = $ltime - $logtime;
          }
       }
    }
@@ -1918,6 +1924,36 @@ for(;;)
          }
       }
    }
+   ## (5995939B.000E-B:kqmmhm.cpp,1348,"mhm::promoteToHub") parent cms <HUB_frmpqam00srb2xm> is now the HUB
+   ## (5995939B.000F-B:kqmmhm.cpp,1350,"mhm::promoteToHub") local cms <STANDBY_frmpqam00srb4xm> is now the MIRROR
+   if (substr($logunit,0,10) eq "kqmmhm.cpp") {
+      if ($logentry eq "mhm::promoteToHub") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if ((substr($rest,1,10) eq "parent cms") or (substr($rest,1,9) eq "local cms")){
+            my $mkey = $logtimehex . "|" . $l;
+            $mhmx{$mkey} = $rest;
+            next;
+         }
+      }
+   }
+
+   ## (59959385.0003-B:kqmarm.cpp,765,"arm::doStageII") Begin FTO Stage-Two processing: FTO mode <Mirror> acting hub <HUB_frmpqam00srb2xm> full sync <Yes> migrate <No>
+   ## (5995939B.000C-B:kqmarm.cpp,1141,"arm::doStageII") FTO Stage-Two processing completed at <08/17/17 15:01:15>, rc = 0
+   if (substr($logunit,0,10) eq "kqmarm.cpp") {
+      if ($logentry eq "arm::doStageII") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if ((substr($rest,1,19) eq "Begin FTO Stage-Two") or (substr($rest,1,34) eq "FTO Stage-Two processing completed")){
+            my $mkey = $logtimehex . "|" . $l;
+            $mhmx{$mkey} = $rest;
+            next;
+         }
+      }
+   }
+
+
+
    # signal for KDEB_INTERFACELIST conflicts
    # (58DA4EFE.00B1-174:kdepdpc.c,62,"KDEP_DeletePCB") 10B0C8C6: KDEP_pcb_t deleted
    if (substr($logunit,0,9) eq "kdepdpc.c") {
@@ -2146,17 +2182,11 @@ for(;;)
          if (substr($rest,1,26) eq "Unsupported request method") {
             $portscan++;
             $portscan_Unsupported++;
-$DB::single=2;
             push (@{$portscan_timex{$logtimehex}},"unsupported");
-$DB::single=2;
-my $x = 1;
          } elsif (substr($rest,1,21) eq "error in HTTP request") {
             $portscan++ if index($rest,"unknown method in request") != -1;
             $portscan_HTTP++;
-$DB::single=2;
             push (@{$portscan_timex{$logtimehex}},"http");
-$DB::single=2;
-my $x = 1;
          }
          next;
       }
@@ -2170,10 +2200,7 @@ my $x = 1;
          if (substr($rest,1,48) eq "Status 1DE00074=KDE1_STC_DATASTREAMINTEGRITYLOST") {
             $portscan++;
             $portscan_integrity++;
-$DB::single=2;
             push (@{$portscan_timex{$logtimehex}},"integrity");
-$DB::single=2;
-my $x = 1;
          }
       }
    }
@@ -2185,10 +2212,7 @@ my $x = 1;
          if (index($rest,"suspending new connections") != -1) {
             $portscan++;
             $portscan_suspend++;
-$DB::single=2;
             push (@{$portscan_timex{$logtimehex}},"suspend");
-$DB::single=2;
-my $x = 1;
          }
       }
    }
@@ -2975,7 +2999,6 @@ my $x = 1;
                      $leftover = 0 if $leftover == 59;
                      $minutes = int($tempInt/60) if $leftover <= 1;                                                              ##5
                      if ($minutes == 0) {
-#$DB::single=2;                                                                                                       ##5
                         # Too many seconds left over, so this is a likely duplicate. Increment that
                         # count. Then add the interval to the previous interval.
                         $rbdup_ref->{dupflag} += 1;
@@ -2988,8 +3011,6 @@ my $x = 1;
                         $leftover = $rbdup_ref->{lasttime}%60;
                         $leftover = 0 if $leftover == 59;
                         $minutes = int(($rbdup_ref->{inttmp}+2)/60) if $leftover <= 1;                                 ##5
-#$DB::single=2;
-#my $x = 1;
                      }
                   } else {                                                                                            ##4
                      # The two heartbeat are not close in interval, so this is a likely                               ##5
@@ -3039,10 +3060,7 @@ my $x = 1;
             # Is the interval a positive number? If not then something is wrong. We should not be getting
             # simple heartbeats when the interval is negative. */
             } elsif ($rbdup_ref->{interval} < 0) {
-$DB::single=2;                                                                                                    ##6
                $rbdup_ref->{simpleneg} += 1;
-$DB::single=2;
-my $x = 1;
                # we have a simple heartbeat and we know what interval they should be at. If the interval is
                # less than the expected interval then we may have a duplicate instance of the endpoint.
                # Larger values are okay since there can be delays.
@@ -3199,24 +3217,14 @@ my $x = 1;
             # of them.
 
             } elsif ($rbdup_ref->{interval} < 0) {
-$DB::single=2;
                if ($ithrunode ne $rbdup_ref->{thruname}) {
-$DB::single=2;
                   $rbdup_ref->{thruchg} += 1;
                   $rbdup_ref->{thruname} = $ithrunode;
                   $rbdup_ref->{thrunodes}{$ithrunode} += 1;
-$DB::single=2;
-my $x = 1;
                } elsif ($ithrunode ne $opt_nodeid) {
-$DB::single=2;
                   $rbdup_ref->{Ycnt} += 1;
-$DB::single=2;
-my $x = 1;
                }
-$DB::single=2;
-                    $rbdup_ref->{lasttime} = $logtime;
-$DB::single=2;
-my $x = 1;
+               $rbdup_ref->{lasttime} = $logtime;
 
             # we have a heartbeat and we know what interval they should be at. If the thrunode changes
             # then there is a chance we have a duplicate endpoint. Thrunode changes are usually normal unless
@@ -3348,6 +3356,7 @@ my $x = 1;
    # a situation status - sampled situation
    # (54DE6EEE.0005-62:kfastpst.c,868,"KFA_PostEvent") Additional status queue record <12341B7D4> for viewArea node <NULL> while processing event record <1150213163854000REMOTE_us98ram02umi1xn          wlp_logstw_xorw_std             capturep:va10puvorc007:ORA                                                                                                                                      1150213163853999Y>
 
+
    if (substr($logunit,0,10) eq "kfastpst.c") {
       if ($logentry eq "KFA_PostEvent") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -3357,8 +3366,9 @@ my $x = 1;
             $rest = substr($rest,$pi+20);
             $pi = index($rest,"while processing event record");
             if ($pi != -1) {
-               $rest =~ /.*(\<.*)/;
-               $rest = $1;
+               $rest = substr($rest,$pi+30);
+#               $rest =~ /.*(\<.*)/;
+#               $rest = $1;
                # <1150213164119001PCXTA42:VA10PWPAPP036:MQ            YMQ07.00.03 9                V00040000000000000000000000000000200000qwaa7 REMOTE_va10p10023                 Windows~6.1-SP1                 ip.spipe:#30.128.132.150[16832]<NM>VA10PWPAPP036</NM>                                                                                                                                                                                                           A=00:WINNT;C=06.21.00.02:WINNT;G=06.21.00.02:WINNT;             >
                # <1150213164502000REMOTE_va10p10023               wlp_rfmonitor_2ntw_rfax         RFMonitor:VA10PWPRFS002A:LO     RightFax_Warning, Line=(9 file of type *.job over 10 Minutes Old Found in Dir \\vapwprfnbes01\OutputPath\QCCMEDC\ on Server VA101150213164502999Y>
                # the following logic is used to avoid issues with data on continued lines.
@@ -3401,6 +3411,57 @@ my $x = 1;
                         if ($logtime > $pe_etime) {
                               $pe_etime = $logtime;
                         }
+                     } else {  # node status updates
+                        my $itime1 = substr($rest,1,16);
+                        $inode = substr($rest,17,32);
+                        $inode =~ s/\s+$//;       #trim trailing whitespace
+                        my $io4online = substr($rest,53,1);
+                        my $iproduct = substr($rest,54,2);
+                        $iproduct =~ s/\s+$//;       #trim trailing whitespace
+                        my $iversion = substr($rest,56,8);
+                        $iversion =~ s/\s+$//;       #trim trailing whitespace
+                        my $iaffinity = substr($rest,83,43);
+                        $ithrunode = substr($rest,127,32);
+                        $ithrunode =~ s/\s+$//;   #trim trailing whitespace
+                        my $ihostinfo = substr($rest,161,16);
+                        $ihostinfo =~ s/\s+$//;   #trim trailing whitespace
+                        my $ihostaddr = substr($rest,193,256);
+                        $ihostaddr =~ s/\s+$//;   #trim trailing whitespace
+                        my $ireserved = substr($rest,449.64);
+                        $ireserved =~ s/\s+$//;   #trim trailing whitespace
+                        my $nodest_ref = $nodestx{$inode};
+                        if (!defined $nodest_ref) {
+                           my %nodestref = (
+                                              count => 0,
+                                              instances => {},
+                                           );
+                           $nodest_ref = \%nodestref;
+                           $nodestx{$inode} = \%nodestref;
+                        }
+                        my $inkey = $ithrunode ."|" . $ihostaddr;
+                        my $instance_ref = $nodest_ref->{instances}{$inkey};
+                        if (!defined $instance_ref) {
+                           my %instanceref = (
+                                                 count => 0,
+                                                 thrunode => $ithrunode,
+                                                 hostaddr => $ihostaddr,
+                                                 product => $iproduct,
+                                                 online1 => 0,
+                                                 online => 0,
+                                                 offline => 0,
+                                                 version => $iversion,
+                                                 affinity => $iaffinity,
+                                                 hostinfo => $ihostinfo,
+                                                 reserved => $ireserved,
+                                             );
+                           $instance_ref = \%instanceref;
+                           $nodest_ref->{instances}{$inkey} = \%instanceref;
+                           $nodest_ref->{count} += 1;
+                        }
+                        $instance_ref->{count} += 1;
+                        $instance_ref->{online1} += 1 if $io4online eq "1";
+                        $instance_ref->{online} += 1 if $io4online eq "Y";
+                        $instance_ref->{offline} += 1 if $io4online eq "N";
                      }
                   }
                }
@@ -4434,6 +4495,7 @@ if ($toobigi != -1) {
    }
    $cnt++;$oline[$cnt]="\n";
 }
+
 if ($toobigi > -1) {
       my $ptoobigi = $toobigi + 1;
       $advi++;$advonline[$advi] = "$ptoobigi Filter object(s) too big situations and/or reports - See Report $rptkey";
@@ -4441,6 +4503,23 @@ if ($toobigi > -1) {
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TooBig";
    }
+
+my $mhm_ct = scalar keys %mhmx;
+if ($mhm_ct >= 0) {
+   $rptkey = "TEMSREPORT044";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="$rptkey: FTO control messages\n";
+   $cnt++;$oline[$cnt]="Epoch,Local_Time,Line_number,Message\n";
+   foreach $f ( sort { $a cmp $b } keys %mhmx) {
+      $outl = substr($f,0,8) . ",";
+      $outl .= sec2ltime(hex(substr($f,0,8))+$local_diff) . ",";
+      $outl .= substr($f,9) . ",";
+      $outl .= $mhmx{$f} . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+   $cnt++;$oline[$cnt]="\n";
+}
+
+
 if ($opt_kdcb0 ne "") {
    if ($opt_kdebi ne "") {
       if ($opt_kdcb0 ne $opt_kdebi) {
@@ -4642,7 +4721,7 @@ if ($opt_portscan == 1) {
       $cnt++;$oline[$cnt]="Epoch,Local_Time,Scan_Types,\n";
       foreach $f ( sort { $a cmp $b } keys %portscan_timex) {
          $outl = $f . ",";
-         $outl .= sec2time(hex($f)+$local_diff) . ",";
+         $outl .= sec2ltime(hex($f)+$local_diff) . ",";
          my $pscans = join(" ",@{$portscan_timex{$f}});
          $outl .= $pscans . ",";
          $cnt++;$oline[$cnt]=$outl . "\n";
@@ -5389,8 +5468,9 @@ if ($pevt_size > 0) {
    $rptkey = "TEMSREPORT010";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: PostEvent Report\n";
-#   $cnt++;$oline[$cnt]="Process Table Duration: $pt_dur seconds\n";
    $cnt++;$oline[$cnt]="Situation,Node,Count,AtomCount,Thrunodes,\n";
+   my %pesumx;
+   my $pesum_ref;
    foreach $f ( sort { $pevtx{$b}->{count} <=> $pevtx{$a}->{count} } keys %pevtx) {
       $outl = $pevtx{$f}->{sitname} . ",";
       $outl .= $pevtx{$f}->{node} . ",";
@@ -5401,8 +5481,61 @@ if ($pevt_size > 0) {
       my $tlist = join(" ",keys %{$pevtx{$f}->{thrunode}});
       $outl .= $tlist . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
+      $pesum_ref = $pesumx{$pevtx{$f}->{sitname}};
+      if (!defined $pesum_ref) {
+         my %pesumref = (
+                           count => 0,
+                           nodes => 0,
+                        );
+         $pesum_ref = \%pesumref;
+         $pesumx{$pevtx{$f}->{sitname}} = \%pesumref;
+      }
+      $pesum_ref->{count} += $pevtx{$f}->{count};
+      $pesum_ref->{nodes} += 1;
    }
-   $cnt++;$oline[$cnt]="*total*,$pe_dur,$total_evt,\n";
+   my $evtpermin = $total_evt / ($pe_dur / 60) if $pe_dur > 0;
+   my $ppc = sprintf '%.2f', $evtpermin;
+   $cnt++;$oline[$cnt]="*total*,$pe_dur,$total_evt,$ppc/min,\n";
+
+   $rptkey = "TEMSREPORT045";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: PostEvent Report Summary\n";
+   $cnt++;$oline[$cnt]="Situation,Count,Nodes,Rate,\n";
+   foreach $f ( sort { $pesumx{$b}->{count} <=> $pesumx{$a}->{count} } keys %pesumx) {
+      $outl = $f . ",";
+      $outl .= $pesumx{$f}->{count} . ",";
+      $outl .= $pesumx{$f}->{nodes} . ",";
+      my $evtpermin = $pesumx{$f}->{count} / ($pe_dur / 60) if $pe_dur > 0;
+      my $ppc = sprintf '%.2f', $evtpermin;
+      $outl .= $ppc . "/min,";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+}
+
+my $nodest_size = scalar keys %nodestx;
+if ($nodest_size > 0) {
+   $rptkey = "TEMSREPORT046";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: PostEvent Node Status Instance Exceptions\n";
+   $cnt++;$oline[$cnt]="Node,Count,Thrunode,Hostaddr,Product,Version,\n";
+   foreach $f ( sort { $nodestx{$b}->{count} <=> $nodestx{$a}->{count} } keys %nodestx) {
+      my $nodest_ref = $nodestx{$f};
+      last if $nodest_ref->{count} == 1;
+      $advi++;$advonline[$advi] = "Agent sending status from $nodest_ref->{count} instances - see following report $rptkey";
+      $advcode[$advi] = "TEMSAUDIT1082E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "$f";
+      foreach $g (keys %{$nodest_ref->{instances}}) {
+         my $instance_ref = $nodest_ref->{instances}{$g};
+         $outl = $f  . ",";
+         $outl .= $nodest_ref->{count} . ",";
+         $outl .= $instance_ref->{thrunode} . ",";
+         $outl .= $instance_ref->{hostaddr} . ",";
+         $outl .= $instance_ref->{product} . ",";
+         $outl .= $instance_ref->{version} . ",";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+      }
+   }
 }
 
 my $agto_dur = $agto_etime - $agto_stime;
@@ -5601,7 +5734,6 @@ if (($agtsh_dur > 0) and ($opt_jitter == 1)) {
 my $inodex_ct = scalar keys %inodex;
 my $inodea_ct = 0;
 if ($inodex_ct > 0) {
-$DB::single=2;
    $rptkey = "TEMSREPORT016";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Send Node Status Exception Report\n";
@@ -5624,7 +5756,6 @@ $DB::single=2;
          $cnt++;$oline[$cnt]=$outl . "\n";
       }
    }
-$DB::single=2;
    if ($agent_ct > 0) {
       $advi++;$advonline[$advi] = "Node [$agent_ct] have multiple sendstatus observed - see $rptkey Report";
       $advcode[$advi] = "TEMSAUDIT1033W";
@@ -5643,7 +5774,6 @@ if ($inodea_ct > 0) {
       next if $inode_ref->{count} == 1;
       my $tnodea_ct = scalar keys %{$inode_ref->{aff}};
       next if $tnodea_ct <= 1;
-$DB::single=2;
       foreach $g (keys %{$inode_ref->{aff}}) {
          my $inodea_ref = $inode_ref->{aff}{$g};
          $outl = $f . ",";                 # node
@@ -6330,10 +6460,7 @@ if ($phys_ct > 0) {
          foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{physicals}}) {
             my $phys_ref = $rbdup_ref->{physicals}{$g};
             next if $phys_ref->{path} eq "";
-#$DB::single=2;
             $cnt++;$oline[$cnt]= $f  . "," . $phys_ref->{thrunode} . "," . $g . "," . $phys_ref->{path} . "," . $phys_ref->{hostaddr} . ",\n";
-#$DB::single=2;
-#my $x = 1;
          }
       }
 }
@@ -6923,6 +7050,23 @@ sub sec2time
    return sprintf "%4d%02d%02d%02d%02d%02d",$year+1900,$mon+1,$mday,$hour,$min,$sec;
 }
 
+sub sec2ltime
+{
+   my ($itime) = @_;
+
+   my $sec;
+   my $min;
+   my $hour;
+   my $mday;
+   my $mon;
+   my $year;
+   my $wday;
+   my $yday;
+   my $isdst;
+   ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=localtime($itime);
+   return sprintf "%4d%02d%02d%02d%02d%02d",$year+1900,$mon+1,$mday,$hour,$min,$sec;
+}
+
 
 #------------------------------------------------------------------------------
 sub GiveHelp
@@ -7079,6 +7223,9 @@ exit;
 #          Add report of recent install and config operations
 #1.73000 - Advisory when KBB_RAS1 starts with a single quote
 #1.74000 - test advisory 1067 logic
+#1.75000 - Add FTO control message report
+#        - Correct Local Time calculations
+#        - Add PostEvent node status advisory and support
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -8621,6 +8768,21 @@ Recovery plan:  Correct the invalid setting and recycle the TEMS
 to acquire the needed diagnostic tracing.
 ----------------------------------------------------------------
 
+TEMSAUDIT1082E
+Text: Agent sending status from count instances
+
+Trace: error (unit:kfastpst,Entry="KFA_PostEvent" all er)
+
+Meaning: ITM depends on agents having unique instances. This
+agent is coming from two or more instances. That can mean
+agent mal-configuration, network problems, or duplicate agent
+names. When that is true the agent(s) involved are not getting
+properly monitored.
+
+Recovery plan:  Examine the agent configuration and correct any
+errors. Involve IBM Support if needed.
+----------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -9730,9 +9892,80 @@ Meaning
 [example to be added later].
 
 This shows the lines from the last 1000 bytes of the
-itm_config.log and itm_install.log. In can be useful in
+itm_config.log and itm_install.log. It can be useful in
 understanding what has happened recently.
 
 Recovery plan: Involve IBM support to resolve issues.
+----------------------------------------------------------------
+
+TEMSREPORT044
+Text: FTO control messages
+
+Trace: error
+
+Meaning
+
+TEMSREPORT044: FTO control messages
+Epoch,Local_Time,Line_number,Message
+59959385,20170817040053,355, Begin FTO Stage-Two processing: FTO mode <Mirror> acting hub <HUB_frmpqam00srb2xm> full sync <Yes> migrate <No>,
+5995939B,20170817040115,434, FTO Stage-Two processing completed at <08/17/17 15:01:15>, rc = 0,
+5995939B,20170817040115,436, parent cms <HUB_frmpqam00srb2xm> is now the HUB,
+5995939B,20170817040115,437, local cms <STANDBY_frmpqam00srb4xm> is now the MIRROR,
+
+This shows when the hub TEMS is synchronizing with a
+Fault Tolerant Option partner hub TEMS. It can be useful in
+understanding what has happened. The Line Number is the relative
+line in all the log segments.
+
+This may be inconsistent if the diagnostic logs wrapped around.
+
+Recovery plan: Involve IBM support to any resolve issues.
+----------------------------------------------------------------
+
+TEMSREPORT045
+Text: PostEvent Report Summary
+
+Trace: error (unit:kfastpst,Entry="KFA_PostEvent" all er)
+
+Meaning
+
+TEMSREPORT045: PostEvent Report Summary
+Situation,Count,Nodes,Rate,
+NLHEM_341_NT_Percent_Processor,534,51,8.97/min,
+NLENC_351_NT_Percent_Total_Proc,212,109,3.56/min,
+NLEZ_341_NT_Percent_Processor,145,43,2.44/min,
+NLCGO_351_NT_Percent_Total_Proc,128,55,2.15/min,
+
+This is seen at the hub TEMS and it shows the number of events
+arriving. If the numbers are very high this can severely impact
+the hub TEMS and the TEPS. Situations should be rare and
+exceptional reports and not arrive in floods.
+
+There is no specific guideline. The ulimate test should be whether
+the event has value in reducing outages and service degradation.
+
+Recovery plan: Evaluate workload and reduce if needed.
+----------------------------------------------------------------
+
+TEMSREPORT046
+Text: PostEvent Node Status Instance Exceptions
+
+Trace: error (unit:kfastpst,Entry="KFA_PostEvent" all er)
+
+Meaning
+
+
+TEMSREPORT047: PostEvent Node Status Instance Exceptions
+Node,Count,Thrunode,Hostaddr,Product,Version,
+neo:neo:LO,74,REMOTE_NLAMA-MCTVPVL13,ip.pipe:#10.128.122.31[56272]<NM>neo</NM>,LO,06.30.00,
+neo:neo:LO,74,REMOTE_NLAMA-MCTVPVL13,ip.pipe:#10.213.193.41[46439]<NM>neo</NM>,LO,06.30.00,
+neo:neo:LO,74,REMOTE_NLAM3-MCTVPVL03,ip.pipe:#10.128.122.41[45325]<NM>neo</NM>,LO,06.30.00,
+
+This seen at the hub TEMS and is strong evidence of
+mal-configuration at the agents including but not
+limited to duplicate agents.
+
+Recovery plan: Evaluate agent configurations and change so the ITM
+has unique agent names as it requires for good monitoring.
 ----------------------------------------------------------------
 
