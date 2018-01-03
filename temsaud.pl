@@ -40,7 +40,7 @@
 
 ## monitor cases where port != 1918/3660 + N*4096, or +1
 
-my $gVersion = 1.6800;
+my $gVersion = 1.6900;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -177,7 +177,9 @@ my $opt_rdslot;                                  # number of seconds for result 
 my $opt_rdtop;                                   # number of situations to display
 my $ssi = -1;
 my @ssout;
-my $opt_flip = 0;
+my $opt_flip = 1;
+my $opt_eph;                                     # produce ephemeral report
+my $opt_ephdir;                                  # produce ephemeral report
 
 my $test_logfn;
 my $invfile;
@@ -317,6 +319,12 @@ my %node_ignorex = ();
 my %sthx = ();
 
 my %soapcat = ();
+
+my %recvectx= ();        # receive vectors to translate ephemeral ip addresses
+my $rvect_def;
+my %rvrunx = ();         # receive vector running capture by thread
+my $rvrun_def;
+
 
 my %valvx;
 my $val_ref;
@@ -480,8 +488,8 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-sr") {
       $opt_sr = 1;
       shift(@ARGV);
-   } elsif ($ARGV[0] eq "-flip") {
-      $opt_flip = 1;
+   } elsif ($ARGV[0] eq "-noflip") {
+      $opt_flip = 0;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-cmdall") {
       $opt_cmdall = 1;
@@ -506,6 +514,14 @@ while (@ARGV) {
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-ss") {
       $opt_ss = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-ephdir") {
+      shift(@ARGV);
+      $opt_ephdir = shift(@ARGV);
+      die "-ephdir output specified but no path found\n" if !defined $opt_ephdir;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-eph") {
+      $opt_eph = 1;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-nohdr") {
       $opt_nohdr = 1;
@@ -575,6 +591,8 @@ if (!defined $opt_expslot) {$opt_expslot = 60;}
 if (!defined $opt_rd) {$opt_rd = 60;}
 if (!defined $opt_rdslot) {$opt_rdslot = 1;}
 if (!defined $opt_rdtop) {$opt_rdtop = 5;}
+if (!defined $opt_eph) {$opt_eph = 0;}
+if (!defined $opt_ephdir) {$opt_ephdir = "";}
 
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
@@ -1343,6 +1361,53 @@ for(;;)
          }
       }
    }
+   #(5919A82C.000C-22:kdebp0r.c,657,"receive_vectors") ip.pipe connection parameters ...
+   #+5919A82C.000C     pipe address: 0.0.0.1:1918
+   #+5919A82C.000C         ccbFixup: 10.56.93.54:1918
+   #+5919A82C.000C      ccbPhysSelf: 10.56.93.54:1918
+   #+5919A82C.000C      ccbPhysPeer: 10.80.90.43:7881
+   #+5919A82C.000C      ccbVirtSelf: 10.56.93.54:1918
+   #+5919A82C.000C      ccbVirtPeer: 10.80.90.43:7881
+   #+5919A82C.000C      socket info: ASD=11A0245D0, recvbuf=33120, sendbuf=33120
+   #+5919A82C.000C     ccbEphemeral: 0x00000010
+   if (substr($oneline,0,1) eq "+")  {        # convert hex string - ascii - to printable
+      $contkey = substr($oneline,1,13);
+      $rvrun_def = $rvrunx{$contkey};
+      if (defined $rvrun_def) {
+         $rest = substr($oneline,14);
+         $rest =~ /^(.*?):(.*?)$/;
+         my $first = $1;
+         my $second = $2;
+         $first =~ s/^\s+|\s+$//g;
+         $second =~ s/^\s+|\s+$//g;
+         if ($first eq "pipe address") {
+            $rvrun_def->{pipe_addr} = $second;
+         } elsif ($first eq "ccbPhysPeer") {
+            $rvrun_def->{phys_peer} = $second;
+         } elsif ($first eq "ccbVirtPeer") {
+            $rvrun_def->{virt_peer} = $second;
+         } elsif ($first eq "ccbEphemeral") {
+            if ($second ne "0x00000000") {
+               $rvrun_def->{ephemeral} = hex($second);
+               $rvrun_def->{pipe_addr} =~ /(.*?):/;
+               my $ephem = $1;
+               my $recvect_def = $recvectx{$ephem};
+               if (!defined $recvect_def) {
+                  my %recvectdef = (
+                                      pipe_addr => $rvrun_def->{pipe_addr},
+                                      phys_peer => $rvrun_def->{phys_peer},
+                                      virt_peer => $rvrun_def->{virt_peer},
+                                      ephemeral => $rvrun_def->{ephemeral},
+                                   );
+                  $recvectx{$ephem} = \%recvectdef;
+                  $recvect_def = \%recvectdef;
+               }
+               $recvect_def->{count} += 1;
+            }
+            delete  $rvrunx{$contkey};
+         }
+      }
+   }
 
    # (53FE31BA.0045-61C:kglhc1c.c,601,"KGLHC1_Command") <0x190B4CFB,0x8A> Command String
    # +53FE31BA.0045     00000000   443A5C73 63726970  745C756E 69782031   D:\script\unix.1
@@ -2067,6 +2132,39 @@ for(;;)
       }
       next;
    }
+
+   #(5919A82C.000C-22:kdebp0r.c,657,"receive_vectors") ip.pipe connection parameters ...
+   #+5919A82C.000C     pipe address: 0.0.0.1:1918
+   #+5919A82C.000C         ccbFixup: 10.56.93.54:1918
+   #+5919A82C.000C      ccbPhysSelf: 10.56.93.54:1918
+   #+5919A82C.000C      ccbPhysPeer: 10.80.90.43:7881
+   #+5919A82C.000C      ccbVirtSelf: 10.56.93.54:1918
+   #+5919A82C.000C      ccbVirtPeer: 10.80.90.43:7881
+   #+5919A82C.000C      socket info: ASD=11A0245D0, recvbuf=33120, sendbuf=33120
+   #+5919A82C.000C     ccbEphemeral: 0x00000010
+   if (substr($logunit,0,9) eq "kdebp0r.c") {
+      if ($logentry eq "receive_vectors") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # ip.pipe connection parameters ...
+         if (index($rest,"connection parameters") != -1) {
+            $contkey = substr($oneline,1,13);
+            $rvrun_def = $rvrunx{$contkey};
+            if (!defined $rvrun_def) {
+                my %rvrundef = (
+                                  thread => $logthread,
+                                  count => 0,
+                                  state => 0,
+                                  pipe_addr => "",
+                                  phys_peer => "",
+                                  virt_peer => "",
+                                  ephemeral => 0,
+                               );
+                $rvrun_def = \%rvrundef;
+                $rvrunx{$contkey} = \%rvrundef;
+            }
+         }
+      }
+   }
    next if $skipzero;
 
    # signal for KDEB_INTERFACELIST conflicts
@@ -2496,6 +2594,7 @@ for(;;)
             }
             # Richard Bennett logic from FindDupAgents.rex
             $inode = $iagent;
+#$DB::single=2   if $inode eq "ibm_dkccfni01sr08xm:07";
             $rbdup_ref = $rbdupx{$inode};
             if (!defined $rbdup_ref) {
                my %rbdupref = (
@@ -2556,13 +2655,14 @@ $DB::single=2;                                                                  
                         # count. Then add the interval to the previous interval.
                         $rbdup_ref->{dupflag} += 1;
                         $rbdup_ref->{duplicate_reasons}{"leftover_seconds"} += 1;
-                        $rbdup_ref->{inttmp} += $tempInt;
                         push @{$rbdup_ref->{leftover_seconds}},$leftover,$logtimehex;
+
+                        $rbdup_ref->{inttmp} += $tempInt;
                         # If the total interval is now on a minute boundary, then
                         # that is likely the interval we are looking for.
                         $leftover = $rbdup_ref->{lasttime}%60;
                         $leftover = 0 if $leftover == 59;
-                        $minutes = int($tempInt/60) if $leftover <= 1;                                                ##5
+                        $minutes = int(($rbdup_ref->{inttmp}+2)/60) if $leftover <= 1;                                 ##5
 $DB::single=2;
 my $x = 1;
                      }
@@ -2572,14 +2672,14 @@ my $x = 1;
                      # previous interval.
                      $rbdup_ref->{dupflag} += 1;
                      $rbdup_ref->{duplicate_reasons}{"heartbeat_outside_grace"} += 1;
-                     $rbdup_ref->{inttmp} += $tempInt;
                      push @{$rbdup_ref->{heartbeat_outside_grace}},$tempInt,$logtimehex;
+                     $rbdup_ref->{inttmp} += $tempInt;
 
                      # If the total interval is now on a minute boundary, then
                      # that is likely the interval we are looking for.
-                     $leftover = $rbdup_ref->{lasttime}%60;
+                     $leftover = $rbdup_ref->{inttmp}%60;
                      $leftover = 0 if $leftover == 59;
-                     $minutes = int($tempInt/60) if $leftover <= 1;                                                ##5
+                     $minutes = int(($rbdup_ref->{inttmp}+2)/60) if $leftover <= 1;                                 ##5
                   }
 
                   # if we have something in minutes, then that is our interval */
@@ -2607,7 +2707,7 @@ my $x = 1;
 
                # Otherwise this is the first time we have seen this endpoint so save so info for next time
                } else {                                                                                          ##6
-                  $rbdup_ref->{thruname} = $ithrunode;                                                            ##7
+                  $rbdup_ref->{thruname} = $ithrunode;                                                           ##7
                   $rbdup_ref->{curstatus} = "Y";                                                                 ##7
                }
 
@@ -5648,7 +5748,7 @@ foreach $f ( sort { $a cmp $b } keys %rbdupx) {
 
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
-open OH, ">$opt_o" or die "can't open $opt_o: $!";
+open OH, ">$opt_o" or die "unable to open $opt_o: $!";
 
 
 if ($opt_nohdr == 0) {
@@ -5729,6 +5829,26 @@ if ($opt_ss == 1) {
          print SEND "$ssout[$i]\n";
       }
       close SEND;
+   }
+}
+
+if ($opt_eph == 1) {
+   my $eph_ct = scalar keys %recvectx;
+   if ($eph_ct > 0) {
+      my $opt_eph_fn = $opt_ephdir . $opt_nodeid . "_ephemeral_detail.txt";
+      open EPH, ">$opt_eph_fn" or die "Unable to open Ephemeral Detail output file $opt_eph_fn\n";
+      print EPH "eph_addr,ephemeral,pipe_addr,phys_peer,virt_peer\n";
+      foreach my $f ( sort { $a cmp $b } keys %recvectx) {
+         my $recvect_def = $recvectx{$f};
+         next if $recvect_def->{ephemeral} < 16;
+         $outl = $f . ",";
+         $outl .= $recvect_def->{ephemeral} . ",";
+         $outl .= $recvect_def->{pipe_addr} . ",";
+         $outl .= $recvect_def->{phys_peer} . ",";
+         $outl .= $recvect_def->{virt_peer} . ",";
+         print EPH "$outl\n";
+      }
+      close EPH;
    }
 }
 
@@ -6168,6 +6288,7 @@ exit;
 #1.67000 - Extend some of the node status reports for easier access to diagnostic logs
 #          and to allow some cases to be diagnosed immediately.
 #1.68000 - More node status reports including base listening port usage
+#1.69000 - Capture ephemeral port information - what is physical system/port
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
