@@ -85,7 +85,11 @@
 
 ## capture node status if available !1
 
-my $gVersion = 1.79000;
+## (59C9B407.0000-4D:kfastins.c,2604,"GetSitLogRecord") ReadNext Error, status = 5
+
+## (59DFC978.0002-9:ko4rulex.cpp,920,"PredParser::getDescription") Error: Missing situation <Linux_BP_SpaceUsedPct_Critical>.
+
+my $gVersion = 1.81000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -5666,13 +5670,12 @@ if ($nodest_size > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: PostEvent Node Status Instance Exceptions\n";
    $cnt++;$oline[$cnt]="Node,Count,Thrunode,Hostaddr,Product,Version,\n";
+   my $agent_ct = 0;
+   my $agent_status_ct = 0;
    foreach $f ( sort { $nodestx{$b}->{count} <=> $nodestx{$a}->{count} } keys %nodestx) {
       my $nodest_ref = $nodestx{$f};
       last if $nodest_ref->{count} == 1;
-      $advi++;$advonline[$advi] = "Agent sending status from $nodest_ref->{count} instances - see following report $rptkey";
-      $advcode[$advi] = "TEMSAUDIT1082E";
-      $advimpact[$advi] = $advcx{$advcode[$advi]};
-      $advsit[$advi] = "$f";
+      $agent_ct += 1;
       foreach $g (keys %{$nodest_ref->{instances}}) {
          my $instance_ref = $nodest_ref->{instances}{$g};
          $outl = $f  . ",";
@@ -5682,8 +5685,13 @@ if ($nodest_size > 0) {
          $outl .= $instance_ref->{product} . ",";
          $outl .= $instance_ref->{version} . ",";
          $cnt++;$oline[$cnt]=$outl . "\n";
+         $agent_status_ct += $nodest_ref->{count};
       }
    }
+   $advi++;$advonline[$advi] = "Agents sending status $agent_status_ct times from $agent_ct instances - see following report $rptkey";
+   $advcode[$advi] = "TEMSAUDIT1082E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
 }
 
 my $agto_dur = $agto_etime - $agto_stime;
@@ -5745,7 +5753,7 @@ if ($refxi > 0) {
       $cnt++;$oline[$cnt]=$outl . "\n";
       $refx_ct += $reflexx{$f}->{count};
    }
-   $advi++;$advonline[$advi] = "Reflex [Action] Command $refx_ct failures in $refxi situation(s)";
+   $advi++;$advonline[$advi] = "Reflex [Action] Command $refx_ct failures in $refxi situation(s) - See Report $rptkey";
    $advcode[$advi] = "TEMSAUDIT1034W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "CommandFailures";
@@ -7383,6 +7391,9 @@ exit;
 #        - Add advisory on STH corrupted rows
 #1.79000 - Correct RB thrunode switching logic
 #        - report number of off-lines along with onlines
+#1.80000 - handle temsaud.pl running on a Linux/Unix perl
+#1.81000 - Improve report explanation on churning report.
+#        - Add advisory and report on nodelist missing messages
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -9703,6 +9714,11 @@ affected agents are severely affected and the TEMS itself can
 experience serious issues include failure at high rates. This
 report is of only 3 systems so the big effect is that the agents
 involved are likely not monitoring as expected.
+
+One case where this is perfectly normal was identified by a
+customer recently. The system involved was where they ran a lot
+of their normal tacmd functions. Each one created a tcp connection
+that was created and closed.
 
 Recovery plan: Contact IBM Support if messages are concerning.
 ----------------------------------------------------------------
