@@ -26,7 +26,7 @@
 ## kglaffam.c|AFF1_IsPartOf|294,16618,10%,(58231CDA.0002-18:kglaffam.c,294,"AFF1_IsPartOf") Warning: No affinity entry for <&IBM.CAM7_WAS>
 
 
-my $gVersion = 1.60000;
+my $gVersion = 1.61000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -254,6 +254,7 @@ my %advcx = (
               "TEMSAUDIT1049E" => "100",
               "TEMSAUDIT1050W" => "100",
               "TEMSAUDIT1051E" => "110",
+              "TEMSAUDIT1052E" => "200",
               "TEMSAUDIT1053W" => "95",
               "TEMSAUDIT1054W" => "80",
               "TEMSAUDIT1055W" => "90",
@@ -2343,13 +2344,15 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Column ATFSTAT in Table LIMS_SYSS for Application KIP Not Found.
          if (substr($rest,-10) eq "Not Found.") {
-            $rest =~ /Column (\S+) in Table (\S+) for Application (\S+) /;
-            my $icolumn = $1;
-            my $itable = $2;
-            my $iapp = $3;
-            my $key = $3 . "|" . $2 . "|" . $1;
-            $misscolx{$key} += 1;
-            next;
+            if (substr($rest,1,6) eq "Column") {
+               $rest =~ /Column (\S+) in Table (\S+) for Application (\S+) /;
+               my $icolumn = $1;
+               my $itable = $2;
+               my $iapp = $3;
+               my $key = $3 . "|" . $2 . "|" . $1;
+               $misscolx{$key} += 1;
+               next;
+            }
          }
       }
    }
@@ -2510,7 +2513,7 @@ for(;;)
             $soaperror_fault = $1 if defined $1;
             next;
          } elsif (substr($rest,1,7) eq "Client:") {
-            $rest =~ /: (.*)/;
+            $rest =~ /: (.*):/;
             $soaperror_client = $1 if defined $1;
             if ($soaperror_fault ne "") {
                 my $soaperror_ref = $soaperror{$soaperror_fault};
@@ -3646,7 +3649,7 @@ if ($pcb_deletePCB > 0) {
 }
 
 $soaperror_ct = scalar keys %soaperror;
-if ($soaperror_ct >= 0) {
+if ($soaperror_ct > 0) {
    my $pcnt = $soaperror_ct + 1;
    $advi++;$advonline[$advi] = "SOAP Errors Types [$pcnt] Detected - See following report";
    $advcode[$advi] = "TEMSAUDIT1054W";
@@ -4639,7 +4642,7 @@ if ($pcb_deletePCB > 0) {
 }
 
 $soaperror_ct = scalar keys %soaperror;
-if ($soaperror_ct >= 0) {
+if ($soaperror_ct > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="SOAP Error Report\n";
    $cnt++;$oline[$cnt]="Count,Fault,\n";
@@ -4659,7 +4662,6 @@ if ($soaperror_ct >= 0) {
 if ($changex_ct > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Agent Flipping Report\n";
-   $cnt++;$oline[$cnt]="Node,Count,\n";
    $cnt++;$oline[$cnt]="Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,\n";
    foreach $f ( sort { $a cmp $b } keys %changex) {
       my $change_ref = $changex{$f};
@@ -4846,13 +4848,13 @@ sub capture_sqlrun {
       }
       my $sql_table = "";
       if (substr($sql_frag,0,6) eq "SELECT") {
-         $sql_frag =~ / FROM\s+(\S+)/;
+         $sql_frag =~ /[ \)]FROM\s+(\S+)/;
          $sql_table = $1;
       } elsif (substr($sql_frag,0,6) eq "DELETE") {
-         $sql_frag =~ / FROM\s+(\S+)/;
+         $sql_frag =~ /[ \)]FROM\s+(\S+)/;
          $sql_table = $1;
       } elsif (substr($sql_frag,0,6) eq "INSERT") {
-         $sql_frag =~ / INTO\s+(\S+)/;
+         $sql_frag =~ /[ \)]INTO\s+(\S+)/;
          $sql_table = $1;
       } elsif (substr($sql_frag,0,6) eq "UPDATE") {
          $sql_frag =~ /UPDATE\s+(\S+)/;
@@ -5161,6 +5163,8 @@ exit;
 #         - Add advisory and report for Agent Location Flipping
 #         - Add advisory for missing application data
 # 1.60000 - Avoid errors when Agent Location Flipping data prior to FP7
+# 1.61000 - Correct logic in 1056W advisory - was blocking TEMSAUDIT1011W
+#         - remove port number from Soap Error report client, hides counts of interest
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
