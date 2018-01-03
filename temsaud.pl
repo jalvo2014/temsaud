@@ -40,7 +40,7 @@
 
 ## monitor cases where port != 1918/3660 + N*4096, or +1
 
-my $gVersion = 1.66000;
+my $gVersion = 1.6700;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -2455,40 +2455,42 @@ for(;;)
             $ithrunode = $2;
             $iagent =~ s/\s+$//;                    # strip trailing blanks
             $ithrunode =~ s/\s+$//;                    # strip trailing blanks
-            my $ax = $agtshx{$iagent};
-            if (!defined $ax) {
-               $agtshi += 1;
-               $ax = $agtshi;
-               $agtsh[$ax] = $iagent;
-               $agtshx{$iagent} = $ax;
-               $agtsh_ct[$ax] = 0;
-               $agtsh_rat[$ax] = 0;
-               $agtsh_iat[$ax] = ();
-            }
-            $agtsh_ct[$ax] += 1;
-            $agtsh_total_ct += 1;
-            if ($agtsh_rat[$ax] != 0) {
-               my $inter_time = $logtime - $agtsh_rat[$ax];
-               if ($inter_time < 7200) {
-                  my $inter_ref = $agtsh_iat[$ax]{$inter_time};
-                  if (!defined $agtsh_iat[$ax]{$inter_time}) {
-                     $agtsh_iat[$ax]{$inter_time}{count} = 0;
-                     $agtsh_iat[$ax]{$inter_time}{times} = ();
-                  }
-                  $agtsh_iat[$ax]{$inter_time}{count} += 1;
-                  push (@{$agtsh_iat[$ax]{$inter_time}{times}},$logtime);
+            if ($opt_jitter == 1) {
+               my $ax = $agtshx{$iagent};
+               if (!defined $ax) {
+                  $agtshi += 1;
+                  $ax = $agtshi;
+                  $agtsh[$ax] = $iagent;
+                  $agtshx{$iagent} = $ax;
+                  $agtsh_ct[$ax] = 0;
+                  $agtsh_rat[$ax] = 0;
+                  $agtsh_iat[$ax] = ();
                }
-            }
-            $agtsh_rat[$ax] = $logtime;
-            if ($agtsh_stime == 0) {
-                $agtsh_stime = $logtime;
-                $agtsh_etime = $logtime;
-            }
-            if ($logtime < $agtsh_stime) {
-               $agtsh_stime = $logtime;
-            }
-            if ($logtime > $agtsh_etime) {
-               $agtsh_etime = $logtime;
+               $agtsh_ct[$ax] += 1;
+               $agtsh_total_ct += 1;
+               if ($agtsh_rat[$ax] != 0) {
+                  my $inter_time = $logtime - $agtsh_rat[$ax];
+                  if ($inter_time < 7200) {
+                     my $inter_ref = $agtsh_iat[$ax]{$inter_time};
+                     if (!defined $agtsh_iat[$ax]{$inter_time}) {
+                        $agtsh_iat[$ax]{$inter_time}{count} = 0;
+                        $agtsh_iat[$ax]{$inter_time}{times} = ();
+                     }
+                     $agtsh_iat[$ax]{$inter_time}{count} += 1;
+                     push (@{$agtsh_iat[$ax]{$inter_time}{times}},$logtime);
+                  }
+               }
+               $agtsh_rat[$ax] = $logtime;
+               if ($agtsh_stime == 0) {
+                   $agtsh_stime = $logtime;
+                   $agtsh_etime = $logtime;
+               }
+               if ($logtime < $agtsh_stime) {
+                  $agtsh_stime = $logtime;
+               }
+               if ($logtime > $agtsh_etime) {
+                  $agtsh_etime = $logtime;
+               }
             }
             # Richard Bennett logic from FindDupAgents.rex
             $inode = $iagent;
@@ -2508,6 +2510,11 @@ for(;;)
                                  online => 0,
                                  newonline1 => 0,
                                  duplicate_reasons => {},
+                                 leftover_seconds => [],
+                                 heartbeat_outside_grace => [],
+                                 double_heartbeat => [],
+                                 double_offline => [],
+                                 early_heartbeat => [],
                                  thrunodes => {},
                                  hostaddrs => {},
                                  hostaddr => 0,
@@ -2515,6 +2522,7 @@ for(;;)
                $rbdup_ref = \%rbdupref;
                $rbdupx{$inode} = \%rbdupref;
             }
+
 
             # if we have not yet determined an interval for this endpoint, then we
             # never really saw a normal first online heartbeat. This occurs when
@@ -2533,7 +2541,7 @@ for(;;)
                   # if the interval between the last two heartbeats is about equal to the
                   # previous heartbeat interval, then we will use that as the interval if
                   # the interval is one minute.
-                  if (($tempInt >= $rbdup_ref->{inttmp} - $grace) & ($tempInt <= $rbdup_ref->{inttmp} + $grace)) {
+                  if (($tempInt >= $rbdup_ref->{inttmp} - $grace) and ($tempInt <= $rbdup_ref->{inttmp} + $grace)) {
                      $leftover = $tempInt%60;                                                                   ##4
                      $leftover = 0 if $leftover == 59;
                      $minutes = int($tempInt/60) if $leftover <= 1;                                                              ##5
@@ -2544,7 +2552,7 @@ $DB::single=2;                                                                  
                         $rbdup_ref->{dupflag} += 1;
                         $rbdup_ref->{duplicate_reasons}{"leftover_seconds"} += 1;
                         $rbdup_ref->{inttmp} += $tempInt;
-
+                        push @{$rbdup_ref->{leftover_seconds}},$leftover,$logtimehex;
                         # If the total interval is now on a minute boundary, then
                         # that is likely the interval we are looking for.
                         $leftover = $rbdup_ref->{lasttime}%60;
@@ -2560,6 +2568,7 @@ my $x = 1;
                      $rbdup_ref->{dupflag} += 1;
                      $rbdup_ref->{duplicate_reasons}{"heartbeat_outside_grace"} += 1;
                      $rbdup_ref->{inttmp} += $tempInt;
+                     push @{$rbdup_ref->{heartbeat_outside_grace}},$tempInt,$logtimehex;
 
                      # If the total interval is now on a minute boundary, then
                      # that is likely the interval we are looking for.
@@ -2586,6 +2595,7 @@ my $x = 1;
                   if ($tempInt == 0) {
                      $rbdup_ref->{dupflag} += 1;                                                                  ##7
                      $rbdup_ref->{duplicate_reasons}{"double_heartbeat"} += 1;
+                     push @{$rbdup_ref->{double_heartbeat}},$logtimehex;
                   } else {
                      $rbdup_ref->{inttmp} = $tempInt;
                   }
@@ -2612,6 +2622,7 @@ my $x = 1;
                if (($time_diff < ($rbdup_ref->{interval} - $grace)) or ($time_diff > ($rbdup_ref->{interval} + $grace))) {
                   $rbdup_ref->{dupflag} += 1;                                                                               ##6
                   $rbdup_ref->{duplicate_reasons}{"heartbeat_outside_grace"} += 1;
+                  push @{$rbdup_ref->{heartbeat_outside_grace}},$time_diff,$logtimehex;
                }
             }
 
@@ -2673,6 +2684,11 @@ my $x = 1;
                                  online => 0,
                                  newonline1 => 0,
                                  duplicate_reasons => {},
+                                 leftover_seconds => [],
+                                 heartbeat_outside_grace => [],
+                                 double_heartbeat => [],
+                                 double_offline => [],
+                                 early_heartbeat => [],
                                  thrunodes => {},
                                  hostaddrs => {},
                                  hostaddr => 0,
@@ -2687,6 +2703,7 @@ my $x = 1;
             if (($rbdup_ref->{curstatus} eq "N") and ($inewOnline eq "N")) {
                $rbdup_ref->{dupflag} += 1;
                $rbdup_ref->{duplicate_reasons}{"double_offline"} += 1;
+               push @{$rbdup_ref->{double_offline}},$logtimehex;
             # if the endpoint is going offline then reset some things
 
             } elsif ($inewOnline eq "N") {
@@ -2755,6 +2772,8 @@ my $x = 1;
                } elsif (($logtime - $rbdup_ref->{lasttime}) < ($rbdup_ref->{interval} - 5)) { # allow grace period to be early */
                    $rbdup_ref->{dupflag} += 1;
                    $rbdup_ref->{duplicate_reasons}{"early_heartbeat"} += 1;
+                   my $ttime = $logtime - $rbdup_ref->{lasttime};
+                   push @{$rbdup_ref->{early_heartbeat}},$ttime,$logtimehex;
                }
             }
             $rbdup_ref->{lasttime} = $logtime;         # always record last time
@@ -5369,21 +5388,25 @@ if ($ct_rbdup > 0 ) {
    if ($ct_rbdup_dupflag > 0) {
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="RB Duplicate Node Evidence Report\n";
-      $cnt++;$oline[$cnt]="Node,HostAddr,Dup_count,Reason(s),\n";
+      $cnt++;$oline[$cnt]="Node,HostAddr,Interval,Dup_count,Reason(s),\n";
       foreach $f ( sort { $rbdupx{$b}->{dupflag} <=> $rbdupx{$a}->{dupflag}
                           || $a cmp $b } keys %rbdupx) {
          $rbdup_ref = $rbdupx{$f};
          last if $rbdup_ref->{dupflag} < 2;
-         my $rstring = "";
-         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{duplicate_reasons}}) {
-            $rstring .= $g . "(" . $rbdup_ref->{duplicate_reasons}{$g} . ") ";
-         }
-         my $hostaddr1 = "";
+         my $hostaddr1 = "";   # calculate a hostaddr - system where the agent self reports
          foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{hostaddrs}}) {
             $hostaddr1 = $g;
             last;
          }
-         $cnt++;$oline[$cnt]= $f . "," . $hostaddr1 . "," . $rbdup_ref->{dupflag} . "," . $rstring . ",\n";
+         my $rstring = "";
+         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{duplicate_reasons}}) {
+            $rstring .= $g . "(" . $rbdup_ref->{duplicate_reasons}{$g} . ") ";
+         }
+         $cnt++;$oline[$cnt]= $f . "," . $hostaddr1 . "," . $rbdup_ref->{interval} . "," . $rbdup_ref->{dupflag} . "," . $rstring . ",\n";
+         my $dstring = "";
+         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{duplicate_reasons}}) {
+            $cnt++;$oline[$cnt]= $f . "," . $hostaddr1 . "," . $rbdup_ref->{interval} . ",," . $g . "," . join(":",@{$rbdup_ref->{$g}}) . ",\n";
+         }
       }
       $advi++;$advonline[$advi] = "Duplicate Agent Evidence in $ct_rbdup_dupflag agents - See following report";
       $advcode[$advi] = "TEMSAUDIT1068W";
@@ -5990,6 +6013,8 @@ exit;
 #1.65000 - Add RB FindDupAgents.rex logic
 #1.66000 - Report on churning based on 95% of total
 #        - make jitter report(s) optional
+#1.67000 - Extend some of the node status reports for easier access to diagnostic logs
+#          and to allow some cases to be diagnosed immediately.
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
