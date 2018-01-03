@@ -74,7 +74,7 @@
 
 ## KBB_RAS1=    warn of this case
 
-my $gVersion = 1.7200;
+my $gVersion = 1.7300;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -346,6 +346,7 @@ my %advcx = (
               "TEMSAUDIT1078E" => "100",
               "TEMSAUDIT1079W" => "85",
               "TEMSAUDIT1080E" => "100",
+              "TEMSAUDIT1081E" => "100",
             );
 
 my %advtextx = ();
@@ -4483,9 +4484,15 @@ if ($opt_stack > 0) {
 
 if ($opt_kbb_ras1 ne "") {
    my $test_ras1 = lc $opt_kbb_ras1;
+   $test_ras1 =~ s/^\s+|\s+$//;     # strip leading/trailing white space
    if (index($test_ras1,"error") == -1) {
-      $advi++;$advonline[$advi] = "KBB_RAS1 missing the very important ERROR specification";
+      $advi++;$advonline[$advi] = "KBB_RAS1 missing the all important ERROR specification";
       $advcode[$advi] = "TEMSAUDIT1032E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "Ras1";
+   } elsif (substr($test_ras1,0,1) eq "'") {
+      $advi++;$advonline[$advi] = "KBB_RAS1 starts with single quote which prevents expected usage";
+      $advcode[$advi] = "TEMSAUDIT1081E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "Ras1";
    }
@@ -7064,6 +7071,7 @@ exit;
 #1.72000 - handle RB capture better on earlier maintenance levels.
 #          Add portscan report over time
 #          Add report of recent install and config operations
+#1.73000 - Advisory when KBB_RAS1 starts with a single quote
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -7626,7 +7634,7 @@ Recovery plan:  Ignore message.
 --------------------------------------------------------------
 
 TEMSAUDIT1032E
-Text: KBB_RAS1 missing the very important ERROR specification
+Text: KBB_RAS1 missing the all important ERROR specification
 
 Tracing: none
 Diag Log: +56B8B325.0000         KBB_RAS1: <not specified>
@@ -8585,6 +8593,25 @@ connect to the TEMS as expected.
 Recovery plan:  Best would be to remove the KDCB0_HOSTNAME from
 config/kbbenv.ini and tables/<temsnodeid>/KBBENV and whereever else
 found. That way KDEB_INTERFACELIST can keep the value configued.
+----------------------------------------------------------------
+
+TEMSAUDIT1081E
+Text: KBB_RAS1 starts with single quote which prevents expected usage
+
+Tracing: error
+
+Meaning: KBB_RAS1 cannot start with a single quote. This prevents
+normal interpretation and does not get the expected additional
+tracing.
+
+The usual reason in Linux/Unix is that a ms.environemnt file was
+created with the KBB_RAS1= environment variable but the value
+was single-quoted which is invalid. The same thing can be seen
+in Windows if the Edit Trace Parms... dialog box, the RAS1 filter
+value is set with single quotes.
+
+Recovery plan:  Correct the invalid setting and recycle the TEMS
+to acquire the needed diagnostic tracing.
 ----------------------------------------------------------------
 
 TEMSREPORT001
