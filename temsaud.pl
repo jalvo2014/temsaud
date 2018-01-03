@@ -40,7 +40,7 @@
 
 ## monitor cases where port != 1918/3660 + N*4096, or +1
 
-my $gVersion = 1.65000;
+my $gVersion = 1.66000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -163,6 +163,7 @@ my $opt_com_debug = 0;                           # KBS_DEBUG setting
 my $opt_sr;                                      # Soap Report
 my $opt_cmdall;                                  # show all commands
 my $opt_jitall;                                  # show all jitter
+my $opt_jitter = 0;                              # assume no jitter report
 my $opt_noded = 0;                               # track inter-arrival times for results
 my $opt_b;
 my $opt_level = 0;                               # build level not found
@@ -488,6 +489,9 @@ while (@ARGV) {
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-jitall") {
       $opt_jitall = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-jitter") {
+      $opt_jitter = 1;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-inplace") {
 #     $opt_inplace = 1;                # ignore as unused
@@ -2605,7 +2609,7 @@ my $x = 1;
             } else {  #                                                                                         ##5
                # allow grace period to be early or late */
                my $time_diff = $logtime - $rbdup_ref->{lasttime};                                                           ##5
-               if (($time_diff < ($rbdup_ref->{interval} - $grace)) or ($time_diff > ($rbdup_ref->{interval} - $grace))) {
+               if (($time_diff < ($rbdup_ref->{interval} - $grace)) or ($time_diff > ($rbdup_ref->{interval} + $grace))) {
                   $rbdup_ref->{dupflag} += 1;                                                                               ##6
                   $rbdup_ref->{duplicate_reasons}{"heartbeat_outside_grace"} += 1;
                }
@@ -4154,12 +4158,16 @@ if ($kcf_count > 0) {
 
 my $pcb_total = 0;
 my $pcb_deletePCB = 0;
+my $pcb_deletePCB_tot = 0;
+my $pcb_deletePCB90 = 0;
 foreach my $f (keys %pcbx) {
    my $pcb_ref = $pcbx{$f};
    $pcb_total += 1;
    next if $pcb_ref->{deletePCB} < 2;
+   $pcb_deletePCB_tot += $pcb_ref->{deletePCB};
    $pcb_deletePCB += 1;
 }
+$pcb_deletePCB90 = int($pcb_deletePCB_tot*.95);
 
 if ($pcb_deletePCB > 0) {
    $advi++;$advonline[$advi] = "Agent connection churning on [$pcb_deletePCB] systems total[$pcb_total] - See following report";
@@ -4893,7 +4901,7 @@ if ($refxi > 0) {
 }
 
 my $agtsh_dur = $agtsh_etime - $agtsh_stime;
-if ($agtsh_dur > 0) {
+if (($agtsh_dur > 0) and ($opt_jitter == 1)) {
    my $agtsh_total_multi = 0;
    my $agtsh_jitter_major = 0;
    my $agtsh_jitter_minor = 0;
@@ -5264,8 +5272,9 @@ if ($loci_ct > 0) {
 
 
 if ($pcb_deletePCB > 0) {
+   my $pcb_deletePCB_ct =0;
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Agent connection churning Report - $pcb_deletePCB systems\n";
+   $cnt++;$oline[$cnt]="Agent connection churning Report - top 95% systems\n";
    $cnt++;$oline[$cnt]="ip_address,Count,NewPCB,DeletePCB,Agents(count),\n";
    foreach $f ( sort { $pcbx{$b}->{deletePCB} <=> $pcbx{$a}->{deletePCB} || $a cmp $b } keys %pcbx) {
       my $pcb_ref = $pcbx{$f};
@@ -5277,6 +5286,8 @@ if ($pcb_deletePCB > 0) {
       }
       $outl .= $pagents . ",";
       $cnt++;$oline[$cnt]="$outl\n";
+      $pcb_deletePCB_ct += $pcb_ref->{deletePCB};
+      last if $pcb_deletePCB_ct >= $pcb_deletePCB90;
    }
 }
 
@@ -5359,9 +5370,10 @@ if ($ct_rbdup > 0 ) {
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="RB Duplicate Node Evidence Report\n";
       $cnt++;$oline[$cnt]="Node,HostAddr,Dup_count,Reason(s),\n";
-      foreach $f ( sort { $a cmp $b } keys %rbdupx) {
+      foreach $f ( sort { $rbdupx{$b}->{dupflag} <=> $rbdupx{$a}->{dupflag}
+                          || $a cmp $b } keys %rbdupx) {
          $rbdup_ref = $rbdupx{$f};
-         next if $rbdup_ref->{dupflag} < 2;
+         last if $rbdup_ref->{dupflag} < 2;
          my $rstring = "";
          foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{duplicate_reasons}}) {
             $rstring .= $g . "(" . $rbdup_ref->{duplicate_reasons}{$g} . ") ";
@@ -5975,7 +5987,9 @@ exit;
 #         - Add a number of advisories and reports based on recent diagnostics.
 # 1.64000 - remove two duplicated reports
 #         - add advisory on SOAP unable to get attributes
-# 1.65000 - Add RB FindDupAgents.rex logic
+#1.65000 - Add RB FindDupAgents.rex logic
+#1.66000 - Report on churning based on 95% of total
+#        - make jitter report(s) optional
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
