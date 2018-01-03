@@ -74,7 +74,7 @@
 
 ## KBB_RAS1=    warn of this case
 
-my $gVersion = 1.7500;
+my $gVersion = 1.76000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -351,6 +351,7 @@ my %advcx = (
               "TEMSAUDIT1080E" => "100",
               "TEMSAUDIT1081E" => "100",
               "TEMSAUDIT1082E" => "100",
+              "TEMSAUDIT1083W" => "90",
             );
 
 my %advtextx = ();
@@ -371,6 +372,10 @@ my $sitrul_atr = 0;
 my %node_ignorex = ();
 
 my %sthx = ();
+
+my %sitrowx = ();
+my $sitrow_key;
+my $sitrow_ref;
 
 my %soapcat = ();
 
@@ -428,7 +433,7 @@ my %pcbr;
 
 my %rbdupx;
 my $rbdup_ref;
-my $grace = 1;   # minutes
+my $grace = 5;   # seconds
 
 my $hublost_total = 0;
 my %gskiterrorx = ();
@@ -2996,8 +3001,8 @@ for(;;)
                   # the interval is one minute.
                   if (($tempInt >= $rbdup_ref->{inttmp} - $grace) and ($tempInt <= $rbdup_ref->{inttmp} + $grace)) {
                      $leftover = $tempInt%60;                                                                   ##4
-                     $leftover = 0 if $leftover == 59;
-                     $minutes = int($tempInt/60) if $leftover <= 1;                                                              ##5
+                     $leftover = 0 if $leftover >= (60-$grace);
+                     $minutes = int(($tempInt+$grace)/60) if $leftover <= $grace;                                                              ##5
                      if ($minutes == 0) {
                         # Too many seconds left over, so this is a likely duplicate. Increment that
                         # count. Then add the interval to the previous interval.
@@ -3029,12 +3034,8 @@ for(;;)
                   }
 
                   # if we have something in minutes, then that is our interval */
-                  if ($minutes != 0) {
-                     $rbdup_ref->{interval} = $minutes*60;   # in seconds  */                                         ##6
-                     $rbdup_ref->{inttmp} = 0;                                                                        ##6
-                  }  else {
-                  }
-
+                  $rbdup_ref->{interval} = $minutes*60 if $minutes != 0;
+                  $rbdup_ref->{inttmp} = 0 if $minutes != 0;
 
                # Otherwise if this is the second simple heartbeat for this endpoint, then determine
                # a temporary interval to check next time we get a simple heartbeat from this endpoint.
@@ -4399,6 +4400,31 @@ for(;;)
       $sit_ref->{rows} += $irows;
       $sit_ref->{bytes} += $insize;
    }
+   $sitrow_key = $isit . "|" . $inode;
+   $sitrow_ref = $sitrowx{$sitrow_key};
+   if (!defined $sitrow_ref) {
+      my %sitrowref = (
+                         sit => $isit,
+                         node => $inode,
+                         ip => "",
+                         tems => $opt_nodeid,
+                         count => 0,
+                         norows => 0,
+                         rowfraction => 0,
+                         start => 0,
+                         end => 0,
+                      );
+      $sitrow_ref = \%sitrowref;
+      $sitrowx{$sitrow_key} = \%sitrowref;
+   }
+   $sitrow_ref->{count} += 1;
+   $sitrow_ref->{norows} += 1 if $irows == 0;
+   if ($sitrow_ref->{start} == 0) {
+      $sitrow_ref->{start} = $logtime;
+      $sitrow_ref->{end} = $logtime;
+   }
+   $sitrow_ref->{start} = $logtime if $logtime < $sitrow_ref->{start};
+   $sitrow_ref->{end} = $logtime if $logtime > $sitrow_ref->{end};
 
    if ($opt_b == 0) {next if $isit eq "HEARTBEAT";}
 
@@ -4505,7 +4531,7 @@ if ($toobigi > -1) {
    }
 
 my $mhm_ct = scalar keys %mhmx;
-if ($mhm_ct >= 0) {
+if ($mhm_ct > 0) {
    $rptkey = "TEMSREPORT044";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="$rptkey: FTO control messages\n";
    $cnt++;$oline[$cnt]="Epoch,Local_Time,Line_number,Message\n";
@@ -4714,7 +4740,7 @@ if (($portscan_suspend + $portscan_72) > 0) {
 
 my $portscan_timex_ct = scalar keys %portscan_timex;
 if ($opt_portscan == 1) {
-   if ($portscan_timex_ct != -1) {
+   if ($portscan_timex_ct > 0) {
       $rptkey = "TEMSREPORT042";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="$rptkey: Portscan Time Report\n";
@@ -5130,6 +5156,88 @@ $outl .= $sitres_tot . ",";
 $respermin = int($sitres_tot / ($dur / 60));
 $outl .= $respermin;
 $cnt++;$oline[$cnt]=$outl . "\n";
+
+$rptkey = "TEMSREPORT047";$advrptx{$rptkey} = 1;         # record report key
+my %sitrowsumx;
+my $sitrowsum_ref;
+foreach $f ( keys %sitrowx ) {
+   my $sitrow_ref = $sitrowx{$f};
+   $sitrow_ref->{rowfraction} = ($sitrow_ref->{count} - $sitrow_ref->{norows}) / $sitrow_ref->{count};
+   my $sitrowsum_ref = $sitrowsumx{$sitrow_ref->{sit}};
+   if (!defined $sitrowsum_ref) {
+      my %sitrowsumref = (
+                            nodes => {},
+                            count => 0,
+                            norows => 0,
+                            rowfraction => 0,
+                         );
+      $sitrowsum_ref = \%sitrowsumref;
+      $sitrowsumx{$sitrow_ref->{sit}} = \%sitrowsumref;
+   }
+   $sitrowsum_ref->{nodes}{$sitrow_ref->{node}} = 1;
+   $sitrowsum_ref->{count} += $sitrow_ref->{count};
+   $sitrowsum_ref->{norows} += $sitrow_ref->{norows};
+}
+foreach $f ( keys %sitrowsumx ) {
+   $sitrowsum_ref = $sitrowsumx{$f};
+   $sitrowsum_ref->{rowfraction} = ($sitrowsum_ref->{count} - $sitrowsum_ref->{norows}) / $sitrowsum_ref->{count};
+ my $x = 1;
+}
+my $sitrowsum_ct = 0;
+$cnt++;$oline[$cnt]="\n";
+$cnt++;$oline[$cnt]="$rptkey: Summary Situation-Node often true by Situation\n";
+$cnt++;$oline[$cnt]="Situation,Fraction,Count,Norows,Nodes,\n";
+foreach $f ( sort { $sitrowsumx{$b}->{rowfraction} <=> $sitrowsumx{$a}->{rowfraction} ||
+                    $sitrowsumx{$b}->{count} <=> $sitrowsumx{$a}->{count}  } keys %sitrowsumx ) {
+   my $sitrowsum_ref = $sitrowsumx{$f};
+   next if $sitrowsum_ref->{count} < 2;
+   next if $f eq "HEARTBEAT";
+   next if substr($f,0,8) eq "UADVISOR";
+   $outl = $f . ",";
+   my $res_pc = int($sitrowsum_ref->{rowfraction}*100);
+   my $ppc = sprintf '%.0f%%', $res_pc;
+   $outl .= $ppc . ",";
+   $outl .= $sitrow_ref->{count} . ",";
+   $outl .= $sitrow_ref->{norows} . ",";
+   my $node_ct = scalar keys  %{$sitrowsum_ref->{nodes}};
+   $outl .= $node_ct . ",";
+   $cnt++;$oline[$cnt]=$outl . "\n";
+   $sitrowsum_ct += 1 if $sitrowsum_ref->{rowfraction} >= 0.90;
+}
+if ($sitrowsum_ct > 0) {
+   $advi++;$advonline[$advi] = "Situations [$sitrowsum_ct] true 90% of the time - See following reports $rptkey";
+   $advcode[$advi] = "TEMSAUDIT1083W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+$cnt++;$oline[$cnt]="\n";
+$cnt++;$oline[$cnt]="$rptkey: Detail Situation-Node often true by Situation and Node\n";
+$cnt++;$oline[$cnt]="Situation,Percent,Count,Norows,Node,ip,tems,duration,secs/result,\n";
+foreach $f ( sort { $sitrowx{$b}->{rowfraction} <=> $sitrowx{$a}->{rowfraction} ||
+                    $sitrowx{$b}->{count} <=> $sitrowx{$a}->{count}  } keys %sitrowx ) {
+   my $sitrow_ref = $sitrowx{$f};
+   next if $sitrow_ref->{count} < 2;
+   next if $sitrow_ref->{sit} eq "HEARTBEAT";
+   next if substr($sitrow_ref->{sit},0,8) eq "UADVISOR";
+   my $res_pc = int($sitrow_ref->{rowfraction}*100);
+   my $ppc = sprintf '%.0f%%', $res_pc;
+   $outl = $sitrow_ref->{sit} . ",";
+   $outl .= $ppc . ",";
+   $outl .= $sitrow_ref->{count} . ",";
+   $outl .= $sitrow_ref->{norows} . ",";
+   $outl .= $sitrow_ref->{node} . ",";
+   $outl .= $sitrow_ref->{ip} . ",";
+   $outl .= $sitrow_ref->{tems} . ",";
+   my $dur = $sitrow_ref->{end} - $sitrow_ref->{start};
+   $outl .= $dur . ",";
+   $res_pc = $dur/$sitrow_ref->{count};
+   $ppc = sprintf '%.2f', $res_pc;
+   $outl .= $ppc . ",";
+   $cnt++;$oline[$cnt]=$outl . "\n";
+
+
+}
 
 if ($opt_rd == 1) {
    my $peakrate = 0;
@@ -7226,6 +7334,9 @@ exit;
 #1.75000 - Add FTO control message report
 #        - Correct Local Time calculations
 #        - Add PostEvent node status advisory and support
+#1.76000 - Improve RB logic based on report ill-logical results
+#        - Add Situation True advisory and report
+#        - only product FTO Control message if there are any
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -8783,6 +8894,22 @@ Recovery plan:  Examine the agent configuration and correct any
 errors. Involve IBM Support if needed.
 ----------------------------------------------------------------
 
+TEMSAUDIT1083W
+Text: Situations [count] true 90% of the time
+
+Tracing: error (unit:kpxrpcrq,Entry="IRA_NCS_Sample" state er)
+
+Meaning: Situations should be 1) rare, 2) exceptional and
+3) possible of correction to avoid the condition. With this
+situation and node, that goal is being violated. In the
+worst cases this leads to hub/remote TEMS instability including
+crashes and random offline conditions. At the very best it
+shows inefficient workload, providing little useful data.
+
+Recovery plan:  Examine the situation and rework or stop to
+avoid problems.
+----------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -9967,5 +10094,27 @@ limited to duplicate agents.
 
 Recovery plan: Evaluate agent configurations and change so the ITM
 has unique agent names as it requires for good monitoring.
+----------------------------------------------------------------
+
+TEMSREPORT047
+Text: Situation-Node often true
+
+Tracing: error (unit:kpxrpcrq,Entry="IRA_NCS_Sample" state er)
+
+Meaning
+
+[sample report to be added]
+
+Situations that are always or usually true can have a severe
+effect on hub/remote TEMS performance. In addition they suggest
+a situation that violates the "rare and exceptional" aspect
+of situaton development. If the condition is exceptional the
+issue is to explain why the monitored system is not corrected.
+
+
+Recovery plan: Evaluate situation and either stop running,
+correct monitored system or rework situation so it matches
+best practice for situations: rare, exceptional and a condition
+which can be corrected by some manual or automated process.
 ----------------------------------------------------------------
 
