@@ -74,7 +74,14 @@
 
 ## KBB_RAS1=    warn of this case
 
-my $gVersion = 1.77000;
+## (2017/07/21,11:52:55.0005-123:kdcr0ip.c,234,"KDCR0_InboundPacket") Packet too short; is 80, data len is 49193
+## (2017/07/21,11:52:55.0006-123:kdcr0ip.c,236,"KDCR0_InboundPacket") status=1dc0000f, "packet length invalid", ncs/KDC1_STC_BADPACKETLENGTH
+## KGL_GMMSTORE=2048   or 4096?
+## KDS_HEAP_SIZE=2048
+
+## (58694088.0001-3A:khdxhist.cpp,3058,"copyHistoryFile") Found 1 corrupted rows for "KA4PFJOB". Rows were skipped during copying.
+
+my $gVersion = 1.78000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -352,6 +359,7 @@ my %advcx = (
               "TEMSAUDIT1081E" => "100",
               "TEMSAUDIT1082E" => "100",
               "TEMSAUDIT1083W" => "90",
+              "TEMSAUDIT1084W" => "95",
             );
 
 my %advtextx = ();
@@ -442,6 +450,8 @@ my $seq999_total = 0;
 my $ruld_total = 0;
 my $mktime_total = 0;
 my $eipc_none = 0;
+
+my %hist_corruptedx;
 
 
 my %soaperror;
@@ -3720,6 +3730,7 @@ for(;;)
    }
    if (substr($logunit,0,12) eq "khdxhist.cpp") {
       # (5022A246.0000-D:khdxhist.cpp,2734,"copyHistoryFile") 34030 read, 6359 skipped, 27671 written from "INTERACTN"
+      # (58694088.0001-3A:khdxhist.cpp,3058,"copyHistoryFile") Found 1 corrupted rows for "KA4PFJOB". Rows were skipped during copying.
       if ($logentry eq "copyHistoryFile") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # 34030 read, 6359 skipped, 27671 written from "INTERACTN"
@@ -3742,6 +3753,11 @@ for(;;)
             $hist_minrows[$hx] = $inwritect if $hist_minrows[$hx] > $inwritect;
             $hist_totrows[$hx] += $inwritect;
             $hist_lastrows[$hx] = $inwritect;
+         } elsif (index($rest,"corrupted rows") != -1) {
+            $rest =~ / Found (\d+) corrupted rows for \"(.*?)\"/;
+            $inrows = $1;
+            $intable = $2;
+            $hist_corruptedx{$intable} += $inrows;
          }
       }
    }
@@ -4522,6 +4538,17 @@ if ($toobigi != -1) {
    $cnt++;$oline[$cnt]="\n";
 }
 
+my $hist_corrupted_ct = scalar keys %hist_corruptedx;
+if ($hist_corrupted_ct > 0) {
+   foreach $f (keys %hist_corruptedx) {
+
+      $advi++;$advonline[$advi] = "$hist_corruptedx{$f} corrupted rows in Short Term History table $f";
+      $advcode[$advi] = "TEMSAUDIT1084W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+}
+
 if ($toobigi > -1) {
       my $ptoobigi = $toobigi + 1;
       $advi++;$advonline[$advi] = "$ptoobigi Filter object(s) too big situations and/or reports - See Report $rptkey";
@@ -5195,6 +5222,7 @@ if ($sitrowsumx_ct > 0) {
       next if $sitrowsum_ref->{count} < 2;
       next if $f eq "HEARTBEAT";
       next if substr($f,0,8) eq "UADVISOR";
+      next if substr($f,0,6) eq "(NULL)";
       $outl = $f . ",";
       my $res_pc = int($sitrowsum_ref->{rowfraction}*100);
       my $ppc = sprintf '%.0f%%', $res_pc;
@@ -5222,6 +5250,7 @@ if ($sitrowsumx_ct > 0) {
       next if $sitrow_ref->{count} < 2;
       next if $sitrow_ref->{sit} eq "HEARTBEAT";
       next if substr($sitrow_ref->{sit},0,8) eq "UADVISOR";
+      next if substr($f,0,6) eq "(NULL)";
       my $res_pc = int($sitrow_ref->{rowfraction}*100);
       my $ppc = sprintf '%.0f%%', $res_pc;
       $outl = $sitrow_ref->{sit} . ",";
@@ -7339,6 +7368,8 @@ exit;
 #        - Add Situation True advisory and report
 #        - only product FTO Control message if there are any
 #1.77000 - always true report/advisory only when result row tracing present
+#1.78000 - Exclude (NULL) results from always true report
+#        - Add advisory on STH corrupted rows
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -8912,6 +8943,35 @@ Recovery plan:  Examine the situation and rework or stop to
 avoid problems.
 ----------------------------------------------------------------
 
+TEMSAUDIT1084W
+
+Text: count corrupted rows in Short Term History table <table>
+
+Tracing: error
+
+Meaning: Historical data is collecting on this TEMS and corrupted
+rows were seen during the export process. This may be the same row
+seen multiple times. The impact is that the history data cannot be
+exported to WPA and thus to the Tivoli data warehouse.
+
+Briefly on a soapbox, collecting historical data at the TEMS is
+only best practice in small environments. In most large environments
+collecting at the agent avoids issues of a common failure point
+and performance problems.
+
+Recovery plan: At that TEMS copy the two related files  XXXXX and
+XXXX.hdr to another directory and then erase them. On Linux/Unix
+the files are usually in <installdir>/tables/<temsnodeid> and on
+Windows they are usually on <installdir>\cms. However the TEMS
+can be configured to another directory using CTIRA_HIST_DIR. No
+TEMS recycle is needed. The next collection cycle they will be
+reconfigured properly.
+
+In most case the broken file is just discarded. In some cases
+a portion of the file can be recovered. If you require that
+contact IBM Support for aid.
+----------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -10003,7 +10063,11 @@ Parameter: -portscan
 
 Meaning
 
-[example to be added later].
+TEMSREPORT042: Portscan Time Report
+Epoch,Local_Time,Scan_Types,
+586CE1D6,20170104035150,integrity unsupported http integrity unsupported http integrity unsupported http integrity,
+586CE1DE,20170104035158,integrity unsupported http integrity unsupported http integrity unsupported http integrity unsupported http integrity,
+586CE1E3,20170104035203,integrity,
 
 This shows hex time and the local time when the possible portscan
 cases occured. This may be useful in finding the underlying cause.
@@ -10018,7 +10082,12 @@ Trace: error
 
 Meaning
 
-[example to be added later].
+TEMSREPORT043: ITM Config and Install last few lines
+itm_config.log
+2017-06-08 15:47:36.472+01:00 ITMinstall.CandleAgent main [LOG_INFO]
+      Agent stopped... (traceKey:1496929656472)
+2017-06-08 15:47:44.666+01:00 ITMinstall.CandleAgent main [LOG_INFO]
+      Warehouse Proxy agent started... (traceKey:1496929664666)
 
 This shows the lines from the last 1000 bytes of the
 itm_config.log and itm_install.log. It can be useful in
@@ -10083,7 +10152,6 @@ Trace: error (unit:kfastpst,Entry="KFA_PostEvent" all er)
 
 Meaning
 
-
 TEMSREPORT047: PostEvent Node Status Instance Exceptions
 Node,Count,Thrunode,Hostaddr,Product,Version,
 neo:neo:LO,74,REMOTE_NLAMA-MCTVPVL13,ip.pipe:#10.128.122.31[56272]<NM>neo</NM>,LO,06.30.00,
@@ -10105,14 +10173,26 @@ Tracing: error (unit:kpxrpcrq,Entry="IRA_NCS_Sample" state er)
 
 Meaning
 
-[sample report to be added]
+TEMSREPORT047: Summary Situation-Node often true by Situation
+Situation,Fraction,Count,Norows,Nodes,
+NLNID_331_3Z_DNS_Srvc_Status_C,100%,1234,0,4,
+NLNID_321_3Z_DNS_Srvc_State_Cr,100%,1234,0,4,
+
+TEMSREPORT047: Detail Situation-Node often true by Situation and Node
+Situation,Percent,Count,Norows,Node,ip,tems,duration,secs/result,
+NLENC_321_3Z_DNS_Srvc_State_C,100%,309,0,ENC-CAP-EDS-01:3Z,,REMOTE_NLAM3-MCTVPVL02,1504261422,9240,29.90,
+NLNID_321_3Z_DNS_Srvc_State_Cr,100%,309,0,NDR-DCA-ADC-002:3Z,,REMOTE_NLAM3-MCTVPVL02,1504261422,9240,29.90,
+NLENC_321_3Z_DNS_Srvc_State_C,100%,309,0,ENC-CAP-EDS-02:3Z,,REMOTE_NLAM3-MCTVPVL02,1504261421,9240,29.90,
 
 Situations that are always or usually true can have a severe
 effect on hub/remote TEMS performance. In addition they suggest
 a situation that violates the "rare and exceptional" aspect
 of situaton development. If the condition is exceptional the
 issue is to explain why the monitored system is not corrected.
+If it is not exceptional, monitoring should be terminated.
 
+This report does include pure events, which naturally only
+show true events. The same argument holds for pure events.
 
 Recovery plan: Evaluate situation and either stop running,
 correct monitored system or rework situation so it matches
