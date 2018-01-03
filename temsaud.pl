@@ -81,7 +81,11 @@
 
 ## (58694088.0001-3A:khdxhist.cpp,3058,"copyHistoryFile") Found 1 corrupted rows for "KA4PFJOB". Rows were skipped during copying.
 
-my $gVersion = 1.78000;
+## (59B12EE8.0156-15:kde0srq.c,57,"enqueue_sqe") Not starting new service thread because maximum of 16 reached
+
+## capture node status if available !1
+
+my $gVersion = 1.79000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -1102,6 +1106,7 @@ my $agtoi = -1;                              # Agent online records
 my @agto = ();                               # array of agent onlines
 my %agtox = ();                              # index to agent onlines
 my @agto_ct = ();                            # count of agent onlines
+my @agto_fct = ();                           # count of agent offlines
 my @agto_hr = ();                            # rate of agent onlines per hour
 my $agto_mult = 0;                           # number of multiple onlines
 my $agto_mult_hr = 0;                        # number of multiple onlines with rate/hr >= 1;
@@ -2736,7 +2741,7 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
          next if substr($rest,1,11) ne "Remote node";
-         next if substr($rest,-8,8) ne "ON-LINE.";
+         next if substr($rest,-6,6) ne "-LINE.";
          $rest =~ /.*\<(\S+)\>/;
          $iagent = $1;
          my $ax = $agtox{$iagent};
@@ -2746,8 +2751,10 @@ for(;;)
             $agto[$ax] = $iagent;
             $agtox{$iagent} = $ax;
             $agto_ct[$ax] = 0;
+            $agto_fct[$ax] = 0;
          }
-         $agto_ct[$ax] += 1;
+         $agto_ct[$ax] += 1 if substr($rest,-8,8) eq "ON-LINE.";
+         $agto_fct[$ax] += 1 if substr($rest,-9,9) eq "OFF-LINE.";
          $agto_mult += 1 if $agto_ct[$ax] == 2;
          if ($agto_stime == 0) {
              $agto_stime = $logtime;
@@ -2918,7 +2925,8 @@ for(;;)
             $ithrunode = $2;
             $iagent =~ s/\s+$//;                    # strip trailing blanks
             $ithrunode =~ s/\s+$//;                    # strip trailing blanks
-
+## capture node status if available !1
+            $ithrunode = substr($ithrunode,0,index($ithrunode," ")) if index($ithrunode," ") != -1;
             if ($opt_jitter == 1) {                 # skip collection unless jitter requested
                my $ax = $agtshx{$iagent};
                if (!defined $ax) {
@@ -5484,7 +5492,8 @@ if ($sqli != -1) {
       $outl = "total" . ",";
       $outl .= $sql_ct_total . ",";
       $outl .= $sql_duration . ",";
-      $sql_rate = ($sql_ct_total*60)/$sql_duration;
+      $sql_rate = 0;
+      $sql_rate = ($sql_ct_total*60)/$sql_duration if $sql_duration > 0;
       $ppc = sprintf '%.2f', $sql_rate;
       $outl .= $ppc . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
@@ -5685,7 +5694,7 @@ if ($agto_mult > 0) {
    $advsit[$advi] = "Onlines";
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Multiple Agent online Report - top 20 max\n";
-   $cnt++;$oline[$cnt]="Node,Online_Count\n";
+   $cnt++;$oline[$cnt]="Node,Online_Count,Offline_Count\n";
    my $top_online = 20;
    my $top_current = 0;
    foreach $f ( sort { $agto_ct[$agtox{$b}] <=> $agto_ct[$agtox{$a}] } keys %agtox) {
@@ -5695,6 +5704,7 @@ if ($agto_mult > 0) {
       last if $agto_ct[$ai] == 1;
       $outl = $f . ",";
       $outl .= $agto_ct[$ai] . ",";
+      $outl .= $agto_fct[$ai] . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
       $agto_mult_hr += 1;
    }
@@ -6431,7 +6441,7 @@ if ($ct_rbdup > 0 ) {
       foreach $f ( sort { $rbdupx{$b}->{thruchg} <=> $rbdupx{$a}->{thruchg}
                           || $a cmp $b } keys %rbdupx) {
          $rbdup_ref = $rbdupx{$f};
-         last if $rbdup_ref->{thruchg} == 1;
+         last if $rbdup_ref->{thruchg} <= 1;
          $max_thruchg = $rbdup_ref->{thruchg} if $max_thruchg == 0;
          my $hostaddr1 = "";   # calculate a hostaddr - system where the agent self reports
          foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{hostaddrs}}) {
@@ -7370,6 +7380,8 @@ exit;
 #1.77000 - always true report/advisory only when result row tracing present
 #1.78000 - Exclude (NULL) results from always true report
 #        - Add advisory on STH corrupted rows
+#1.79000 - Correct RB thrunode switching logic
+#        - report number of off-lines along with onlines
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
