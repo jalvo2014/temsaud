@@ -40,7 +40,13 @@
 
 ## monitor cases where port != 1918/3660 + N*4096, or +1
 
-my $gVersion = 1.6900;
+## extract out last 10 lines of itm_config.log
+
+## kdspmou2.c,3077,"PM1_VPM2_AllocateLiteral") Literal Pool Boundary Violated (61/7/64304)
+
+## (5970A187.0001-13:kdebeal.c,81,"ssl_provider_open") GSKit error 407: GSK_ERROR_BAD_KEYFILE_LABEL - errno 11
+
+my $gVersion = 1.7000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -192,13 +198,14 @@ my $logsinv;
 my $endfnp;
 my $invlogtime = 0;
 my $tempInt;
+my $f;
+my $g;
+my $h;
 
 
 my @seg = ();
 my $segcurr;
 my $i;
-my $g;
-my $h;
 my $l;
 my $respermin;
 my $dur;
@@ -218,6 +225,7 @@ sub gettime;                             # get time
 sub capture_sqlrun;
 sub time2sec;
 sub sec2time;
+sub getphys;
 
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
@@ -298,6 +306,10 @@ my %advcx = (
               "TEMSAUDIT1072W" => "85",
               "TEMSAUDIT1073W" => "85",
               "TEMSAUDIT1074W" => "85",
+              "TEMSAUDIT1075I" => "00",
+              "TEMSAUDIT1076W" => "85",
+              "TEMSAUDIT1077W" => "85",
+              "TEMSAUDIT1078E" => "100",
             );
 
 my %advtextx = ();
@@ -324,6 +336,12 @@ my %recvectx= ();        # receive vectors to translate ephemeral ip addresses
 my $rvect_def;
 my %rvrunx = ();         # receive vector running capture by thread
 my $rvrun_def;
+my %dnrunx = ();         # Duplicate Node warning by thread
+my $dnrun_def;
+my %dnodex = ();
+
+my %physicalx = ();
+my %pipex = ();
 
 
 my %valvx;
@@ -365,7 +383,7 @@ my $rbdup_ref;
 my $grace = 1;   # minutes
 
 my $hublost_total = 0;
-my $gskit_nocipher = 0;
+my %gskiterrorx = ();
 my $intexp_total = 0;
 my $seq999_total = 0;
 my $ruld_total = 0;
@@ -727,6 +745,7 @@ my $rd_end = "";
 my %vtablex = ();
 my $vtable;
 my $rindex;
+my $seedfile_ct = 0;
 
 my %resx;        # hash of result details by minute
 my %res_stampx;  # hash of times to result minute stamps
@@ -1373,6 +1392,7 @@ for(;;)
    if (substr($oneline,0,1) eq "+")  {        # convert hex string - ascii - to printable
       $contkey = substr($oneline,1,13);
       $rvrun_def = $rvrunx{$contkey};
+      $dnrun_def = $dnrunx{$contkey};
       if (defined $rvrun_def) {
          $rest = substr($oneline,14);
          $rest =~ /^(.*?):(.*?)$/;
@@ -1382,10 +1402,16 @@ for(;;)
          $second =~ s/^\s+|\s+$//g;
          if ($first eq "pipe address") {
             $rvrun_def->{pipe_addr} = $second;
+         } elsif ($first eq "ccbFixup") {
+            $rvrun_def->{fixup} = $second;
+         } elsif ($first eq "ccbPhysSelf") {
+            $rvrun_def->{phys_self} = $second;
          } elsif ($first eq "ccbPhysPeer") {
             $rvrun_def->{phys_peer} = $second;
          } elsif ($first eq "ccbVirtPeer") {
             $rvrun_def->{virt_peer} = $second;
+         } elsif ($first eq "ccbVirtSelf") {
+            $rvrun_def->{virt_self} = $second;
          } elsif ($first eq "ccbEphemeral") {
             if ($second ne "0x00000000") {
                $rvrun_def->{ephemeral} = hex($second);
@@ -1395,9 +1421,13 @@ for(;;)
                if (!defined $recvect_def) {
                   my %recvectdef = (
                                       pipe_addr => $rvrun_def->{pipe_addr},
+                                      fixup => $rvrun_def->{fixup},
+                                      phys_self => $rvrun_def->{phys_self},
                                       phys_peer => $rvrun_def->{phys_peer},
+                                      virt_self => $rvrun_def->{virt_self},
                                       virt_peer => $rvrun_def->{virt_peer},
                                       ephemeral => $rvrun_def->{ephemeral},
+                                      thrunode => $opt_nodeid,
                                    );
                   $recvectx{$ephem} = \%recvectdef;
                   $recvect_def = \%recvectdef;
@@ -1405,6 +1435,57 @@ for(;;)
                $recvect_def->{count} += 1;
             }
             delete  $rvrunx{$contkey};
+         }
+      #+5970DEB6.0002  Insert request for node name <boi_boipva23:KUL                >
+      #+5970DEB6.0002 and thrunode <REMOTE_t01rt07px                > with product code <VA>
+      #+5970DEB6.0002 matches an existing node with with thrunode <REMOTE_t02rt08px                >
+      #+5970DEB6.0002 and product code <UL>.   Please verify that
+      #+5970DEB6.0002 that the node name in question is not a duplicate
+      #+5970DEB6.0002 of a agent attached at another TEMS or is being
+      #+5970DEB6.0002 truncated because it is larger than 32 characters.
+      } elsif (defined $dnrun_def) {
+         $rest = substr($oneline,14);
+         if (substr($rest,1,7) eq " Insert") {
+            $rest =~ /\<(.*)\>/;
+            my $inode = $1;
+            $inode =~ s/\s+$//;   #trim trailing whitespace
+            $dnrun_def->{node} = $inode;
+
+         } elsif (substr($rest,1,12) eq "and thrunode") {
+            $rest =~ /\<(.*)\> with product code \<(.*)\>/;
+            my $ithrunode = $1;
+            my $iproduct = $2;
+            $ithrunode =~ s/\s+$//;   #trim trailing whitespace
+            $iproduct =~ s/\s+$//;   #trim trailing whitespace
+            $dnrun_def->{thrunode} = $ithrunode;
+            $dnrun_def->{product} = $iproduct;
+         } elsif (substr($rest,1,7) eq "matches") {
+            $rest =~ /\<(.*)\>/;
+            my $ithrunode = $1;
+            $ithrunode =~ s/\s+$//;   #trim trailing whitespace
+            $dnrun_def->{thrunode_new} = $ithrunode;
+         } elsif (substr($rest,1,11) eq "and product") {
+            $rest =~ /\<(.*)\>/;
+            my $iproduct = $1;
+            $iproduct =~ s/\s+$//;   #trim trailing whitespace
+            $dnrun_def->{product_new} = $iproduct;
+            my $dnodekey = $dnrun_def->{node} . "|" . $dnrun_def->{thrunode} . "|" . $dnrun_def->{product} .
+                                                "|" . $dnrun_def->{thrunode_new} . "|" . $dnrun_def->{product_new};
+            my $dnode_ref = $dnodex{$dnodekey};
+            if (!defined $dnode_ref) {
+               my %dnoderef = (
+                                 node => $dnrun_def->{node},
+                                 thrunode => $dnrun_def->{thrunode},
+                                 product => $dnrun_def->{product},
+                                 thrunode_new => $dnrun_def->{thrunode_new},
+                                 product_new => $dnrun_def->{product_new},
+                                 count => 0,
+                              );
+               $dnodex{$dnodekey} = \%dnoderef;
+               $dnode_ref = \%dnoderef;
+            }
+            $dnode_ref->{count} += 1;
+            delete  $dnrunx{$contkey};
          }
       }
    }
@@ -1730,12 +1811,25 @@ for(;;)
    }
 
    # (59183B36.0000-53:kdebeal.c,81,"ssl_provider_open") GSKit error 402: GSK_ERROR_NO_CIPHERS - errno 11
+   # (5970A187.0001-13:kdebeal.c,81,"ssl_provider_open") GSKit error 407: GSK_ERROR_BAD_KEYFILE_LABEL - errno 11
    if (substr($logunit,0,9) eq "kdebeal.c") {
       if ($logentry eq "ssl_provider_open") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # GSKit error 402: GSK_ERROR_NO_CIPHERS - errno 11   insert
-         if (substr($rest,1,16) eq "GSKit error 402:") {
-            $gskit_nocipher += 1;
+         if (substr($rest,1,11) eq "GSKit error") {
+            $rest =~ /GSKit error (\d+): (\S+)/;
+            my $errnum = $1;
+            my $errtext = $2;
+            my $gerror_ref = $gskiterrorx{$errnum};
+            if (!defined $gerror_ref) {
+               my %gerrorref = (
+                                  count => 0,
+                                  text => $errtext,
+                               );
+               $gerror_ref = \%gerrorref;
+               $gskiterrorx{$errnum} = \%gerrorref;
+            }
+            $gerror_ref->{count} += 1;
             next;
          }
       }
@@ -2155,7 +2249,10 @@ for(;;)
                                   count => 0,
                                   state => 0,
                                   pipe_addr => "",
+                                  fixup => "",
+                                  phys_self => "",
                                   phys_peer => "",
+                                  virt_self => "",
                                   virt_peer => "",
                                   ephemeral => 0,
                                );
@@ -2165,130 +2262,22 @@ for(;;)
          }
       }
    }
-   next if $skipzero;
 
-   # signal for KDEB_INTERFACELIST conflicts
-   # (58DA4E42.0511-73:kdepnpc.c,138,"KDEP_NewPCB") 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
-   if (substr($logunit,0,9) eq "kdepnpc.c") {
-      if ($logentry eq "KDEP_NewPCB") {
-         $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;                       # 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
-         if (substr($rest,-7) eq "created") {
-            $rest =~ / (\S+): (\S+),/;
-            my $iip = $1;
-            my $iaddr = "X" . $2;
-            my $pcb_ref = $pcbx{$iip};
-            if (!defined $pcb_ref) {
-               my %pcbref = (
-                               addr => {},
-                               newPCB => 0,
-                               deletePCB => 0,
-                               agents => {},
-                            );
-               $pcb_ref = \%pcbref;
-               $pcbx{$iip} = \%pcbref;
-            }
-            $pcb_ref->{count} += 1;
-            $pcb_ref->{newPCB} += 1;
-            $pcb_ref->{addr}{$iaddr}=1;
-            $pcbr{$iaddr} = $iip;
-            next;
-         }
-      }
-   }
-
-   #(57A0B2C2.000D-48:kfastinh.c,1187,"KFA_InsertNodests") Sending Node Status : node <vsmp8288:VA                     > nodetype <V> thrunode <remote_apsp0562                 > expiryint <-1> expirytime <9               > online <  > o4online <Y> product <VA> version <06.20.01> affinities <00000000G000000000000000000000000400004w0a7 > hostinfo <AIX~6.1         > hostloc <                > hostaddr <ip.pipe:#10.125.108.65[57760]<NM>vsmp8288</NM>                                                                                                                                                                                                                  > reserved <A=02:aix523;C=06.20.01.00:aix523;G=06.20.01.00:aix523;          > hrtbeattime <1160802094349000>
-   if (substr($logunit,0,10) eq "kfastinh.c") {
-      if ($logentry eq "KFA_InsertNodests") {
-         $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;                       # Sending Node Status : node <vsmp8288:VA                     > nodetype <V> thrunode <remote_apsp0562                 > expiryint <-1> expirytime <9               > online <  > o4online <Y> product <VA> version <06.20.01> affinities <00000000G000000000000000000000000400004w0a7 > hostinfo <AIX~6.1         > hostloc <                > hostaddr <ip.pipe:#10.125.108.65[57760]<NM>vsmp8288</NM>                                                                                                                                                                                                                  > reserved <A=02:aix523;C=06.20.01.00:aix523;G=06.20.01.00:aix523;          > hrtbeattime <1160802094349000>
-         if (substr($rest,1,19) eq "Sending Node Status") {
-            $rest =~ /node <(.*?)> nodetype <(.*?)> thrunode <(.*?)> expiryint <(.*?)> expirytime <(.*?)> online <(.*?)> o4online <(.*?)> product <(.*?)> version <(.*?)> affinities <(.*?)> hostinfo <(.*?)> hostloc <(.*?)> hostaddr <(.*?)> reserved <(.*?)> hrtbeattime <(.*?)>/;
-            my $inode = $1;
-            my $inodetype = $2;
-            $ithrunode = $3;
-            my $iexpiryint = $4;
-            my $iexpirytime = $5;
-            my $online = $6;
-            my $io4online = $7;
-            my $iproduct = $8;
-            my $iversion = $9;
-            my $iaffinities = $10;
-            my $ihostinfo = $11;
-            my $ihostloc = $12;
-            my $ihostaddr = $13;
-            my $ireserved = $14;
-            my $ihrtbeattime = $15;
-            if (($opt_ss == 1) and ($iproduct ne "EM")){
-               $outl = "KFA_InsertNodests,";
-               $outl .= $logtime . ",";
-               $outl .= $inode . ",";
-               $outl .= $inodetype . ",";
-               $outl .= $ithrunode . ",";
-               $outl .= $iexpiryint . ",";
-               $outl .= $iexpirytime . ",";
-               $outl .= $online . ",";
-               $outl .= $io4online . ",";
-               $outl .= $iproduct . ",";
-               $outl .= $iversion . ",";
-               $outl .= $iaffinities . ",";
-               $outl .= $ihostinfo . ",";
-               $outl .= $ihostloc . ",";
-               $outl .= $ihostaddr . ",";
-               $outl .= $ireserved . ",";
-               $outl .= $ihrtbeattime . ",";
-               $ssi++;$ssout[$ssi] = $outl;
-            }
-            $inode =~ s/\s+$//;                    # strip trailing blanks
-            $ithrunode =~ s/\s+$//;                    # strip trailing blanks
-            $iaffinities =~ s/\s+$//;                    # strip trailing blanks
-            $ihostaddr =~ s/\s+$//;                    # strip trailing blanks
-            $iexpirytime =~ s/\s+$//;                    # strip trailing blanks
-            next if $iproduct eq "EM";
-            my $inode_ref = $inodex{$inode};
-            if (!defined $inode_ref) {
-               my %inoderef = (
-                                 count => 0,
-                                 instances => {},
-                              );
-                $inode_ref = \%inoderef;
-                $inodex{$inode} = \%inoderef;
-            }
-            $inode_ref->{count} += 1;
-            my $inodeikey = $ihostaddr . "|" . $iaffinities . "|" . $ithrunode;
-            my $inodei_ref = $inode_ref->{instances}{$inodeikey};
-            if (!defined $inodei_ref) {
-               my %inodeiref = (
-                                 hostaddr => $ihostaddr,
-                                 affinities => $iaffinities,
-                                 thrunode => $ithrunode,
-                                 version => $iversion,
-                                 reserved => $ireserved,
-                                 expirytime => $iexpirytime,
-                                 product => $iproduct,
-                                 o4online => $io4online,
-                                 count => 0,
-                              );
-                $inodei_ref = \%inodeiref;
-                $inode_ref->{instances}{$inodeikey} = \%inodeiref;
-            }
-            $inodei_ref->{count} += 1;
-            # cross-ref with pcbx
-            $ihostaddr =~ /:#(\S+)\[(\S+)\]/;
-            my $ip_addr = $1;
-            if (defined $ip_addr) {
-               my $pcb_ref = $pcbx{$ip_addr};
-               if (defined $pcb_ref) {
-                  $pcb_ref->{agents}{$inode} += 1;
-               }
-            }
-         }
-      }
-   }
    # (58DE3A4E.007A-12:kcfccmmt.cpp,674,"CMConfigMgrThread::indicateBackground") Error in pthread_attr_setschedparam,
    if (substr($logunit,0,3) eq "kcf") {
       $kcf_count += 1;
       next;
+   }
+   # (59622462.0002-1C0C:kdseed.c,1275,"RunSeeder") Seed file <kyn_upg.sql>, Line <12360> not seeded: record not found.
+   if (substr($logunit,0,8) eq "kdseed.c") {
+      if ($logentry eq "RunSeeder") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Seed file <kyn_upg.sql>, Line <12360> not seeded: record not found.
+         if (substr($rest,1,9) eq "Seed file") {
+            $seedfile_ct += 1;
+            next;
+         }
+      }
    }
 
    #(569D717B.007C-4A:kglkycbt.c,1212,"kglky1ar") iaddrec2 failed - status = -1, errno = 9,file = QA1CSTSC, index = PrimaryIndex, key = qbe_prd_ux_systembusy_c         TEMSP01
@@ -2543,6 +2532,127 @@ for(;;)
       next;
    }
 
+   next if $skipzero;
+
+   # signal for KDEB_INTERFACELIST conflicts
+   # (58DA4E42.0511-73:kdepnpc.c,138,"KDEP_NewPCB") 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
+   if (substr($logunit,0,9) eq "kdepnpc.c") {
+      if ($logentry eq "KDEP_NewPCB") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # 151.88.15.201: 10B0C8C6, KDEP_pcb_t @ 1383B83B0 created
+         if (substr($rest,-7) eq "created") {
+            $rest =~ / (\S+): (\S+),/;
+            my $iip = $1;
+            my $iaddr = "X" . $2;
+            my $pcb_ref = $pcbx{$iip};
+            if (!defined $pcb_ref) {
+               my %pcbref = (
+                               addr => {},
+                               newPCB => 0,
+                               deletePCB => 0,
+                               agents => {},
+                            );
+               $pcb_ref = \%pcbref;
+               $pcbx{$iip} = \%pcbref;
+            }
+            $pcb_ref->{count} += 1;
+            $pcb_ref->{newPCB} += 1;
+            $pcb_ref->{addr}{$iaddr}=1;
+            $pcbr{$iaddr} = $iip;
+            next;
+         }
+      }
+   }
+
+   #(57A0B2C2.000D-48:kfastinh.c,1187,"KFA_InsertNodests") Sending Node Status : node <vsmp8288:VA                     > nodetype <V> thrunode <remote_apsp0562                 > expiryint <-1> expirytime <9               > online <  > o4online <Y> product <VA> version <06.20.01> affinities <00000000G000000000000000000000000400004w0a7 > hostinfo <AIX~6.1         > hostloc <                > hostaddr <ip.pipe:#10.125.108.65[57760]<NM>vsmp8288</NM>                                                                                                                                                                                                                  > reserved <A=02:aix523;C=06.20.01.00:aix523;G=06.20.01.00:aix523;          > hrtbeattime <1160802094349000>
+   if (substr($logunit,0,10) eq "kfastinh.c") {
+      if ($logentry eq "KFA_InsertNodests") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Sending Node Status : node <vsmp8288:VA                     > nodetype <V> thrunode <remote_apsp0562                 > expiryint <-1> expirytime <9               > online <  > o4online <Y> product <VA> version <06.20.01> affinities <00000000G000000000000000000000000400004w0a7 > hostinfo <AIX~6.1         > hostloc <                > hostaddr <ip.pipe:#10.125.108.65[57760]<NM>vsmp8288</NM>                                                                                                                                                                                                                  > reserved <A=02:aix523;C=06.20.01.00:aix523;G=06.20.01.00:aix523;          > hrtbeattime <1160802094349000>
+         if (substr($rest,1,19) eq "Sending Node Status") {
+            $rest =~ /node <(.*?)> nodetype <(.*?)> thrunode <(.*?)> expiryint <(.*?)> expirytime <(.*?)> online <(.*?)> o4online <(.*?)> product <(.*?)> version <(.*?)> affinities <(.*?)> hostinfo <(.*?)> hostloc <(.*?)> hostaddr <(.*?)> reserved <(.*?)> hrtbeattime <(.*?)>/;
+            my $inode = $1;
+            my $inodetype = $2;
+            $ithrunode = $3;
+            my $iexpiryint = $4;
+            my $iexpirytime = $5;
+            my $online = $6;
+            my $io4online = $7;
+            my $iproduct = $8;
+            my $iversion = $9;
+            my $iaffinities = $10;
+            my $ihostinfo = $11;
+            my $ihostloc = $12;
+            my $ihostaddr = $13;
+            my $ireserved = $14;
+            my $ihrtbeattime = $15;
+            if (($opt_ss == 1) and ($iproduct ne "EM")){
+               $outl = "KFA_InsertNodests,";
+               $outl .= $logtime . ",";
+               $outl .= $inode . ",";
+               $outl .= $inodetype . ",";
+               $outl .= $ithrunode . ",";
+               $outl .= $iexpiryint . ",";
+               $outl .= $iexpirytime . ",";
+               $outl .= $online . ",";
+               $outl .= $io4online . ",";
+               $outl .= $iproduct . ",";
+               $outl .= $iversion . ",";
+               $outl .= $iaffinities . ",";
+               $outl .= $ihostinfo . ",";
+               $outl .= $ihostloc . ",";
+               $outl .= $ihostaddr . ",";
+               $outl .= $ireserved . ",";
+               $outl .= $ihrtbeattime . ",";
+               $ssi++;$ssout[$ssi] = $outl;
+            }
+            $inode =~ s/\s+$//;                    # strip trailing blanks
+            $ithrunode =~ s/\s+$//;                    # strip trailing blanks
+            $iaffinities =~ s/\s+$//;                    # strip trailing blanks
+            $ihostaddr =~ s/\s+$//;                    # strip trailing blanks
+            $iexpirytime =~ s/\s+$//;                    # strip trailing blanks
+            next if $iproduct eq "EM";
+            my $inode_ref = $inodex{$inode};
+            if (!defined $inode_ref) {
+               my %inoderef = (
+                                 count => 0,
+                                 instances => {},
+                              );
+                $inode_ref = \%inoderef;
+                $inodex{$inode} = \%inoderef;
+            }
+            $inode_ref->{count} += 1;
+            my $inodeikey = $ihostaddr . "|" . $iaffinities . "|" . $ithrunode;
+            my $inodei_ref = $inode_ref->{instances}{$inodeikey};
+            if (!defined $inodei_ref) {
+               my %inodeiref = (
+                                 hostaddr => $ihostaddr,
+                                 affinities => $iaffinities,
+                                 thrunode => $ithrunode,
+                                 version => $iversion,
+                                 reserved => $ireserved,
+                                 expirytime => $iexpirytime,
+                                 product => $iproduct,
+                                 o4online => $io4online,
+                                 count => 0,
+                              );
+                $inodei_ref = \%inodeiref;
+                $inode_ref->{instances}{$inodeikey} = \%inodeiref;
+            }
+            $inodei_ref->{count} += 1;
+            # cross-ref with pcbx
+            $ihostaddr =~ /:#(\S+)\[(\S+)\]/;
+            my $ip_addr = $1;
+            if (defined $ip_addr) {
+               my $pcb_ref = $pcbx{$ip_addr};
+               if (defined $pcb_ref) {
+                  $pcb_ref->{agents}{$inode} += 1;
+               }
+            }
+         }
+      }
+   }
+
    # (5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
    if (substr($logunit,0,10) eq "kfaprpst.c") {
       if ($logentry eq "HandleSimpleHeartbeat") {
@@ -2622,6 +2732,7 @@ for(;;)
                                  systems => {},
                                  system => 0,
                                  instances => {},
+                                 physicals => {},
                               );
                $rbdup_ref = \%rbdupref;
                $rbdupx{$inode} = \%rbdupref;
@@ -2747,6 +2858,7 @@ my $x = 1;
       # (58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
       # (58A73630.0253-DB:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'gto_it06qam020xjbxm:07          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'N', expiryInterval: '-1', online: '  ', hostAddr: 'ip.spipe:#158.98.138.32[7757]<NM>gto_it06qam020xjbxm</NM>   '
       if ($logentry eq "UpdateNodeStatus") {
+#$DB::single=2 if $l == 78106;
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
          if (substr($rest,1,5) eq "Node:") {
@@ -2755,7 +2867,7 @@ my $x = 1;
             #    parse var remainder . "Node: '"endpoint . "', thrunode: '" thrunode . "', flags: '" flags . "', curOnline: '" curonline . "', newOnline: '" newOnline . "', expiryInterval: '" expireInt . "'" .
 
 
-            $rest =~ /Node: \'(.*?)\', thrunode: \'(.*?)\', flags: \'(.*?)\', curOnline: \'(.*?)\', newOnline: \'(.*?)\', expiryInterval: \'(.*?)\'[,]* online: \'(.*?)\'[,]* (.*)$/;
+            $rest =~ /Node: \'([^']*)\', thrunode: \'([^']*)\', flags: \'([^']*)\', curOnline: \'([^']*)\', newOnline: \'([^']*)\', expiryInterval: \'([^']*)\'[,]* online: \'([^']*)\'[,]* (.*)$/;
             $inode = $1;
             $ithrunode = $2;
             my $iflags = $3;
@@ -2763,12 +2875,12 @@ my $x = 1;
             my $inewOnline = $5;
             my $iexpireInt = $6;
             my $ionline = $7;
-
-            # hostAddr was added at recent maintenance levels, so capture it if available
-            $rest= $8;
+            $rest= $8;            # hostAddr was added at recent maintenance levels, so capture it only if available
+            $inode =~ s/\s+$//;   #trim trailing whitespace
+            $ithrunode =~ s/\s+$//;   #trim trailing whitespace
             my $ihostAddr = "";
             my $isystem = "";
-            my $ibaseport = "";
+            my $iport = "";
             if (index($rest,"hostAddr") != -1) {
                if (index($rest,"[") != -1) {
                   $rest =~ /hostAddr: \'.*?#(.*?)\[.*?\'/;
@@ -2776,11 +2888,9 @@ my $x = 1;
                   $rest =~ /hostAddr: \'.*?#(.*?\[\d+\]).*?\'/;
                   $ihostAddr = $1 if defined $1;
                   $rest =~ /hostAddr:.*?\[(\d+)\]/;
-                  $ibaseport = $1%4096 if defined $1;
+                  $iport = $1 if defined $1;
                }
             }
-            $inode =~ s/\s+$//;   #trim trailing whitespace
-            $ithrunode =~ s/\s+$//;   #trim trailing whitespace
             $ihostAddr =~ s/\s+$//;   #trim trailing whitespace
             $rbdup_ref = $rbdupx{$inode};
             if (!defined $rbdup_ref) {
@@ -2809,23 +2919,23 @@ my $x = 1;
                                  systems => {},
                                  system => 0,
                                  instances => {},
+                                 physicals => {},
                               );
                $rbdup_ref = \%rbdupref;
                $rbdupx{$inode} = \%rbdupref;
             }
             $rbdup_ref->{hostaddrs}{$ihostAddr} = 1 if $ihostAddr ne "";
-            $rbdup_ref->{systems}{$isystem} = 1 if $isystem ne "";
-            if ($ibaseport ne "") {
-               my $instance_ref=$rbdup_ref->{instances}{$isystem};
-               if (!defined $instance_ref) {
-                  my %instanceref = (
-                                        baseports => {},
-                                     );
-                  $instance_ref = \%instanceref;
-                  $rbdup_ref->{instances}{$isystem} = \%instanceref;
+            if ($isystem ne "") {
+$DB::single=2            if $isystem eq "10.190.38.42";
+               my $system_ref=$rbdup_ref->{systems}{$isystem};
+               if (!defined $system_ref) {
+                  my %systemref = (
+                                     ports => {},
+                                  );
+                  $system_ref = \%systemref;
+                  $rbdup_ref->{systems}{$isystem} = \%systemref;
                }
-               $instance_ref->{baseports}{$ibaseport} += 1;
-my $x = 1;
+               $system_ref->{ports}{$iport} = 1 if $iport ne "";
             }
             $rbdup_ref->{newonline1} += 1 if $inewOnline eq "1";
             # We should not be getting an offline status for a node that is already offline
@@ -3712,6 +3822,14 @@ my $x = 1;
    #+577D74E2.0003     00000000   22697463 616D2D70  6F6C6C65 722D766D   "itcam-poller-vm
    #+577D74E2.0003     00000010   2D30322D 76656761  73223A54 36202020   -02-vegas":T6...
    #(577D74E2.0004-1A:kfavalid.c,1028,"KFA_InvalidNameMessage") <0x2B483CE0BE5E,0x20> Node/Thrunode contents:
+   #(5970DEB6.0002-2E:kfavalid.c,773,"KFA_ValidateNodeNameSpace") Potential DUPLICATE NODE INSERT detected.
+   #+5970DEB6.0002  Insert request for node name <boi_boipva23:KUL                >
+   #+5970DEB6.0002 and thrunode <REMOTE_t01rt07px                > with product code <VA>
+   #+5970DEB6.0002 matches an existing node with with thrunode <REMOTE_t02rt08px                >
+   #+5970DEB6.0002 and product code <UL>.   Please verify that
+   #+5970DEB6.0002 that the node name in question is not a duplicate
+   #+5970DEB6.0002 of a agent attached at another TEMS or is being
+   #+5970DEB6.0002 truncated because it is larger than 32 characters.
    if (substr($logunit,0,10) eq "kfavalid.c") {
       if ($logentry eq "validate") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -3765,6 +3883,26 @@ my $x = 1;
                   $valv_ref->{count} += 1;
                   delete $valx{$logthread};
                }
+            }
+         }
+      #5970DEB6.0002-2E:kfavalid.c,773,"KFA_ValidateNodeNameSpace") Potential DUPLICATE NODE INSERT detected
+      } elsif ($logentry eq "KFA_ValidateNodeNameSpace") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,40) eq "Potential DUPLICATE NODE INSERT detected") { # Potential DUPLICATE NODE INSERT detected
+            $contkey = substr($oneline,1,13);
+            $dnrun_def = $dnrunx{$contkey};
+            if (!defined $dnrun_def) {
+                my %dnrundef = (
+                                  thread => $logthread,
+                                  node => "",
+                                  thrunode => "",
+                                  product => "",
+                                  thrunode_new => "",
+                                  product_new => "",
+                               );
+                $dnrun_def = \%dnrundef;
+                $dnrunx{$contkey} = \%dnrundef;
             }
          }
       }
@@ -4047,7 +4185,7 @@ if ($tdur == 0)  {
 }
 
 # capture sqlrun check
-foreach my $f (keys %sqlrunx) {
+foreach $f (keys %sqlrunx) {
    $sqlrun_ref = $sqlrunx{$f};
    if ($sqlrun_ref->{state} == 2) { # state 2 means an SQL has been captured
       capture_sqlrun($sqlrun_ref); #completed an sqlrun capture
@@ -4314,7 +4452,7 @@ my $pcb_total = 0;
 my $pcb_deletePCB = 0;
 my $pcb_deletePCB_tot = 0;
 my $pcb_deletePCB90 = 0;
-foreach my $f (keys %pcbx) {
+foreach $f (keys %pcbx) {
    my $pcb_ref = $pcbx{$f};
    $pcb_total += 1;
    next if $pcb_ref->{deletePCB} < 2;
@@ -4344,9 +4482,9 @@ if ($soaperror_ct > 0) {
 
 my $change_real = 0;
 if ($changex_ct > 0) {
-   foreach my $f ( sort { $a cmp $b } keys %changex) {
+   foreach $f ( sort { $a cmp $b } keys %changex) {
       my $change_ref = $changex{$f};
-      foreach my $g (keys %{$change_ref->{nodes}}) {
+      foreach $g (keys %{$change_ref->{nodes}}) {
          my $change_node_ref = $change_ref->{nodes}{$g};
          next if $change_node_ref->{count} < 2;
          $change_real += 1;
@@ -4362,7 +4500,7 @@ if ($changex_ct > 0) {
 
 $misscolx_ct = scalar keys %misscolx;
 if ($misscolx_ct > 0) {
-   foreach my $f (keys %misscolx) {
+   foreach $f (keys %misscolx) {
       $advi++;$advonline[$advi] = "Missing Application/Table/Column $f $misscolx{$f} times";
       $advcode[$advi] = "TEMSAUDIT1056W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
@@ -4391,7 +4529,7 @@ if ($intexp_total > 0) {
    $advsit[$advi] = "TEMS";
 }
 
-foreach my $f (keys %soapcat) {
+foreach $f (keys %soapcat) {
    $advi++;$advonline[$advi] = "Unable to get attributes for table $f [$soapcat{$f} times]";
    $advcode[$advi] = "TEMSAUDIT1067E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
@@ -4419,11 +4557,15 @@ if ($ruld_total > 0) {
    $advsit[$advi] = "TEMS";
 }
 
-if ($gskit_nocipher > 0) {
-   $advi++;$advonline[$advi] = "GSKIT Secure Communications - no common cipher found";
-   $advcode[$advi] = "TEMSAUDIT1058E";
-   $advimpact[$advi] = $advcx{$advcode[$advi]};
-   $advsit[$advi] = "Comm";
+my $gerror_ct = scalar keys %gskiterrorx;
+if ($gerror_ct > 0) {
+   foreach $f ( sort { $gskiterrorx{$b}->{count} <=> $gskiterrorx{$a}->{count}} keys %gskiterrorx) {
+      my $gerror_ref =  $gskiterrorx{$f};
+      $advi++;$advonline[$advi] = "GSKIT Secure Communications error code $f [$gerror_ref->{count}] - $gerror_ref->{text}";
+      $advcode[$advi] = "TEMSAUDIT1058E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "Comm";
+   }
 }
 
 my $sit32_total = scalar keys %sit32x;
@@ -4436,7 +4578,7 @@ if ($sit32_total > 0) {
 
 my $sitrul_total = scalar keys %sitrulx;
 if ($sitrul_total > 0) {
-   foreach my $f (keys %sitrulx) {
+   foreach $f (keys %sitrulx) {
       $sitrul_ref = $sitrulx{$f};
       $advi++;$advonline[$advi] = "Situation [$sitrul_ref->{sitname}] with unknown attribute [$sitrul_ref->{atr}] - [$sitrul_ref->{pdt}]";
       $advcode[$advi] = "TEMSAUDIT1061E";
@@ -4447,7 +4589,7 @@ if ($sitrul_total > 0) {
 
 my $nodeignore_total = scalar keys %node_ignorex;
 if ($nodeignore_total > 0) {
-   foreach my $f (keys %node_ignorex) {
+   foreach $f (keys %node_ignorex) {
       $advi++;$advonline[$advi] = "Node [$f] thrunode [$node_ignorex{$f}] ignored because attribute unknown";
       $advcode[$advi] = "TEMSAUDIT1062W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
@@ -4457,7 +4599,7 @@ if ($nodeignore_total > 0) {
 
 my $sth_total = scalar keys %sthx;
 if ($sth_total > 0) {
-   foreach my $f (keys %sthx) {
+   foreach $f (keys %sthx) {
       $advi++;$advonline[$advi] = "TEMS Short Term History file [$f] is broken [$sthx{$f}] times";
       $advcode[$advi] = "TEMSAUDIT1064E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
@@ -4472,7 +4614,7 @@ if ($seq999_total > 0) {
    $advsit[$advi] = "TEMS";
 }
 
-foreach my $f (keys %miss_tablex) {
+foreach $f (keys %miss_tablex) {
    $advi++;$advonline[$advi] = "Application.table $f missing $miss_tablex{$f} times";
    $advcode[$advi] = "TEMSAUDIT1011W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
@@ -4481,7 +4623,7 @@ foreach my $f (keys %miss_tablex) {
 
 my $et = scalar keys %etablex;
 if ($et > 0) {
-   foreach my $f (keys %etablex) {
+   foreach $f (keys %etablex) {
       my $etct = $etablex{$f}->{count};
       $advi++;$advonline[$advi] = "TEMS database table with $etct errors";
       $advcode[$advi] = "TEMSAUDIT1022E";
@@ -4490,9 +4632,16 @@ if ($et > 0) {
    }
 }
 
+if ($seedfile_ct > 0) {
+   $advi++;$advonline[$advi] = "Seed file messages seen $seedfile_ct times";
+   $advcode[$advi] = "TEMSAUDIT1075I";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
 $et = scalar keys %dtablex;
 if ($et > 0) {
-   foreach my $f (keys %dtablex) {
+   foreach $f (keys %dtablex) {
       my $etct = $dtablex{$f}->{count};
       $advi++;$advonline[$advi] = "TEMS database table with $etct Duplicate Record errors";
       $advcode[$advi] = "TEMSAUDIT1023W";
@@ -4510,7 +4659,7 @@ if ($invalid_checkpoint_count > 0) {
 
 $et = scalar keys %vtablex;
 if ($et > 0) {
-   foreach my $f (keys %vtablex) {
+   foreach $f (keys %vtablex) {
       my $etct = $vtablex{$f}->{count};
       $advi++;$advonline[$advi] = "TEMS database table with $etct Verify Index errors";
       $advcode[$advi] = "TEMSAUDIT1044E";
@@ -4521,7 +4670,7 @@ if ($et > 0) {
 
 $et = scalar keys %rdtablex;
 if ($et > 0) {
-   foreach my $f (keys %rdtablex) {
+   foreach $f (keys %rdtablex) {
       my $etct = $rdtablex{$f}->{count};
       $advi++;$advonline[$advi] = "TEMS database table SITDB with $etct Read errors";
       $advcode[$advi] = "TEMSAUDIT1041E";
@@ -4532,7 +4681,7 @@ if ($et > 0) {
 
 $et = scalar keys %itablex;
 if ($et > 0) {
-   foreach my $f (keys %itablex) {
+   foreach $f (keys %itablex) {
       my $etct = $itablex{$f}->{count};
       $advi++;$advonline[$advi] = "TEMS database table with $etct Open Index errors";
       $advcode[$advi] = "TEMSAUDIT1040E";
@@ -4543,7 +4692,7 @@ if ($et > 0) {
 
 $et = scalar keys %rtablex;
 if ($et > 0) {
-   foreach my $f (keys %rtablex) {
+   foreach $f (keys %rtablex) {
       my $etct = $rtablex{$f}->{count};
       if ($etct > 0) {
          $advi++;$advonline[$advi] = "TEMS database table $f with $etct Relative Record Number errors";
@@ -4563,7 +4712,7 @@ if ($et > 0) {
 
 $et = scalar keys %derrorx;
 if ($et > 0) {
-   foreach my $f (keys %derrorx) {
+   foreach $f (keys %derrorx) {
       my $etct = $derrorx{$f}->{count};
       $advi++;$advonline[$advi] = "TEMS Event Destination experienced $etct send errors";
       $advcode[$advi] = "TEMSAUDIT1025E";
@@ -4572,7 +4721,6 @@ if ($et > 0) {
    }
 }
 
-my $f;
 my $crespermin = 0;
 my $lag_fraction = 0;
 
@@ -4739,13 +4887,13 @@ if ($et > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Endpoint Communication Problem Report\n";
    $cnt++;$oline[$cnt]="Code,Text,Count,Source,Level\n";
-   foreach my $f ( sort { $a cmp $b } keys %codex ) {
+   foreach $f ( sort { $a cmp $b } keys %codex ) {
       $code_ref = $codex{$f};
       $outl = $f . ",";
       $outl .= $code_ref->{text} . ",";
       $outl .= $code_ref->{count} . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
-      foreach my $g ( sort { $a cmp $b } keys %{$code_ref->{conv}} ) {
+      foreach $g ( sort { $a cmp $b } keys %{$code_ref->{conv}} ) {
          my $conv_ref = $code_ref->{conv}{$g};
          $outl = ",," . $conv_ref->{count} . ",";
          $outl .= $g . ",";
@@ -5170,9 +5318,9 @@ if (($agtsh_dur > 0) and ($opt_jitter == 1)) {
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="Major Jitter Report\n";
       $cnt++;$oline[$cnt]="Minute,Nodes\n";
-      foreach my $f (sort {$a <=> $b} keys %jitter_correlate) {
+      foreach $f (sort {$a <=> $b} keys %jitter_correlate) {
          next if $jitter_correlate{$f}{count} == 0;
-         foreach my $g (@{$jitter_correlate{$f}{nodes}}) {
+         foreach $g (@{$jitter_correlate{$f}{nodes}}) {
             $outl = $f . ",";
             $outl .= $g;
             $cnt++;$oline[$cnt]=$outl . "\n";
@@ -5218,7 +5366,7 @@ if ($timex_ct > 0) {
    $cnt++;$oline[$cnt]="Table,Situation,Count\n";
    foreach $f ( sort { $timex{$b}->{count} <=> $timex{$a}->{count} } keys %timex) {
       my $ptable = $f;
-      foreach my $g ( sort { $a cmp $b } keys %{$timex{$ptable}->{sit}} ) {
+      foreach $g ( sort { $a cmp $b } keys %{$timex{$ptable}->{sit}} ) {
          my $psitname = $g;
          my $pcount = $timex{$ptable}->{sit}{$psitname}->{count};
          $outl = $ptable . ',';
@@ -5239,7 +5387,7 @@ if ($comme_ct > 0) {
    $cnt++;$oline[$cnt]="Error,Target,Count\n";
    foreach $f ( sort { $commex{$b}->{count} <=> $commex{$a}->{count} } keys %commex) {
       my $perror = $f;
-      foreach my $g ( sort { $a cmp $b } keys %{$commex{$f}->{targets}} ) {
+      foreach $g ( sort { $a cmp $b } keys %{$commex{$f}->{targets}} ) {
          my $ptarget = $g;
          my $pcount = $commex{$f}->{targets}{$g}->{count};
          $outl = $perror . ',';
@@ -5501,15 +5649,8 @@ my $ct_rbdup_simpleneg = 0;
 my $ct_rbdup_dupflag = 0;
 my $ct_rbdup_hostaddr = 0;
 my $ct_rbdup_system = 0;
+my $ct_rbdup_system_ports = 0;
 my $ct_rbdup_newonline1 = 0;
-my $ct_rbdup_badbase = 0;
-
-my %normal_base = (
-                     "1918" => 1,
-                     "1919" => 1,
-                     "3660" => 1,
-                     "3661" => 1,
-                  );
 
 foreach $f ( sort { $a cmp $b } keys %rbdupx) {
    $rbdup_ref = $rbdupx{$f};
@@ -5529,25 +5670,113 @@ foreach $f ( sort { $a cmp $b } keys %rbdupx) {
    $ct_rbdup_newonline1 += 1 if $rbdup_ref->{newonline1} > 1;
 }
 
+
 foreach $f ( sort { $a cmp $b } keys %rbdupx) {
-   my $badbase_ct = 0;
-   my $rbdup_ref = $rbdupx{$f};
-   foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{instances}}) {
-      my $instance_ref = $rbdup_ref->{instances}{$g};
-      foreach $h ( sort { $a <=> $b } keys %{$instance_ref->{baseports}}) {
-         next if defined $normal_base{$h};
-         $badbase_ct += 1;
-         last;
-      }
-      last if $badbase_ct > 0;
+   $rbdup_ref = $rbdupx{$f};
+   foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{systems}}) {
+      my $system_ref = $rbdup_ref->{systems}{$g};
+      my $port_ct = scalar keys %{$system_ref->{ports}};
+      $ct_rbdup_system_ports += 1 if $port_ct > 1;
+      $ct_rbdup += 1 if $port_ct > 1;
    }
-   next if $badbase_ct == 0;
-   $ct_rbdup += 1;
-   $ct_rbdup_badbase += 1;
 }
 
+# The following logic inverts the receive vector data to use in reports
+my $eph_ct = scalar keys %recvectx;
+my $eph_ports_ct = 0;
+if ($eph_ct > 0) {
+   foreach $f ( sort { $a cmp $b } keys %recvectx) {
+      my $recvect_def = $recvectx{$f};
+      my $ipipeaddr = $recvect_def->{pipe_addr};
+      my $ifixup = $recvect_def->{fixup};
+      my $iphysself = $recvect_def->{phys_self};
+      my $iphyspeer = $recvect_def->{phys_peer};
+      my $ivirtself = $recvect_def->{virt_self};
+      my $ivirtpeer = $recvect_def->{virt_peer};
+      my $iephemeral = $recvect_def->{ephemeral};
+      my $ithrunode =   $recvect_def->{thrunode};
+      $iphyspeer =~ /(.*)\:(.*)/;
+      my $isystem = $1;
+      my $iport = $2;
+      my $phys_ref = $physicalx{$isystem};
+      if (!defined $phys_ref) {
+         my %physref = (
+                          count => 0,
+                          pipes => {},
+                          thrunode => $ithrunode,
+                          ports => {},
+                       );
+         $phys_ref = \%physref;
+         $physicalx{$isystem} = \%physref;
+      }
+      $phys_ref->{count} += 1;
+      $phys_ref->{ports}{$iport} = 1;
+      $eph_ports_ct += 1;
+      $pipex{$ipipeaddr} = $iphyspeer;
+      my $pipe_ref = $phys_ref->{pipes}{$ipipeaddr};
+      if (!defined $pipe_ref) {
+         my %piperef = (
+                          count => 0,
+                          instances => {},
+                       );
+         $pipe_ref = \%piperef;
+         $phys_ref->{pipes}{$ipipeaddr} = \%piperef;
+      }
+      $pipe_ref->{count} += 1;
+
+      my $ephemkey =  "";
+      $ephemkey .= "ephemeral" if $iephemeral & 16;    # define KDEBP_EPH_OPTION           ((unsigned int)0x10)
+      $ephemkey .= "|" . "peerxlate" if $iephemeral & 2;    # define KDEBP_EPH_PEERXLATE        ((unsigned int)0x2)
+      $ephemkey .= "|" . "selfxlate" if $iephemeral & 1;     # define KDEBP_EPH_SELFXLATE        ((unsigned int)0x1)
+                                                         # define KDEBP_EPH_PORTXLATE        ((unsigned int)0x4)
+                                                         # define KDEBP_EPH_PORTNUMBER       ((unsigned int)0x8)
+      my $ephem_ref = $pipe_ref->{instances}{$ephemkey};
+      if (!defined $ephem_ref) {
+         my %ephemref = (
+                          count => 0,
+                          gate => "",
+                       );
+         $ephem_ref = \%ephemref;
+         $pipe_ref->{instances}{$ephemkey} = \%ephemref;
+      }
+      $ephem_ref->{count} += 1;
+      $ephem_ref->{gate} = $ivirtpeer if $iephemeral & 2;
+   }
+}
+
+my $phys_ct = 0;
 
 if ($ct_rbdup > 0 ) {
+   if ($eph_ct > 0) {
+      foreach $f (keys %rbdupx) {
+         $rbdup_ref = $rbdupx{$f};
+         foreach $g (keys %{$rbdup_ref->{hostaddrs}}) {
+            my $physid = "";
+            my $path = "";
+            my $thrunode = "";
+$DB::single=2 if $g eq "0.0.0.98[7757]";
+            ($physid,$path,$thrunode) = getphys($g);
+            $physid =~ /(.*)\:(.*)/;
+            my $isystem = $1;
+            my $iport = $2;
+            my $phys_ref = $physicalx{$isystem};
+            if (!defined $phys_ref) {
+               my %physref = (
+                                count => 0,
+                                pipes => {},
+                                thrunode => $ithrunode,
+                                ports => {},
+                             );
+               $phys_ref = \%physref;
+               $physicalx{$isystem} = \%physref;
+            }
+            $phys_ref->{count} += 1;
+            $phys_ref->{ports}{$iport} = 1;
+         }
+      }
+   }
+
+
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="RB Node Status Unusual Behavior Reports\n";
    if ($ct_rbdup_dupflag > 0) {
@@ -5618,53 +5847,7 @@ if ($ct_rbdup > 0 ) {
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
    }
-foreach $f ( sort { $a cmp $b } keys %rbdupx) {
-   my $badbase_ct = 0;
-   my $rbdup_ref = $rbdupx{$f};
-   foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{instances}}) {
-      my $instance_ref = $rbdup_ref->{instances}{$g};
-      foreach $h ( sort { $a <=> $b } keys %{$instance_ref->{baseports}}) {
-         next if defined $normal_base{$h};
-         $badbase_ct += 1;
-         last;
-      }
-      last if $badbase_ct > 0;
-   }
-   next if $badbase_ct == 0;
-   $ct_rbdup += 1;
-   $ct_rbdup_badbase += 1;
-}
-   if ($ct_rbdup_badbase > 0) {
-      $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="RB Unusual Base Port Report\n";
-      $cnt++;$oline[$cnt]="Node,System,Bad_Ports),\n";
-      my $badbase_agents = 0;
-      foreach $f ( sort { $a cmp $b } keys %rbdupx) {
-         my $rbdup_ref = $rbdupx{$f};
-         my $badbase1 = 0;
-         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{instances}}) {
-            my $instance_ref = $rbdup_ref->{instances}{$g};
-            my $badbase_ct = 0;
-            my $bstring = "";
-            foreach $h ( sort { $a <=> $b } keys %{$instance_ref->{baseports}}) {
-               next if defined $normal_base{$h};
-               $badbase_ct += 1;
-               $bstring .= $h . "(" . $instance_ref->{baseports}{$h} . ") ";
-            }
-            next if $badbase_ct == 0;
-            $badbase1 = 1;
-            $cnt++;$oline[$cnt]= $f . "," . $g . "," . $bstring . ",\n";
-         }
-         $badbase_agents += 1 if $badbase1 > 0;
-      }
-      if ($badbase_agents > 0) {
-         $advi++;$advonline[$advi] = "Agent Unusual Base Port Evidence in $badbase_agents agents - See following report";
-         $advcode[$advi] = "TEMSAUDIT1074W";
-         $advimpact[$advi] = $advcx{$advcode[$advi]};
-         $advsit[$advi] = "TEMS";
-      }
-   }
-   if ($ct_rbdup_hostaddr > 0) {
+   if ($ct_rbdup_system > 0) {
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="RB Multiple System Report\n";
       $cnt++;$oline[$cnt]="Node,System_count,System(s),\n";
@@ -5686,6 +5869,44 @@ foreach $f ( sort { $a cmp $b } keys %rbdupx) {
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
    }
+   if ($ct_rbdup_system_ports > 0) {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="RB System Multiple Listening Ports Report\n";
+      $cnt++;$oline[$cnt]="Node,PipeAddr,Count,Ports,\n";
+      foreach $f ( sort { $rbdupx{$b}->{system} <=> $rbdupx{$a}->{system}
+                          || $a cmp $b } keys %rbdupx) {
+         my $rbdup_ref = $rbdupx{$f};
+         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{systems}}) {
+            my $system_ref = $rbdup_ref->{systems}{$g};
+            my $port_ct = scalar keys %{$system_ref->{ports}};
+            next if $port_ct <= 1;
+            my @pastring = keys %{$system_ref->{ports}};
+            my $pstring = join(" ",@pastring);
+            $cnt++;$oline[$cnt]= $f . "," . $g . "," . $port_ct . "," . $pstring . ",\n";
+            $advi++;$advonline[$advi] = "Agent System $g with with Multiple Listening ports $port_ct - See following report";
+            $advcode[$advi] = "TEMSAUDIT1076W";
+            $advimpact[$advi] = $advcx{$advcode[$advi]};
+            $advsit[$advi] = "$f";
+         }
+      }
+   }
+   if ($eph_ports_ct > 0) {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="RB System Multiple Listening Ports on Physical Systems Report\n";
+      $cnt++;$oline[$cnt]="Node,PipeAddr,Count,Ports,\n";
+      foreach $f ( sort { $a cmp $b } keys %physicalx) {
+         my $physical_ref = $physicalx{$f};
+         my $port_ct = scalar keys %{$physical_ref->{ports}};
+         next if $port_ct <= 1;
+         my @pastring = keys %{$physical_ref->{ports}};
+         my $pstring = join(" ",@pastring);
+         $cnt++;$oline[$cnt]= $f . "," . $physical_ref->{thrunode} . "," . $port_ct . "," . $pstring . ",\n";
+         $advi++;$advonline[$advi] = "System [$f] with with Multiple Listening ports $port_ct - See following report";
+         $advcode[$advi] = "TEMSAUDIT1077W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "$f";
+      }
+   }
    if ($ct_rbdup_hostaddr > 0) {
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="RB Multiple Hostaddr Report\n";
@@ -5699,6 +5920,10 @@ foreach $f ( sort { $a cmp $b } keys %rbdupx) {
          $max_hostaddr = $rbdup_ref->{hostaddr} if $max_hostaddr == 0;
          my $hstring = "";
          foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{hostaddrs}}) {
+            my $physid = "";
+            my $path = "";
+            ($physid,$path) = getphys($g);
+            $g .= '[' . $physid . ']' if $physid ne "";
             $hstring .= $g . " ";
          }
          $cnt++;$oline[$cnt]= $f . "," . $rbdupx{$f}->{hostaddr} . "," . $hstring . ",\n";
@@ -5746,6 +5971,78 @@ foreach $f ( sort { $a cmp $b } keys %rbdupx) {
    }
 }
 
+if ($phys_ct > 0) {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="Pipeline Report\n";
+      $cnt++;$oline[$cnt]="Node,Thrunode,Physical,Path,Pipeaddr,\n";
+      foreach $f ( sort { $a cmp $b } keys %rbdupx) {
+         $rbdup_ref = $rbdupx{$f};
+         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{physicals}}) {
+            my $phys_ref = $rbdup_ref->{physicals}{$g};
+            next if $phys_ref->{path} eq "";
+$DB::single=2;
+            $cnt++;$oline[$cnt]= $f  . "," . $phys_ref->{thrunode} . "," . $g . "," . $phys_ref->{path} . "," . $phys_ref->{hostaddr} . ",\n";
+$DB::single=2;
+my $x = 1;
+         }
+      }
+}
+
+if ($eph_ct > 0) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Receive Vector Report\n";
+   $cnt++;$oline[$cnt]="temsnodeid,phys_addr,phys_count,pipe_addr,pipe_count,xlate,xlate_count,gateway,\n";
+   foreach $f ( sort { $a cmp $b } keys %physicalx) {
+   my $phys_ref = $physicalx{$f};
+      foreach $g ( sort { $a cmp $b } keys %{$phys_ref->{pipes}}) {
+         my $pipe_ref = $phys_ref->{pipes}{$g};
+         foreach $h ( sort { $a cmp $b } keys %{$pipe_ref->{instances}}) {
+            my $ephem_ref = $pipe_ref->{instances}{$h};
+            $outl = $opt_nodeid . ",";
+            $outl .= $f . ",";
+            $outl .= $phys_ref->{count} . ",";
+            $outl .= $g . ",";
+            $outl .= $pipe_ref->{count} . ",";
+            $outl .= $h . ",";
+            $outl .= $ephem_ref->{count} . ",";
+            $outl .= $ephem_ref->{gate} . ",";
+            $cnt++;$oline[$cnt]="$outl\n";
+         }
+      }
+   }
+}
+
+my $dnode_ct = scalar keys %dnodex;
+if ($dnode_ct > 0) {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="Node Validity Duplicate Node Report\n";
+      $cnt++;$oline[$cnt]="Count,Node,Thrunode,Product,Thrunode_new,Product_new,\n";
+      foreach $f ( sort { $dnodex{$b}->{count} <=>  $dnodex{$a}->{count} || $a cmp $b } keys %dnodex) {
+         my $dnode_ref = $dnodex{$f};
+         $outl = $dnode_ref->{count} . ",";
+         $outl .= $dnode_ref->{node} . ",";
+         $outl .= $dnode_ref->{thrunode} . ",";
+         $outl .= $dnode_ref->{product} . ",";
+         $outl .= $dnode_ref->{thrunode_new} . ",";
+         $outl .= $dnode_ref->{product_new} . ",";
+         $cnt++;$oline[$cnt]= "$outl\n";
+      }
+      $advi++;$advonline[$advi] = "KFA Node Validity detected $dnode_ct potential duplicate agent name cases - See following report";
+      $advcode[$advi] = "TEMSAUDIT1078E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+
+}
+
+#     #!usr/local/bin/perl
+#     open(FILE ,"name_of_the_file_to_be_read");
+#     seek(FILE, 9900,0); #point the pointer to 9900th byte from the start
+#     read(FILE,$ab,100); #note the last 100 bytes get stored in $ab
+#     close(FILE);
+
+# new report of last N lines of the itm_config.log - record of recent start/stops/config operations
+
+
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
 open OH, ">$opt_o" or die "unable to open $opt_o: $!";
@@ -5768,7 +6065,7 @@ if ($advi != -1) {
        my $mykey = $mysit . "|" . $a;
        $advx{$mykey} = $a;
    }
-   foreach my $f ( sort { $advimpact[$advx{$b}] <=> $advimpact[$advx{$a}] ||
+   foreach $f ( sort { $advimpact[$advx{$b}] <=> $advimpact[$advx{$a}] ||
                           $advcode[$advx{$a}] cmp $advcode[$advx{$b}] ||
                           $advsit[$advx{$a}] cmp $advsit[$advx{$b}] ||
                           $advonline[$advx{$a}] cmp $advonline[$advx{$b}]
@@ -5790,7 +6087,7 @@ for (my $i = 0; $i<=$cnt; $i++) {
 if ($advi != -1) {
    print OH "\n";
    print OH "Advisory Trace, Meaning and Recovery suggestions follow\n\n";
-   foreach my $f ( sort { $a cmp $b } keys %advgotx ) {
+   foreach $f ( sort { $a cmp $b } keys %advgotx ) {
       print OH "Advisory code: " . $f  . "\n";
       print OH "Impact:" . $advgotx{$f}  . "\n";
       print OH $advtextx{$f};
@@ -5833,24 +6130,27 @@ if ($opt_ss == 1) {
 }
 
 if ($opt_eph == 1) {
-   my $eph_ct = scalar keys %recvectx;
    if ($eph_ct > 0) {
       my $opt_eph_fn = $opt_ephdir . $opt_nodeid . "_ephemeral_detail.txt";
       open EPH, ">$opt_eph_fn" or die "Unable to open Ephemeral Detail output file $opt_eph_fn\n";
-      print EPH "eph_addr,ephemeral,pipe_addr,phys_peer,virt_peer\n";
-      foreach my $f ( sort { $a cmp $b } keys %recvectx) {
+      print EPH "temsnodeid,eph_addr,pipe_addr,fixup,phys_self,phys_peer,virt_self,virt_peer,ephemeral,\n";
+      foreach $f ( sort { $a cmp $b } keys %recvectx) {
          my $recvect_def = $recvectx{$f};
-         next if $recvect_def->{ephemeral} < 16;
-         $outl = $f . ",";
-         $outl .= $recvect_def->{ephemeral} . ",";
+         $outl = $recvect_def->{thrunode} . ",";
+         $outl .= $f . ",";
          $outl .= $recvect_def->{pipe_addr} . ",";
+         $outl .= $recvect_def->{fixup} . ",";
+         $outl .= $recvect_def->{phys_self} . ",";
          $outl .= $recvect_def->{phys_peer} . ",";
+         $outl .= $recvect_def->{virt_self} . ",";
          $outl .= $recvect_def->{virt_peer} . ",";
+         $outl .= $recvect_def->{ephemeral} . ",";
          print EPH "$outl\n";
       }
       close EPH;
    }
 }
+
 
 
 if ($opt_sum != 0) {
@@ -5881,6 +6181,41 @@ $rc = 1 if $max_impact >= $opt_nominal_max_impact;
 #print STDERR "exit code 1 $max_impact $opt_max_impact\n" if $rc == 1;
 
 exit $rc;
+
+
+# given an address like 10.180.211.21[3660] return a describing string that specifies the physical address and
+# translation/ephemeral etc. The input is the ITM pipe_address.
+sub getphys {
+   my $ipipe = shift;
+   my $iphys = "";
+   my $ipath = "";
+   my $ithrunode = "";
+   $ipipe =~ /(.*?)\[(\d+)\]/;
+   my $iaddr = $1;
+   my $iport = $2;
+   if (defined $iaddr) {
+       if (defined $iport) {
+         $iport -= 1;
+         $iphys = $iaddr . ":" . $iport;
+         my $tphys = $pipex{$iphys};
+         if (defined $tphys) {
+            $iphys = $tphys;
+            my $phys_ref = $physicalx{$iphys};
+            $ithrunode = $phys_ref->{thrunode};
+            my $tcnt = scalar keys %{$phys_ref->{pipes}};
+            foreach $g ( sort { $a cmp $b } keys %{$phys_ref->{pipes}}) {
+               my $pipe_ref = $phys_ref->{pipes}{$g};
+               foreach $h ( sort { $a cmp $b } keys %{$pipe_ref->{instances}}) {
+                  my $ephem_ref = $pipe_ref->{instances}{$h};
+                  $ipath .= "|" . $h;
+                  $ipath .= "|" . $ephem_ref->{gate} if $ephem_ref->{gate} ne "";
+               }
+            }
+         }
+      }
+   }
+   return ($iphys,$ipath,$ithrunode);
+}
 
 sub capture_sqlrun {
    my ($sqlrun_ref) = @_;
@@ -6289,6 +6624,10 @@ exit;
 #          and to allow some cases to be diagnosed immediately.
 #1.68000 - More node status reports including base listening port usage
 #1.69000 - Capture ephemeral port information - what is physical system/port
+#1.70000 - Detect Seed file messages which mean duplicate index messages probably not important
+#          Eliminate Bad Port report and add Multiple Listening port report
+#          Add KFA Validity Node duplicate agent report
+#          Revise GSKit error - handle all error codes
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -7369,18 +7708,21 @@ of activity.
 ----------------------------------------------------------------
 
 TEMSAUDIT1058E
-Text: GSKIT Secure Communications - no common cipher found
+Text: GSKIT Secure Communications error code <code> [count] - <text>
 
 Tracing: error
 (59183B36.0000-53:kdebeal.c,81,"ssl_provider_open") GSKit error 402: GSK_ERROR_NO_CIPHERS - errno 11
 
 Meaning: When secure communications is established using
-GSKIT, a common cipher is negotiated. This message means
-there is no common cipher defined and thus communications
-has failed.
+GSKIT, some errors were seen. For example error code 402
+GSK_ERROR_NO_CIPHERS is relating to inability to negotiate
+a common cipher between the TEMS and the agent. In that
+particular case, the TEMS had been upgraded and only
+allowed TLS 1.2 connections and some of the agents were
+not at a level that supported that connection protocol.
 
-Recovery plan: Reconfigure the two ITM processes so there is a
-a common cipher.
+Recovery plan: Reconfigure the two ITM processes so they can
+communicate.
 ----------------------------------------------------------------
 
 TEMSAUDIT1059W
@@ -7644,6 +7986,7 @@ affected system.
 Recovery plan:  Review the supplied report section to
 determine and correct the issues.
 ----------------------------------------------------------------
+
 TEMSAUDIT1074W
 Text: Agent Unusual Base Port Evidence in $badbase_agents agents - See following report
 
@@ -7678,4 +8021,95 @@ of a sample of such agent systems,
 
 Recovery plan:  Review the supplied report section to
 determine and correct the issues.
+----------------------------------------------------------------
+
+TEMSAUDIT1075I
+Text: Seed file messages seen count times
+
+Tracing: error
+(59622462.0002-1C0C:kdseed.c,1275,"RunSeeder") Seed file <kyn_upg.sql>, Line <12360> not seeded: record not found.
+
+Meaning: The presence of seed file messages means that
+any duplicate database index errors are probably normal.
+It just means that some TEMS database objects were
+inserted even though they were already present. In that
+case the database error messages can be ignored.
+
+Recovery plan:  Ignore database duplicate index messages when
+seeding is happeening.
+----------------------------------------------------------------
+
+TEMSAUDIT1076W
+Text: Agent System [system] with with Multiple Listening ports $port_ct - See following report
+
+Tracing: error (UNIT:kfaprpst ER ST) (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
+(5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+(58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
+
+Meaning: A perfectly running agent will have a single
+listening port. If many are seen, that usually means
+the agent is having problems connecting with the TEMS.
+In that case each connection attempt uses a different
+listening port.
+
+This is also seen when an agent is connfigure to two
+TEMSes [best practice] and the primary TEMS [first listed]
+connection fails, agent switches to secondary TEMS. After
+75 minutes an attempt is made to fall back to primary.
+If the primary TEMS connection is still a problem this
+cycle will repeat "forever".
+
+Small number of listening ports over long periods is
+normal and can be ignored.
+
+
+Recovery plan:  Review the supplied report section and
+investigate the agent systems to diagnose and correct the issues.
+----------------------------------------------------------------
+
+TEMSAUDIT1077W
+Text: System [system] with with Multiple Listening ports $port_ct - See following report
+
+Tracing: error (UNIT:kfaprpst ER ST) (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
+(5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+(58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
+
+Meaning: A well running agent should register with a listening port and then
+use that for long periods. It may change if the agent or the TEMS
+is recycled of course. When the listening port changes frequently,
+that can mean the agent is having difficulty connecting to the
+TEMS, getting a connection and losing it over and over. It can also
+mean a conflict in the KDEB_INTERFACELIST usage between exclusive
+and non-exclusive binds.
+
+See this blog post for details about that setting.
+
+Sitworld: ITM 6 Interface Guide Using KDEB_INTERFACELIST
+https://goo.gl/odNf2G
+
+If one ITM process uses exclusive bind than all ITM processes
+on that system *must* use exclusive bind. This sort of issue
+is seen when one agent uses exclusive and another agent
+uses non-exclusive bind.
+
+There may be other causes as yet undiagnosed.
+
+
+Recovery plan:  Review the supplied report section and
+investigate the agent systems to diagnose and correct the issues.
+----------------------------------------------------------------
+
+TEMSAUDIT1078E
+Text: KFA Node Validity detected count potential duplicate agent name cases - See following report
+
+
+Tracing: error
+5970DEB6.0002-2E:kfavalid.c,773,"KFA_ValidateNodeNameSpace") Potential DUPLICATE NODE INSERT detected
+
+Meaning: Hub TEMS node validity checking very likely duplicate
+agent name condition.
+
+
+Recovery plan:  Review the supplied report section and
+investigate the agent systems to diagnose and correct the issues.
 ----------------------------------------------------------------
