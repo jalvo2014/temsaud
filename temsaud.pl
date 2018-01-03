@@ -33,7 +33,12 @@
 ##  87348,082,000
 ##  /ecurep/pmr/8/7/87348,082,000/2017-05-19/87348.082.000.pdcollect-dkha3080.tar.Z_unpack/
 
-my $gVersion = 1.63000;
+## (591C3F9F.0000-A2:kfastins.c,2166,"GetSitLogRecord") ReadNext Error, status = 5
+##  /ecurep/pmr/0/1/01551,227,000/2017-05-23/01551.227.000.pdcollect-AVPIU507.tar.Z_unpack/
+
+## (591ACD2E.0000-7C:kshcat.cpp,296,"RetrieveTableByTableName") Unable to get attributes for table tree TOBJACCL
+
+my $gVersion = 1.64000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -279,6 +284,7 @@ my %advcx = (
               "TEMSAUDIT1064E" => "90",
               "TEMSAUDIT1065W" => "75",
               "TEMSAUDIT1066W" => "75",
+              "TEMSAUDIT1067E" => "100",
             );
 
 my %advtextx = ();
@@ -298,6 +304,8 @@ my $sitrul_atr = 0;
 my %node_ignorex = ();
 
 my %sthx = ();
+
+my %soapcat = ();
 
 my %valvx;
 my $val_ref;
@@ -2745,6 +2753,22 @@ for(;;)
       }
    }
 
+   #(591ACD2E.0000-7C:kshcat.cpp,296,"RetrieveTableByTableName") Unable to get attributes for table tree TOBJACCL
+   if (substr($logunit,0,10) eq "kshcat.cpp") {
+      if ($logentry eq "RetrieveTableByTableName") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Unable to get attributes for table tree TOBJACCL
+         if (substr($rest,1,24) eq "Unable to get attributes") {
+            $rest =~ /table tree (\S+)$/;
+            my $itable = $1;
+            if (defined $itable) {
+               $soapcat{$itable} += 1;
+            }
+            next;
+         }
+      }
+   }
+
 
    #(52051207.0004-42:kdsstc1.c,2097,"ProcessTable") Table Status = 74, Rowcount = 0, TableName = WTMEMORY, Query Type = Select, TablePath = WTMEMORY
    if (substr($logunit,0,9) eq "kdsstc1.c") {
@@ -3920,6 +3944,13 @@ if ($intexp_total > 0) {
    $advsit[$advi] = "TEMS";
 }
 
+foreach my $f (keys %soapcat) {
+   $advi++;$advonline[$advi] = "Unable to get attributes for table $f [$soapcat{$f} times]";
+   $advcode[$advi] = "TEMSAUDIT1067E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "SOAP";
+}
+
 if ($eipc_none > 0) {
    $advi++;$advonline[$advi] = "EIF unknown transmision target [none] $eipc_none times";
    $advcode[$advi] = "TEMSAUDIT1066W";
@@ -4253,28 +4284,6 @@ if ($opt_rd == 1) {
          $cnt++;$oline[$cnt]="\n";
          $rd_curr_secs += 3600;
       }
-   }
-}
-
-$et = scalar keys %codex;
-if ($et > 0) {
-   $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Endpoint Communication Problem Report\n";
-   $cnt++;$oline[$cnt]="Code,Text,Count,Source,Level\n";
-   foreach my $f ( sort { $a cmp $b } keys %codex ) {
-      $code_ref = $codex{$f};
-      $outl = $f . ",";
-      $outl .= $code_ref->{text} . ",";
-      $outl .= $code_ref->{count} . ",";
-      $cnt++;$oline[$cnt]=$outl . "\n";
-      foreach my $g ( sort { $a cmp $b } keys %{$code_ref->{conv}} ) {
-         my $conv_ref = $code_ref->{conv}{$g};
-         $outl = ",," . $conv_ref->{count} . ",";
-         $outl .= $g . ",";
-         $outl .= $conv_ref->{level} . ",";
-         $cnt++;$oline[$cnt]=$outl . "\n";
-      }
-      $cnt++;$oline[$cnt]="\n";
    }
 }
 
@@ -4858,26 +4867,6 @@ if ($histi != -1) {
    $cnt++;$oline[$cnt]=$outl . "\n";
 }
 
-
-if ($histi != -1) {
-   $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Historical Export summary by time\n";
-   $cnt++;$oline[$cnt]="Time,,,,Rows,Bytes,Secs,Bytes_min\n";
-   foreach $f ( sort { $histtime[$histtimex{$a}] <=> $histtime[$histtimex{$b}] || $a cmp $b } keys %histtimex ) {
-      $i = $histtimex{$f};
-      $outl = $histtime[$i] . ",,,,";
-      $outl .= $histtime_rows[$i] . ",";
-      $outl .= $histtime_bytes[$i] . ",";
-      $time_elapsed = $histtime_max_time[$i] - $histtime_min_time[$i] + 1;
-      $outl .= $time_elapsed . ",";
-      $outl .= int(($histtime_bytes[$i]*60)/$time_elapsed) . ",";
-      $cnt++;$oline[$cnt]=$outl . "\n";
-   }
-   $outl = "*total" . "," . "$hist_elapsed_time" . ",,,";
-   $outl .= $total_hist_rows . ",";
-   $outl .= $total_hist_bytes . ",";
-   $cnt++;$oline[$cnt]=$outl . "\n";
-}
 
 if ($histi != -1) {
    $cnt++;$oline[$cnt]="\n";
@@ -5577,6 +5566,8 @@ exit;
 # 1.62000 - Correct logic in 1055W advisory - missing some cases
 # 1.63000 - Add result data graphical display
 #         - Add a number of advisories and reports based on recent diagnostics.
+# 1.64000 - remove two duplicated reports
+#         - add advisory on SOAP unable to get attributes
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -6534,7 +6525,7 @@ recover for a while and then lose connection again.
 
 This is a severe issue and needs prompt diagnosis. It can be
 caused by many reasons including TEMS database problems,
-network problems and excessive workoad.
+network problems and excessive workload.
 
 
 Recovery plan: Contact IBM support for aid in diagnosis.
@@ -6553,7 +6544,7 @@ The hub TEMS will not recover without a recycle.
 
 This is a most severe issue and needs prompt diagnosis. It can be
 caused by many reasons including TEMS database problems,
-network problems and excessive workoad.
+network problems and excessive workload.
 
 Recovery plan: Contact IBM support for aid in diagnosis.
 ----------------------------------------------------------------
@@ -6800,5 +6791,18 @@ to resolve "none" as a domain name and complains at the failiure.
 
 Recovery plan: Recongfigure the TEMS and specify zero [0] as the
 EIF target if no event receiver target is needed.
+----------------------------------------------------------------
+
+TEMSAUDIT1067E
+Text: Unable to get attributes for table <table> [<count> times]
+
+Tracing: error
+(591ACD2E.0000-7C:kshcat.cpp,296,"RetrieveTableByTableName") Unable to get attributes for table tree TOBJACCL
+
+Meaning: The SOAP request failed. This hints of an out of storage
+issue, a broken attribute collection or mssing application
+support files.
+
+Recovery plan: Work with IBM Support to resolve issue.
 ----------------------------------------------------------------
 
