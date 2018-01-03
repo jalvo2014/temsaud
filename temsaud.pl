@@ -74,7 +74,7 @@
 
 ## KBB_RAS1=    warn of this case
 
-my $gVersion = 1.76000;
+my $gVersion = 1.77000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -5184,59 +5184,60 @@ foreach $f ( keys %sitrowsumx ) {
  my $x = 1;
 }
 my $sitrowsum_ct = 0;
-$cnt++;$oline[$cnt]="\n";
-$cnt++;$oline[$cnt]="$rptkey: Summary Situation-Node often true by Situation\n";
-$cnt++;$oline[$cnt]="Situation,Fraction,Count,Norows,Nodes,\n";
-foreach $f ( sort { $sitrowsumx{$b}->{rowfraction} <=> $sitrowsumx{$a}->{rowfraction} ||
-                    $sitrowsumx{$b}->{count} <=> $sitrowsumx{$a}->{count}  } keys %sitrowsumx ) {
-   my $sitrowsum_ref = $sitrowsumx{$f};
-   next if $sitrowsum_ref->{count} < 2;
-   next if $f eq "HEARTBEAT";
-   next if substr($f,0,8) eq "UADVISOR";
-   $outl = $f . ",";
-   my $res_pc = int($sitrowsum_ref->{rowfraction}*100);
-   my $ppc = sprintf '%.0f%%', $res_pc;
-   $outl .= $ppc . ",";
-   $outl .= $sitrow_ref->{count} . ",";
-   $outl .= $sitrow_ref->{norows} . ",";
-   my $node_ct = scalar keys  %{$sitrowsum_ref->{nodes}};
-   $outl .= $node_ct . ",";
-   $cnt++;$oline[$cnt]=$outl . "\n";
-   $sitrowsum_ct += 1 if $sitrowsum_ref->{rowfraction} >= 0.90;
-}
-if ($sitrowsum_ct > 0) {
-   $advi++;$advonline[$advi] = "Situations [$sitrowsum_ct] true 90% of the time - See following reports $rptkey";
-   $advcode[$advi] = "TEMSAUDIT1083W";
-   $advimpact[$advi] = $advcx{$advcode[$advi]};
-   $advsit[$advi] = "TEMS";
-}
+my $sitrowsumx_ct = scalar keys %sitrowsumx;
+if ($sitrowsumx_ct > 0) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Summary Situation-Node often true by Situation\n";
+   $cnt++;$oline[$cnt]="Situation,Fraction,Count,Norows,Nodes,\n";
+   foreach $f ( sort { $sitrowsumx{$b}->{rowfraction} <=> $sitrowsumx{$a}->{rowfraction} ||
+                       $sitrowsumx{$b}->{count} <=> $sitrowsumx{$a}->{count}  } keys %sitrowsumx ) {
+      my $sitrowsum_ref = $sitrowsumx{$f};
+      next if $sitrowsum_ref->{count} < 2;
+      next if $f eq "HEARTBEAT";
+      next if substr($f,0,8) eq "UADVISOR";
+      $outl = $f . ",";
+      my $res_pc = int($sitrowsum_ref->{rowfraction}*100);
+      my $ppc = sprintf '%.0f%%', $res_pc;
+      $outl .= $ppc . ",";
+      $outl .= $sitrowsum_ref->{count} . ",";
+      $outl .= $sitrowsum_ref->{norows} . ",";
+      my $node_ct = scalar keys  %{$sitrowsum_ref->{nodes}};
+      $outl .= $node_ct . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      $sitrowsum_ct += 1 if $sitrowsum_ref->{rowfraction} >= 0.90;
+   }
+   if ($sitrowsum_ct > 0) {
+      $advi++;$advonline[$advi] = "Situations [$sitrowsum_ct] true 90% of the time - See following reports $rptkey";
+      $advcode[$advi] = "TEMSAUDIT1083W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
 
-$cnt++;$oline[$cnt]="\n";
-$cnt++;$oline[$cnt]="$rptkey: Detail Situation-Node often true by Situation and Node\n";
-$cnt++;$oline[$cnt]="Situation,Percent,Count,Norows,Node,ip,tems,duration,secs/result,\n";
-foreach $f ( sort { $sitrowx{$b}->{rowfraction} <=> $sitrowx{$a}->{rowfraction} ||
-                    $sitrowx{$b}->{count} <=> $sitrowx{$a}->{count}  } keys %sitrowx ) {
-   my $sitrow_ref = $sitrowx{$f};
-   next if $sitrow_ref->{count} < 2;
-   next if $sitrow_ref->{sit} eq "HEARTBEAT";
-   next if substr($sitrow_ref->{sit},0,8) eq "UADVISOR";
-   my $res_pc = int($sitrow_ref->{rowfraction}*100);
-   my $ppc = sprintf '%.0f%%', $res_pc;
-   $outl = $sitrow_ref->{sit} . ",";
-   $outl .= $ppc . ",";
-   $outl .= $sitrow_ref->{count} . ",";
-   $outl .= $sitrow_ref->{norows} . ",";
-   $outl .= $sitrow_ref->{node} . ",";
-   $outl .= $sitrow_ref->{ip} . ",";
-   $outl .= $sitrow_ref->{tems} . ",";
-   my $dur = $sitrow_ref->{end} - $sitrow_ref->{start};
-   $outl .= $dur . ",";
-   $res_pc = $dur/$sitrow_ref->{count};
-   $ppc = sprintf '%.2f', $res_pc;
-   $outl .= $ppc . ",";
-   $cnt++;$oline[$cnt]=$outl . "\n";
-
-
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Detail Situation-Node often true by Situation and Node\n";
+   $cnt++;$oline[$cnt]="Situation,Percent,Count,Norows,Node,ip,tems,duration,secs/result,\n";
+   foreach $f ( sort { $sitrowx{$b}->{rowfraction} <=> $sitrowx{$a}->{rowfraction} ||
+                       $sitrowx{$b}->{count} <=> $sitrowx{$a}->{count}  } keys %sitrowx ) {
+      my $sitrow_ref = $sitrowx{$f};
+      next if $sitrow_ref->{count} < 2;
+      next if $sitrow_ref->{sit} eq "HEARTBEAT";
+      next if substr($sitrow_ref->{sit},0,8) eq "UADVISOR";
+      my $res_pc = int($sitrow_ref->{rowfraction}*100);
+      my $ppc = sprintf '%.0f%%', $res_pc;
+      $outl = $sitrow_ref->{sit} . ",";
+      $outl .= $ppc . ",";
+      $outl .= $sitrow_ref->{count} . ",";
+      $outl .= $sitrow_ref->{norows} . ",";
+      $outl .= $sitrow_ref->{node} . ",";
+      $outl .= $sitrow_ref->{ip} . ",";
+      $outl .= $sitrow_ref->{tems} . ",";
+      my $dur = $sitrow_ref->{end} - $sitrow_ref->{start};
+      $outl .= $dur . ",";
+      $res_pc = $dur/$sitrow_ref->{count};
+      $ppc = sprintf '%.2f', $res_pc;
+      $outl .= $ppc . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
 }
 
 if ($opt_rd == 1) {
@@ -7337,6 +7338,7 @@ exit;
 #1.76000 - Improve RB logic based on report ill-logical results
 #        - Add Situation True advisory and report
 #        - only product FTO Control message if there are any
+#1.77000 - always true report/advisory only when result row tracing present
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
