@@ -40,7 +40,7 @@
 
 ## monitor cases where port != 1918/3660 + N*4096, or +1
 
-my $gVersion = 1.6700;
+my $gVersion = 1.6800;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -294,6 +294,8 @@ my %advcx = (
               "TEMSAUDIT1070W" => "85",
               "TEMSAUDIT1071W" => "85",
               "TEMSAUDIT1072W" => "85",
+              "TEMSAUDIT1073W" => "85",
+              "TEMSAUDIT1074W" => "85",
             );
 
 my %advtextx = ();
@@ -2449,13 +2451,13 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
          if (substr($rest,1,26) eq "Simple heartbeat from node") {
-#$DB::single=2 if $l >= 113810;
             $rest =~ /node \<(.*?)\> thrunode, \<(.*?)\>/;
             $iagent = $1;
             $ithrunode = $2;
             $iagent =~ s/\s+$//;                    # strip trailing blanks
             $ithrunode =~ s/\s+$//;                    # strip trailing blanks
-            if ($opt_jitter == 1) {
+
+            if ($opt_jitter == 1) {                 # skip collection unless jitter requested
                my $ax = $agtshx{$iagent};
                if (!defined $ax) {
                   $agtshi += 1;
@@ -2518,6 +2520,9 @@ for(;;)
                                  thrunodes => {},
                                  hostaddrs => {},
                                  hostaddr => 0,
+                                 systems => {},
+                                 system => 0,
+                                 instances => {},
                               );
                $rbdup_ref = \%rbdupref;
                $rbdupx{$inode} = \%rbdupref;
@@ -2649,6 +2654,7 @@ my $x = 1;
             # Get the needed information. Simple heartbeats are always online = "Y"
             #    parse var remainder . "Node: '"endpoint . "', thrunode: '" thrunode . "', flags: '" flags . "', curOnline: '" curonline . "', newOnline: '" newOnline . "', expiryInterval: '" expireInt . "'" .
 
+
             $rest =~ /Node: \'(.*?)\', thrunode: \'(.*?)\', flags: \'(.*?)\', curOnline: \'(.*?)\', newOnline: \'(.*?)\', expiryInterval: \'(.*?)\'[,]* online: \'(.*?)\'[,]* (.*)$/;
             $inode = $1;
             $ithrunode = $2;
@@ -2661,9 +2667,17 @@ my $x = 1;
             # hostAddr was added at recent maintenance levels, so capture it if available
             $rest= $8;
             my $ihostAddr = "";
+            my $isystem = "";
+            my $ibaseport = "";
             if (index($rest,"hostAddr") != -1) {
-               $rest =~ /hostAddr: \'.*?#(.*?\[\d+\]).*?\'/;
-               $ihostAddr = $1 if defined $1;
+               if (index($rest,"[") != -1) {
+                  $rest =~ /hostAddr: \'.*?#(.*?)\[.*?\'/;
+                  $isystem = $1 if defined $1;
+                  $rest =~ /hostAddr: \'.*?#(.*?\[\d+\]).*?\'/;
+                  $ihostAddr = $1 if defined $1;
+                  $rest =~ /hostAddr:.*?\[(\d+)\]/;
+                  $ibaseport = $1%4096 if defined $1;
+               }
             }
             $inode =~ s/\s+$//;   #trim trailing whitespace
             $ithrunode =~ s/\s+$//;   #trim trailing whitespace
@@ -2692,11 +2706,27 @@ my $x = 1;
                                  thrunodes => {},
                                  hostaddrs => {},
                                  hostaddr => 0,
+                                 systems => {},
+                                 system => 0,
+                                 instances => {},
                               );
                $rbdup_ref = \%rbdupref;
                $rbdupx{$inode} = \%rbdupref;
             }
             $rbdup_ref->{hostaddrs}{$ihostAddr} = 1 if $ihostAddr ne "";
+            $rbdup_ref->{systems}{$isystem} = 1 if $isystem ne "";
+            if ($ibaseport ne "") {
+               my $instance_ref=$rbdup_ref->{instances}{$isystem};
+               if (!defined $instance_ref) {
+                  my %instanceref = (
+                                        baseports => {},
+                                     );
+                  $instance_ref = \%instanceref;
+                  $rbdup_ref->{instances}{$isystem} = \%instanceref;
+               }
+               $instance_ref->{baseports}{$ibaseport} += 1;
+my $x = 1;
+            }
             $rbdup_ref->{newonline1} += 1 if $inewOnline eq "1";
             # We should not be getting an offline status for a node that is already offline
 
@@ -2719,7 +2749,12 @@ my $x = 1;
             } elsif ($rbdup_ref->{curstatus} eq "N"){
                $rbdup_ref->{thruname} = $ithrunode;
                $rbdup_ref->{thrunodes}{$ithrunode} += 1;
-               if (($iexpireInt > 100) or ($iexpireInt < 1)){
+               my $pexp = sprintf("0x%X", $iexpireInt);
+               if (length($pexp) > 10) {
+                  $iexpireInt = hex(substr($pexp,-8));
+               }
+
+               if (($iexpireInt > 100) or ($iexpireInt < 1)) {
                   $rbdup_ref->{interval} = 600;
                } else {
                   $rbdup_ref->{interval} = $iexpireInt*60;
@@ -2732,7 +2767,7 @@ my $x = 1;
 
             # Is the interval a positive number? This is okay in most cases - usually just the RTEMS
             # resending node statuses. But if the thrunode changes then there is a chance we have
-            # a duplicate endpoint. Thrunode changes are usually normal unless there are a lot
+           # a duplicate endpoint. Thrunode changes are usually normal unless there are a lot
             # of them.
 
             } elsif ($rbdup_ref->{interval} < 0) {
@@ -5365,12 +5400,21 @@ my $ct_rbdup_thruchg = 0;
 my $ct_rbdup_simpleneg = 0;
 my $ct_rbdup_dupflag = 0;
 my $ct_rbdup_hostaddr = 0;
+my $ct_rbdup_system = 0;
 my $ct_rbdup_newonline1 = 0;
+my $ct_rbdup_badbase = 0;
+
+my %normal_base = (
+                     "1918" => 1,
+                     "1919" => 1,
+                     "3660" => 1,
+                     "3661" => 1,
+                  );
 
 foreach $f ( sort { $a cmp $b } keys %rbdupx) {
    $rbdup_ref = $rbdupx{$f};
-   $ct_rbdup += 1 if $rbdup_ref->{thruchg} > 0;
-   $ct_rbdup_thruchg += 1 if $rbdup_ref->{thruchg} > 0;
+   $ct_rbdup += 1 if $rbdup_ref->{thruchg} > 1;
+   $ct_rbdup_thruchg += 1 if $rbdup_ref->{thruchg} > 1;
    $ct_rbdup += 1 if $rbdup_ref->{simpleneg} > 0;
    $ct_rbdup_simpleneg += 1 if $rbdup_ref->{simpleneg} > 0;
    $ct_rbdup += 1 if $rbdup_ref->{dupflag} > 1;
@@ -5378,9 +5422,30 @@ foreach $f ( sort { $a cmp $b } keys %rbdupx) {
    $rbdup_ref->{hostaddr} = scalar keys %{$rbdup_ref->{hostaddrs}};
    $ct_rbdup += 1 if $rbdup_ref->{hostaddr} > 1;
    $ct_rbdup_hostaddr += 1 if $rbdup_ref->{hostaddr} > 1;
+   $rbdup_ref->{system} = scalar keys %{$rbdup_ref->{systems}};
+   $ct_rbdup += 1 if $rbdup_ref->{system} > 1;
+   $ct_rbdup_system += 1 if $rbdup_ref->{system} > 1;
    $ct_rbdup += 1 if $rbdup_ref->{newonline1} > 1;
    $ct_rbdup_newonline1 += 1 if $rbdup_ref->{newonline1} > 1;
 }
+
+foreach $f ( sort { $a cmp $b } keys %rbdupx) {
+   my $badbase_ct = 0;
+   my $rbdup_ref = $rbdupx{$f};
+   foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{instances}}) {
+      my $instance_ref = $rbdup_ref->{instances}{$g};
+      foreach $h ( sort { $a <=> $b } keys %{$instance_ref->{baseports}}) {
+         next if defined $normal_base{$h};
+         $badbase_ct += 1;
+         last;
+      }
+      last if $badbase_ct > 0;
+   }
+   next if $badbase_ct == 0;
+   $ct_rbdup += 1;
+   $ct_rbdup_badbase += 1;
+}
+
 
 if ($ct_rbdup > 0 ) {
    $cnt++;$oline[$cnt]="\n";
@@ -5406,6 +5471,20 @@ if ($ct_rbdup > 0 ) {
          my $dstring = "";
          foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{duplicate_reasons}}) {
             $cnt++;$oline[$cnt]= $f . "," . $hostaddr1 . "," . $rbdup_ref->{interval} . ",," . $g . "," . join(":",@{$rbdup_ref->{$g}}) . ",\n";
+            if (($g eq "leftover_seconds" ) or ($g eq "heartbeat_outside_grace") or ($g eq "early_heartbeat")) {
+               my %fcount = ();
+               while (1) {
+                 my $isecs = shift @{$rbdup_ref->{$g}};
+                 shift @{$rbdup_ref->{$g}};
+                 last if !defined $isecs;
+                 $fcount{$isecs} += 1;
+               }
+               my $istring = "";
+               foreach $h  ( sort { $a <=> $b } keys %fcount) {
+                  $istring .= $h . "(" . $fcount{$h} . ") ";
+               }
+               $cnt++;$oline[$cnt]= $f . "," . $hostaddr1 . "," . $rbdup_ref->{interval} . ",frequencies," . $istring . ",\n";
+            }
          }
       }
       $advi++;$advonline[$advi] = "Duplicate Agent Evidence in $ct_rbdup_dupflag agents - See following report";
@@ -5421,16 +5500,89 @@ if ($ct_rbdup > 0 ) {
       foreach $f ( sort { $rbdupx{$b}->{thruchg} <=> $rbdupx{$a}->{thruchg}
                           || $a cmp $b } keys %rbdupx) {
          $rbdup_ref = $rbdupx{$f};
-         last if $rbdup_ref->{thruchg} == 0;
+         last if $rbdup_ref->{thruchg} == 1;
          $max_thruchg = $rbdup_ref->{thruchg} if $max_thruchg == 0;
+         my $hostaddr1 = "";   # calculate a hostaddr - system where the agent self reports
+         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{hostaddrs}}) {
+            $hostaddr1 = $g;
+            last;
+         }
          my $tstring = "";
          foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{thrunodes}}) {
             $tstring .= $g . "(" . $rbdup_ref->{thrunodes}{$g} . ") ";
          }
-         $cnt++;$oline[$cnt]= $f . "," . $rbdup_ref->{thruchg} . "," . $tstring . ",\n";
+         $cnt++;$oline[$cnt]= $f . "," . $hostaddr1 . "," . $rbdup_ref->{thruchg} . "," . $tstring . ",\n";
       }
       $advi++;$advonline[$advi] = "Agent Thrunode Changing Evidence in $ct_rbdup_thruchg agents max[$max_thruchg] - See following report";
       $advcode[$advi] = "TEMSAUDIT1069W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+foreach $f ( sort { $a cmp $b } keys %rbdupx) {
+   my $badbase_ct = 0;
+   my $rbdup_ref = $rbdupx{$f};
+   foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{instances}}) {
+      my $instance_ref = $rbdup_ref->{instances}{$g};
+      foreach $h ( sort { $a <=> $b } keys %{$instance_ref->{baseports}}) {
+         next if defined $normal_base{$h};
+         $badbase_ct += 1;
+         last;
+      }
+      last if $badbase_ct > 0;
+   }
+   next if $badbase_ct == 0;
+   $ct_rbdup += 1;
+   $ct_rbdup_badbase += 1;
+}
+   if ($ct_rbdup_badbase > 0) {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="RB Unusual Base Port Report\n";
+      $cnt++;$oline[$cnt]="Node,System,Bad_Ports),\n";
+      my $badbase_agents = 0;
+      foreach $f ( sort { $a cmp $b } keys %rbdupx) {
+         my $rbdup_ref = $rbdupx{$f};
+         my $badbase1 = 0;
+         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{instances}}) {
+            my $instance_ref = $rbdup_ref->{instances}{$g};
+            my $badbase_ct = 0;
+            my $bstring = "";
+            foreach $h ( sort { $a <=> $b } keys %{$instance_ref->{baseports}}) {
+               next if defined $normal_base{$h};
+               $badbase_ct += 1;
+               $bstring .= $h . "(" . $instance_ref->{baseports}{$h} . ") ";
+            }
+            next if $badbase_ct == 0;
+            $badbase1 = 1;
+            $cnt++;$oline[$cnt]= $f . "," . $g . "," . $bstring . ",\n";
+         }
+         $badbase_agents += 1 if $badbase1 > 0;
+      }
+      if ($badbase_agents > 0) {
+         $advi++;$advonline[$advi] = "Agent Unusual Base Port Evidence in $badbase_agents agents - See following report";
+         $advcode[$advi] = "TEMSAUDIT1074W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TEMS";
+      }
+   }
+   if ($ct_rbdup_hostaddr > 0) {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="RB Multiple System Report\n";
+      $cnt++;$oline[$cnt]="Node,System_count,System(s),\n";
+      my $max_system = 0;
+      foreach $f ( sort { $rbdupx{$b}->{system} <=> $rbdupx{$a}->{system}
+                          || $a cmp $b } keys %rbdupx) {
+
+         $rbdup_ref = $rbdupx{$f};
+         last if $rbdupx{$f}->{system} < 2;
+         $max_system = $rbdup_ref->{system} if $max_system == 0;
+         my $hstring = "";
+         foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{systems}}) {
+            $hstring .= $g . " ";
+         }
+         $cnt++;$oline[$cnt]= $f . "," . $hstring . ",\n";
+      }
+      $advi++;$advonline[$advi] = "Agent Multiple System Evidence in $ct_rbdup_system agents max[$max_system] - See following report";
+      $advcode[$advi] = "TEMSAUDIT1073W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
    }
@@ -6015,6 +6167,7 @@ exit;
 #        - make jitter report(s) optional
 #1.67000 - Extend some of the node status reports for easier access to diagnostic logs
 #          and to allow some cases to be diagnosed immediately.
+#1.68000 - More node status reports including base listening port usage
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -7256,7 +7409,7 @@ Recovery plan: Work with IBM Support to resolve issue.
 TEMSAUDIT1068W
 Text: Duplicate Agent Evidence in count agents - See following report
 
-Tracing: error
+Tracing: error (UNIT:kfaprpst ER ST) (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
 (5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
 (58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
 
@@ -7291,7 +7444,7 @@ possibilities seem endless.
 TEMSAUDIT1069W
 Text: Agent Thrunode Changing Evidence in count agents max[count] - See following report
 
-Tracing: error
+Tracing: error (UNIT:kfaprpst ER ST) (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
 (5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
 (58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
 
@@ -7308,7 +7461,7 @@ determine and correct the issues.
 TEMSAUDIT1070W
 Text: Agent Multiple Hostaddr Evidence in count agents max[count] - See following report
 
-Tracing: error
+Tracing: error (UNIT:kfaprpst ER ST) (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
 (5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
 (58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
 
@@ -7325,7 +7478,7 @@ determine and correct the issues.
 TEMSAUDIT1071W
 Text: Agent Multiple Initial Status Evidence in count agents max[count] - See following report
 
-Tracing: error
+Tracing: error (UNIT:kfaprpst ER ST) (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
 (5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
 (58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
 
@@ -7341,15 +7494,67 @@ determine and correct the issues.
 TEMSAUDIT1072W
 Text: Agent Negative Heartbeat Time Evidence in count agents - See following report
 
-Tracing: error
+Tracing: error (UNIT:kfaprpst ER ST) (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
 (5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
 (58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
 
-Meaning: Some agents are showing evidence of a intervals
+Meaning: Some agents are showing evidence of intervals
 calculated as negative time. This usually means the
 diagnostic logs got wrapped around and issue has no
 practical effect.
 
 Recovery plan:  If this occurs a lot, please contact
 IBM Support to diagnose the issue.
+----------------------------------------------------------------
+
+TEMSAUDIT1073W
+Text: Agent Multiple System Evidence in count agents max[count] - See following report
+
+Tracing: error (UNIT:kfaprpst ER ST) (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
+(5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+(58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
+
+Meaning: Some agents are showing evidence of sending
+in from a different system [ip_addr] at different times.
+This usually means accidental duplicate agents. It can
+also mean mis-configuration of multiple agents on the
+affected system.
+
+Recovery plan:  Review the supplied report section to
+determine and correct the issues.
+----------------------------------------------------------------
+TEMSAUDIT1074W
+Text: Agent Unusual Base Port Evidence in $badbase_agents agents - See following report
+
+Tracing: error (UNIT:kfaprpst ER ST) (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
+(5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+(58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
+
+Meaning: Some agents are showing evidence of registering
+listen ports with unusual numbers. The usual port numbers
+are 1918 and 3660 although they sometimes show as 1919
+and 3661 for technical reasons. The usual listening ports
+are base+N*4096 [N=1-15]. If there are none available
+then the tcp subsystem is asked for whatever ports are
+available.
+
+Usage of non-standard ports may be a signal that the
+agent is recycling abnormally. When port usage is ended
+TCP normal function places it into a 120 second FIN-WAIT
+status. That is to allow processing or late, duplicated or
+fragmented packets. Rapid agent recycling could be an
+explanation.
+
+When you get a lot of unusual listening ports, it
+can also mean the agents running on that system are
+mal-configured and are stepping on each others
+connections. This can lead to severe issues at the
+hub or remote TEMSes including instability.
+
+This area is in active investigation. If you want
+to help with this IBM Support would want pdcollects
+of a sample of such agent systems,
+
+Recovery plan:  Review the supplied report section to
+determine and correct the issues.
 ----------------------------------------------------------------
