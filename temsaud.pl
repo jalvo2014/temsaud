@@ -44,9 +44,17 @@
 
 ## kdspmou2.c,3077,"PM1_VPM2_AllocateLiteral") Literal Pool Boundary Violated (61/7/64304)
 
+## Can't initialize filter plan, PRB1_InitFilterPlan status 58
+
 ## (5970A187.0001-13:kdebeal.c,81,"ssl_provider_open") GSKit error 407: GSK_ERROR_BAD_KEYFILE_LABEL - errno 11
 
-my $gVersion = 1.7000;
+## kqmsnos.cpp|processARMSNOS::processRecs|367,87084,46%,(597AB870.0001-A:kqmsnos.cpp,367,"processARMSNOS::processRecs") Warning: Invalid timestamp in node status record: <dcn1papx617:KUX> <REMOTE_UKSWI-DLTVPVL01> <ip.pipe:#172.30.166.54[59283]<NM>dcn1papx617</NM>> <V>  <Y> at <1170728050701000> locflag <M> <9> <%IBM.STATIC013          000000000U000pyw0a7> <parent>
+## kqmlog.cpp|processARMeib::processRecs|779,22530,11%,(597AB875.0000-A:kqmlog.cpp,779,"processARMeib::processRecs") Warning: Invalid timestamp in notify record: operation <I> id <5529> name <RTMAS0146:53                    REMOTE_UKRTH-MCTVPVL06> timestamp <1170728050707001> user <_FAGEN> originnode <>
+
+## ??
+## (5940BF37.0046-261F:kdebp0r.c,591,"receive_vectors") ephemeral ip.spipe: peer address translated
+
+my $gVersion = 1.7100;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -177,6 +185,8 @@ my $opt_driver = "";                             # Driver
 my $opt_sum;                                     # Summary text
 my $opt_nodeid = "";                             # TEMS nodeid
 my $opt_tems = "";                               # *HUB or *REMOTE
+my $opt_kdcb0 = "";                              # KDCB0_HOSTNAME
+my $opt_kdebi = "";                              # KDEB_INTERFACELIST
 my $opt_sqldetail;                               # detail SQL report wanted
 my $opt_rd;                                      # result detail wanted
 my $opt_rdslot;                                  # number of seconds for result detail slot, default 60 seconds
@@ -310,6 +320,8 @@ my %advcx = (
               "TEMSAUDIT1076W" => "85",
               "TEMSAUDIT1077W" => "85",
               "TEMSAUDIT1078E" => "100",
+              "TEMSAUDIT1079W" => "85",
+              "TEMSAUDIT1080E" => "100",
             );
 
 my %advtextx = ();
@@ -317,6 +329,7 @@ my $advkey = "";
 my $advtext = "";
 my $advline;
 my %advgotx = ();
+my %advrptx = ();
 
 my %sit32x = ();
 my %sitrulx = ();
@@ -336,9 +349,15 @@ my %recvectx= ();        # receive vectors to translate ephemeral ip addresses
 my $rvect_def;
 my %rvrunx = ();         # receive vector running capture by thread
 my $rvrun_def;
+my $rvrun_last_line = 0;
+my $rvrun_last_thread = "";
+my $rvrun_last_def = "";
 my %dnrunx = ();         # Duplicate Node warning by thread
 my $dnrun_def;
 my %dnodex = ();
+
+my %rxrunx = ();         # receive XID running capture by thread
+my $rxrun_def;
 
 my %physicalx = ();
 my %pipex = ();
@@ -439,8 +458,8 @@ while (<main::DATA>)
      $advkey = $advline;
      next;
   }
-  if (length($advline) >= 15) {
-     if (substr($advline,0,9) eq "TEMSAUDIT") {
+  if (length($advline) >= 14) {
+     if ((substr($advline,0,9) eq "TEMSAUDIT") or (substr($advline,0,10) eq "TEMSREPORT")){
         $advtextx{$advkey} = $advtext;
         chomp $advline;
         $advkey = $advline;
@@ -688,6 +707,7 @@ if (-e $opt_ini) {
       next if $#words == -1;                  # skip blank line
 
       # two word controls - option and value
+      my $uword = uc $words[0];
       if ($words[0] eq "results") {$opt_nominal_results = $words[1];}
       elsif ($words[0] eq "trace") {$opt_nominal_trace = $words[1];}
       elsif ($words[0] eq "workload") {$opt_nominal_workload = $words[1];}
@@ -701,10 +721,10 @@ if (-e $opt_ini) {
       elsif ($words[0] eq "maxlisten") {$opt_max_listen = $words[1];}
       elsif ($words[0] eq "agto_mult") {$opt_nominal_agto_mult = $words[1];}
       elsif ($words[0] eq "max_impact") {$opt_nominal_max_impact = $words[1];}
-      elsif (substr($words[0],0,9) eq "TEMSAUDIT"){
-         die "unknown advisory code $words[0]" if !defined $advcx{$words[0]};
-         die "Advisory code with no advisory impact" if !defined $words[1];
-         $advcx{$words[0]} = $words[1];
+      elsif (substr($uword,0,9) eq "TEMSAUDIT"){
+         die "unknown advisory code $words[0]" if !defined $advcx{$uword};
+         die "Advisory code $words[0] with no advisory impact" if !defined $words[1];
+         $advcx{$uword} = $words[1];
       } else {
          die "unknown control in temsaud.ini line $l unknown control $words[0]";
       }
@@ -756,6 +776,7 @@ my @advsit = ();
 my @advimpact = ();
 my @advcode = ();
 my %advx = ();
+my $rptkey = "";
 
 my $max_impact = 0;
 
@@ -1392,6 +1413,7 @@ for(;;)
    if (substr($oneline,0,1) eq "+")  {        # convert hex string - ascii - to printable
       $contkey = substr($oneline,1,13);
       $rvrun_def = $rvrunx{$contkey};
+      $rxrun_def = $rxrunx{$contkey};
       $dnrun_def = $dnrunx{$contkey};
       if (defined $rvrun_def) {
          $rest = substr($oneline,14);
@@ -1413,29 +1435,37 @@ for(;;)
          } elsif ($first eq "ccbVirtSelf") {
             $rvrun_def->{virt_self} = $second;
          } elsif ($first eq "ccbEphemeral") {
-            if ($second ne "0x00000000") {
-               $rvrun_def->{ephemeral} = hex($second);
-               $rvrun_def->{pipe_addr} =~ /(.*?):/;
-               my $ephem = $1;
-               my $recvect_def = $recvectx{$ephem};
-               if (!defined $recvect_def) {
-                  my %recvectdef = (
-                                      pipe_addr => $rvrun_def->{pipe_addr},
-                                      fixup => $rvrun_def->{fixup},
-                                      phys_self => $rvrun_def->{phys_self},
-                                      phys_peer => $rvrun_def->{phys_peer},
-                                      virt_self => $rvrun_def->{virt_self},
-                                      virt_peer => $rvrun_def->{virt_peer},
-                                      ephemeral => $rvrun_def->{ephemeral},
-                                      thrunode => $opt_nodeid,
-                                   );
-                  $recvectx{$ephem} = \%recvectdef;
-                  $recvect_def = \%recvectdef;
-               }
-               $recvect_def->{count} += 1;
+            $rvrun_def->{ephemeral} = hex($second);
+            $rvrun_def->{pipe_addr} =~ /(.*?):/;
+            my $ephem = $1;
+            my $recvect_def = $recvectx{$ephem};
+            if (!defined $recvect_def) {
+               my %recvectdef = (
+                                   pipe_addr => $rvrun_def->{pipe_addr},
+                                   fixup => $rvrun_def->{fixup},
+                                   phys_self => $rvrun_def->{phys_self},
+                                   phys_peer => $rvrun_def->{phys_peer},
+                                   virt_self => $rvrun_def->{virt_self},
+                                   virt_peer => $rvrun_def->{virt_peer},
+                                   ephemeral => $rvrun_def->{ephemeral},
+                                   thrunode => $opt_nodeid,
+                                   service_point => "",
+                                   service_type => "",
+                                   driver => "",
+                                   build_date => "",
+                                   build_target => "",
+                                   process_time => 0,
+                                );
+               $recvectx{$ephem} = \%recvectdef;
+               $recvect_def = \%recvectdef;
             }
+            $recvect_def->{count} += 1;
+            $rvrun_last_line = $l;
+            $rvrun_last_thread = $rvrun_def->{thread};
+            $rvrun_last_def = $recvect_def;
             delete  $rvrunx{$contkey};
          }
+
       #+5970DEB6.0002  Insert request for node name <boi_boipva23:KUL                >
       #+5970DEB6.0002 and thrunode <REMOTE_t01rt07px                > with product code <VA>
       #+5970DEB6.0002 matches an existing node with with thrunode <REMOTE_t02rt08px                >
@@ -1486,6 +1516,33 @@ for(;;)
             }
             $dnode_ref->{count} += 1;
             delete  $dnrunx{$contkey};
+         }
+      #+59422557.005A    Service Point: ibm05492.th01ham020tthxs_tacmd
+      #+59422557.005A      System Type: AIX;7.1
+      #+59422557.005A           Driver: tms_ctbs630fp7:d6305a
+      #+59422557.005A       Build Date: Oct 31 2016 16:26:19
+      #+59422557.005A     Build Target: aix53
+      #+59422557.005A     Process Time: 0x59422556
+      } elsif (defined $rxrun_def) {       # in this case an extention of %recvectx hash
+         $rest = substr($oneline,14);
+         $rest =~ /^(.*?):(.*?)$/;
+         my $first = $1;
+         my $second = $2;
+         $first =~ s/^\s+|\s+$//g;
+         $second =~ s/^\s+|\s+$//g;
+         if ($first eq "Service Point") {
+            $rxrun_def->{service_point} = $second;
+         } elsif ($first eq "System Type") {
+            $rxrun_def->{service_type} = $second;
+         } elsif ($first eq "Driver") {
+            $rxrun_def->{driver} = $second;
+         } elsif ($first eq "Build Date") {
+            $rxrun_def->{build_date} = $second;
+         } elsif ($first eq "Build Target") {
+            $rxrun_def->{build_target} = $second;
+         } elsif ($first eq "Process Time") {
+            $rxrun_def->{process_time} = $second;
+            $rvrun_last_line = 0;
          }
       }
    }
@@ -1612,6 +1669,34 @@ for(;;)
             if (substr($rest,1,8) eq "KDS_HUB=") {
                $rest =~ /KDS_HUB=\"(\S+)\"/;
                $opt_tems = $1;
+            }
+         }
+      }
+   }
+
+   #(5914DB2A.0065-6:kbbssge.c,72,"BSS1_GetEnv") KDEB_HOSTNAME=KDCB0_HOSTNAME="it06qam020xjbxm"
+   if ($opt_kdcb0 eq "") {
+      if (substr($logunit,0,9) eq "kbbssge.c") {
+         if ($logentry eq "BSS1_GetEnv") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # KDEB_HOSTNAME=KDCB0_HOSTNAME="it06qam020xjbxm"
+            if (substr($rest,1,29) eq "KDEB_HOSTNAME=KDCB0_HOSTNAME=") {
+               $rest =~ /KDCB0_HOSTNAME=\"(\S+)\"/;
+               $opt_kdcb0 = $1;
+            }
+         }
+      }
+   }
+
+   #(5914DB2A.0064-6:kbbssge.c,72,"BSS1_GetEnv") KDEB_INTERFACELIST="158.98.138.32"
+   if ($opt_kdebi eq "") {
+      if (substr($logunit,0,9) eq "kbbssge.c") {
+         if ($logentry eq "BSS1_GetEnv") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # KDEB_INTERFACELIST="158.98.138.32"
+            if (substr($rest,1,19) eq "KDEB_INTERFACELIST=") {
+               $rest =~ /KDEB_INTERFACELIST=\"(\S+)\"/;
+               $opt_kdebi = $1;
             }
          }
       }
@@ -2263,6 +2348,34 @@ for(;;)
       }
    }
 
+   # When available the peer information gives good information on what
+   # is communicating with us. It depends on the prior receive vector data
+   # and adds on to it. In the examples seen so far, the diagnostic
+   # lines immediately follow the receive vector lines and that is used
+   # as an adhoc way of identifying.
+
+   #(59422557.005A-3D5:kdeprxi.c,150,"KDEP_ReceiveXID") ip.spipe peer information
+   #+59422557.005A    Service Point: ibm05492.th01ham020tthxs_tacmd
+   #+59422557.005A      System Type: AIX;7.1
+   #+59422557.005A           Driver: tms_ctbs630fp7:d6305a
+   #+59422557.005A       Build Date: Oct 31 2016 16:26:19
+   #+59422557.005A     Build Target: aix53
+   #+59422557.005A     Process Time: 0x59422556
+   if (substr($logunit,0,9) eq "kdeprxi.c") {
+      if ($logentry eq "KDEP_ReceiveXID") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # ip.spipe peer information
+         if (($l - $rvrun_last_line) == 1) {
+            if ($logthread eq $rvrun_last_thread) {
+               if (index($rest,"peer information") != -1) {
+                  $contkey = substr($oneline,1,13);
+                  $rxrunx{$contkey} = $rvrun_last_def;
+               }
+            }
+         }
+      }
+   }
+
    # (58DE3A4E.007A-12:kcfccmmt.cpp,674,"CMConfigMgrThread::indicateBackground") Error in pthread_attr_setschedparam,
    if (substr($logunit,0,3) eq "kcf") {
       $kcf_count += 1;
@@ -2617,6 +2730,8 @@ for(;;)
                my %inoderef = (
                                  count => 0,
                                  instances => {},
+                                 aff => {},
+                                 affct => 0,
                               );
                 $inode_ref = \%inoderef;
                 $inodex{$inode} = \%inoderef;
@@ -2640,6 +2755,27 @@ for(;;)
                 $inode_ref->{instances}{$inodeikey} = \%inodeiref;
             }
             $inodei_ref->{count} += 1;
+
+            my $inodeakey = $iaffinities . "|" . $iproduct;
+            my $inodea_ref = $inode_ref->{aff}{$inodeakey};
+            if (!defined $inodea_ref) {
+               my %inodearef = (
+                                 hostaddr => $ihostaddr,
+                                 affinities => $iaffinities,
+                                 thrunode => $ithrunode,
+                                 version => $iversion,
+                                 reserved => $ireserved,
+                                 expirytime => $iexpirytime,
+                                 product => $iproduct,
+                                 o4online => $io4online,
+                                 count => 0,
+                              );
+                $inodea_ref = \%inodearef;
+                $inode_ref->{aff}{$inodeakey} = \%inodearef;
+                $inode_ref->{affct} += 1;
+            }
+            $inodea_ref->{count} += 1;
+
             # cross-ref with pcbx
             $ihostaddr =~ /:#(\S+)\[(\S+)\]/;
             my $ip_addr = $1;
@@ -2704,7 +2840,6 @@ for(;;)
             }
             # Richard Bennett logic from FindDupAgents.rex
             $inode = $iagent;
-#$DB::single=2   if $inode eq "ibm_dkccfni01sr08xm:07";
             $rbdup_ref = $rbdupx{$inode};
             if (!defined $rbdup_ref) {
                my %rbdupref = (
@@ -2761,7 +2896,7 @@ for(;;)
                      $leftover = 0 if $leftover == 59;
                      $minutes = int($tempInt/60) if $leftover <= 1;                                                              ##5
                      if ($minutes == 0) {
-$DB::single=2;                                                                                                       ##5
+#$DB::single=2;                                                                                                       ##5
                         # Too many seconds left over, so this is a likely duplicate. Increment that
                         # count. Then add the interval to the previous interval.
                         $rbdup_ref->{dupflag} += 1;
@@ -2774,8 +2909,8 @@ $DB::single=2;                                                                  
                         $leftover = $rbdup_ref->{lasttime}%60;
                         $leftover = 0 if $leftover == 59;
                         $minutes = int(($rbdup_ref->{inttmp}+2)/60) if $leftover <= 1;                                 ##5
-$DB::single=2;
-my $x = 1;
+#$DB::single=2;
+#my $x = 1;
                      }
                   } else {                                                                                            ##4
                      # The two heartbeat are not close in interval, so this is a likely                               ##5
@@ -2926,7 +3061,6 @@ my $x = 1;
             }
             $rbdup_ref->{hostaddrs}{$ihostAddr} = 1 if $ihostAddr ne "";
             if ($isystem ne "") {
-$DB::single=2            if $isystem eq "10.190.38.42";
                my $system_ref=$rbdup_ref->{systems}{$isystem};
                if (!defined $system_ref) {
                   my %systemref = (
@@ -4204,7 +4338,8 @@ my $cnt = -1;
 
 
 if ($toobigi != -1) {
-   $cnt++;$oline[$cnt]="Too Big Report\n";
+   $rptkey = "TEMSREPORT001";
+   $cnt++;$oline[$cnt]="Too Big Report - See Report $rptkey\n";
    $cnt++;$oline[$cnt]="Situation,Table,FilterSize,Count\n";
    for ($i = 0; $i <= $toobigi; $i++) {
       $outl = $toobigsit[$i] . ",";
@@ -4214,14 +4349,26 @@ if ($toobigi != -1) {
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
    $cnt++;$oline[$cnt]="\n";
+   $advrptx{$rptkey} = 1;         # record report key
 }
 if ($toobigi > -1) {
       my $ptoobigi = $toobigi + 1;
-      $advi++;$advonline[$advi] = "$ptoobigi Filter object(s) too big situations and/or reports";
+      $advi++;$advonline[$advi] = "$ptoobigi Filter object(s) too big situations and/or reports - See Report $rptkey";
       $advcode[$advi] = "TEMSAUDIT1001W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TooBig";
    }
+if ($opt_kdcb0 ne "") {
+   if ($opt_kdebi ne "") {
+      if ($opt_kdcb0 ne $opt_kdebi) {
+         $advi++;$advonline[$advi] = "KDEB_INTERFACELIST[$opt_kdebi] and KDCB0_HOSTNAME[$opt_kdcb0] conflict";
+         $advcode[$advi] = "TEMSAUDIT1080E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TEMS";
+      }
+   }
+}
+
 if ($lp_high >= $opt_nominal_listen) {
    if ($lp_high >= $opt_max_listen) {
       $advi++;$advonline[$advi] = "Listen Pipe Usage at maximum [$opt_max_listen]";
@@ -4268,7 +4415,9 @@ my $trc_pc = 0;
 my $soap_pc = 0;
 my $res_max = 0;
 
-$cnt++;$oline[$cnt]="Summary Statistics\n";
+
+$rptkey = "TEMSREPORT002";$advrptx{$rptkey} = 1;         # record report key
+$cnt++;$oline[$cnt]="$rptkey: Summary Statistics\n";
 $cnt++;$oline[$cnt]="Duration (seconds),,,$dur\n";
 $cnt++;$oline[$cnt]="Total Count,,,$sitct_tot\n";
 $cnt++;$oline[$cnt]="Total Rows,,,$sitrows_tot\n";
@@ -4287,7 +4436,7 @@ if ($uadvisor_bytes>0) {
 if ($trespermin > $opt_nominal_results) {
    $res_pc = int((($trespermin - $opt_nominal_results)*100)/$opt_nominal_results);
    my $ppc = sprintf '%.0f%%', $res_pc;
-   $advi++;$advonline[$advi] = "Results bytes per minute $ppc higher then nominal [$opt_nominal_results]";
+   $advi++;$advonline[$advi] = "Results bytes per minute $ppc higher then nominal [$opt_nominal_results] - See Report $rptkey";
    $advcode[$advi] = "TEMSAUDIT1006E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Results";
@@ -4332,7 +4481,7 @@ $cnt++;$oline[$cnt]="\n";
 if ($trace_size_minute > $opt_nominal_trace) {
    $trc_pc = int((($trace_size_minute - $opt_nominal_trace)*100)/$opt_nominal_trace);
    my $ppc = sprintf '%.0f%%', $trc_pc;
-   $advi++;$advonline[$advi] = "Trace bytes per minute $ppc higher then nominal $opt_nominal_trace";
+   $advi++;$advonline[$advi] = "Trace bytes per minute $ppc higher then nominal $opt_nominal_trace - See Report $rptkey";
    $advcode[$advi] = "TEMSAUDIT1007W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Trace";
@@ -4462,7 +4611,7 @@ foreach $f (keys %pcbx) {
 $pcb_deletePCB90 = int($pcb_deletePCB_tot*.95);
 
 if ($pcb_deletePCB > 0) {
-   $advi++;$advonline[$advi] = "Agent connection churning on [$pcb_deletePCB] systems total[$pcb_total] - See following report";
+   $advi++;$advonline[$advi] = "Agent connection churning on [$pcb_deletePCB] systems total[$pcb_total] - view TEMSREPORT026 report";
    $advcode[$advi] = "TEMSAUDIT1050W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "PCB";
@@ -4472,7 +4621,7 @@ if ($pcb_deletePCB > 0) {
 $soaperror_ct = scalar keys %soaperror;
 if ($soaperror_ct > 0) {
    my $pcnt = $soaperror_ct + 1;
-   $advi++;$advonline[$advi] = "SOAP Errors Types [$pcnt] Detected - See following report";
+   $advi++;$advonline[$advi] = "SOAP Errors Types [$pcnt] Detected - See TEMSREPORT027 report";
    $advcode[$advi] = "TEMSAUDIT1054W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "SOAP";
@@ -4491,7 +4640,7 @@ if ($changex_ct > 0) {
       }
    }
    if ($change_real > 0) {
-      $advi++;$advonline[$advi] = "Agent Location Flipping Changes Detected [$change_real] - See following report";
+      $advi++;$advonline[$advi] = "Agent Location Flipping Changes Detected [$change_real] - See TEMSREPORT28 report";
       $advcode[$advi] = "TEMSAUDIT1055W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "Agent";
@@ -4570,7 +4719,7 @@ if ($gerror_ct > 0) {
 
 my $sit32_total = scalar keys %sit32x;
 if ($sit32_total > 0) {
-   $advi++;$advonline[$advi] = "Situations [$sit32_total] with length 32 - see following report";
+   $advi++;$advonline[$advi] = "Situations [$sit32_total] with length 32 - see TEMSREPORT029 report";
    $advcode[$advi] = "TEMSAUDIT1060W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
@@ -4798,8 +4947,9 @@ $cnt++;$oline[$cnt]=$outl . "\n";
 
 if ($opt_rd == 1) {
    my $peakrate = 0;
+   $rptkey = "TEMSREPORT003";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Situation Result Over Time Report [Top $opt_rdtop situation contributors]\n";
+   $cnt++;$oline[$cnt]="$rptkey: Situation Result Over Time Report [Top $opt_rdtop situation contributors]\n";
    $cnt++;$oline[$cnt]="Time,Situation,Count,Rows,Bytes,Percent,Cumulative_Percent,\n";
    foreach $f ( sort { $a <=> $b } keys %rdx ) {
       my $ftime = time2sec($f . "00");
@@ -4837,7 +4987,7 @@ if ($opt_rd == 1) {
 
    if ($rd_start ne "") {
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="Situation Result Over Time Graph - peak rate is $peakrate bytes per minute\n";
+      $cnt++;$oline[$cnt]="$rptkey: Situation Result Over Time Graph - peak rate is $peakrate bytes per minute\n";
       $cnt++;$oline[$cnt]="Each hour is shown, each column is a minute, numbers represent 10 minutes\n";
       $cnt++;$oline[$cnt]="\n";
       # calculate the epoch second when the first hour of results started
@@ -4884,8 +5034,9 @@ if ($opt_rd == 1) {
 
 $et = scalar keys %codex;
 if ($et > 0) {
+   $rptkey = "TEMSREPORT004";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Endpoint Communication Problem Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: Endpoint Communication Problem Report\n";
    $cnt++;$oline[$cnt]="Code,Text,Count,Source,Level\n";
    foreach $f ( sort { $a cmp $b } keys %codex ) {
       $code_ref = $codex{$f};
@@ -4911,8 +5062,9 @@ my $act_duration;
 
 if ($acti != -1) {
    $act_duration = $act_end - $act_start;
+   $rptkey = "TEMSREPORT005";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Reflex Command Summary Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: Reflex Command Summary Report\n";
    $cnt++;$oline[$cnt]="Count,Error,Elapsed,Cmd\n";
    foreach $f ( sort { $act_ct[$actx{$b}] <=> $act_ct[$actx{$a}] || $a cmp $b } keys %actx ) {
       $i = $actx{$f};
@@ -4980,8 +5132,9 @@ my $sql_duration;
 
 if ($sqli != -1) {
    $sql_duration = $sql_end - $sql_start;
+   $rptkey = "TEMSREPORT006";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="SQL Summary Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: SQL Summary Report\n";
    $cnt++;$oline[$cnt]="Count,SQL\n";
    foreach $f ( sort { $sql_ct[$sqlx{$b}] <=> $sql_ct[$sqlx{$a}] || $a cmp $b } keys %sqlx ) {
       $i = $sqlx{$f};
@@ -5000,8 +5153,9 @@ if ($sqli != -1) {
    my $sql_rate;
    my $ppc;
    if ($opt_sqldetail == 1) {
+      $rptkey = "TEMSREPORT007";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="SQL Detail Report\n";
+      $cnt++;$oline[$cnt]="$rptkey: SQL Detail Report\n";
       $cnt++;$oline[$cnt]="Type,Count,Duration,Rate/Min,Source,Table,SQL\n";
       $outl = "total" . ",";
       $outl .= $sql_ct_total . ",";
@@ -5056,6 +5210,7 @@ if ($sqli != -1) {
 }
 
 if ($soapi != -1) {
+   $rptkey = "TEMSREPORT008";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="SOAP SQL Summary Report\n";
    $cnt++;$oline[$cnt]="IP,Count,SQL\n";
@@ -5075,7 +5230,7 @@ if ($soapi != -1) {
    if ($soap_rate > $opt_nominal_soap) {
       $soap_pc = int((($soap_rate - $opt_nominal_soap)*100)/$opt_nominal_soap);
       my $ppc = sprintf '%.0f%%', $soap_pc;
-      $advi++;$advonline[$advi] = "SOAP requests per minute $ppc higher then nominal $opt_nominal_soap";
+      $advi++;$advonline[$advi] = "SOAP requests per minute $ppc higher then nominal $opt_nominal_soap - See Report $rptkey";
       $advcode[$advi] = "TEMSAUDIT1014W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "SOAP";
@@ -5092,8 +5247,9 @@ if ($soapi != -1) {
 
 if ($pti != -1) {
    $pt_dur = $pt_etime - $pt_stime;
+   $rptkey = "TEMSREPORT009";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Process Table Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: Process Table Report\n";
    $cnt++;$oline[$cnt]="Process Table Duration: $pt_dur seconds\n";
    $cnt++;$oline[$cnt]="Table,Path,Insert,Query,Select,SelectPreFiltered,Delete,Total,Total/min,Error,Error/min,Errors\n";
    foreach $f ( sort { $pt_total_ct[$ptx{$b}] <=> $pt_total_ct[$ptx{$a}] || $a cmp $b } keys %ptx) {
@@ -5123,8 +5279,9 @@ my $pe_dur;
 my $pevt_size = scalar (keys %pevtx);
 if ($pevt_size > 0) {
    $pe_dur = $pe_etime - $pe_stime;
+   $rptkey = "TEMSREPORT010";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="PostEvent Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: PostEvent Report\n";
 #   $cnt++;$oline[$cnt]="Process Table Duration: $pt_dur seconds\n";
    $cnt++;$oline[$cnt]="Situation,Node,Count,AtomCount,Thrunodes,\n";
    foreach $f ( sort { $pevtx{$b}->{count} <=> $pevtx{$a}->{count} } keys %pevtx) {
@@ -5143,12 +5300,13 @@ if ($pevt_size > 0) {
 
 my $agto_dur = $agto_etime - $agto_stime;
 if ($agto_mult > 0) {
-   $advi++;$advonline[$advi] = "$agto_mult Agents with repeated onlines";
+   $rptkey = "TEMSREPORT011";$advrptx{$rptkey} = 1;         # record report key
+   $advi++;$advonline[$advi] = "$agto_mult Agents with repeated onlines - See Report $rptkey";
    $advcode[$advi] = "TEMSAUDIT1016W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Onlines";
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Multiple Agent online Report - top 20 max\n";
+   $cnt++;$oline[$cnt]="$rptkey: Multiple Agent online Report - top 20 max\n";
    $cnt++;$oline[$cnt]="Node,Online_Count\n";
    my $top_online = 20;
    my $top_current = 0;
@@ -5167,8 +5325,9 @@ if ($agto_mult > 0) {
 
 my $invi = keys %valvx;
 if ($invi > 0) {
+   $rptkey = "TEMSREPORT012";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Invalid Node Name Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: Invalid Node Name Report\n";
    $cnt++;$oline[$cnt]="Node,Count,Type\n";
    foreach $f (sort {$a cmp $b} keys %valvx) {
 # 1.37000 - add 1025E for send event failures, prepare for AOA usage
@@ -5186,8 +5345,9 @@ if ($invi > 0) {
 my $refxi = keys %reflexx;
 if ($refxi > 0) {
    my $refx_ct = 0;
+   $rptkey = "TEMSREPORT013";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Reflex [Action] Command failures\n";
+   $cnt++;$oline[$cnt]="$rptkey: Reflex [Action] Command failures\n";
    $cnt++;$oline[$cnt]="Situation,Status,Count\n";
    foreach $f (sort {$a cmp $b} keys %reflexx) {
       $outl = $f . ",";
@@ -5204,12 +5364,13 @@ if ($refxi > 0) {
 
 my $agtsh_dur = $agtsh_etime - $agtsh_stime;
 if (($agtsh_dur > 0) and ($opt_jitter == 1)) {
+   $rptkey = "TEMSREPORT014";$advrptx{$rptkey} = 1;         # record report key
    my $agtsh_total_multi = 0;
    my $agtsh_jitter_major = 0;
    my $agtsh_jitter_minor = 0;
    my %multi_agent = ();
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Fast Simple Heartbeat report\n";
+   $cnt++;$oline[$cnt]="$rptkey: Fast Simple Heartbeat report\n";
    $cnt++;$oline[$cnt]="Node,Count,RatePerHour,NonModeCount,NonModeSum,InterArrivalTimes\n";
    foreach $f ( sort { $agtsh_ct[$agtshx{$b}] <=> $agtsh_ct[$agtshx{$a}] } keys %agtshx) {
       my $ai = $agtshx{$f};
@@ -5266,7 +5427,7 @@ if (($agtsh_dur > 0) and ($opt_jitter == 1)) {
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
    $cnt++;$oline[$cnt]="$agtsh_dur,\n";
-   $advi++;$advonline[$advi] = "Simple agent Heartbeat total[$agtshi] multi_agent[$agtsh_total_multi] jitter_major[$agtsh_jitter_major] jitter_minor[$agtsh_jitter_minor]";
+   $advi++;$advonline[$advi] = "Simple agent Heartbeat total[$agtshi] multi_agent[$agtsh_total_multi] jitter_major[$agtsh_jitter_major] jitter_minor[$agtsh_jitter_minor]" - see Report $rptkey;
    $advcode[$advi] = "TEMSAUDIT1020W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Sum Jitter";
@@ -5274,6 +5435,7 @@ if (($agtsh_dur > 0) and ($opt_jitter == 1)) {
    # If major jitters, correlate large jitter events over time
 
    if ($agtsh_jitter_major > 0) {
+      $rptkey = "TEMSREPORT015";$advrptx{$rptkey} = 1;         # record report key
       my %jitter_correlate;
       my $ptime;
       for (my $i=0;$i<60;$i++) {
@@ -5316,7 +5478,7 @@ if (($agtsh_dur > 0) and ($opt_jitter == 1)) {
          }
       }
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="Major Jitter Report\n";
+      $cnt++;$oline[$cnt]="$rptkey: Major Jitter Report\n";
       $cnt++;$oline[$cnt]="Minute,Nodes\n";
       foreach $f (sort {$a <=> $b} keys %jitter_correlate) {
          next if $jitter_correlate{$f}{count} == 0;
@@ -5330,13 +5492,20 @@ if (($agtsh_dur > 0) and ($opt_jitter == 1)) {
 }
 
 my $inodex_ct = scalar keys %inodex;
+my $inodea_ct = 0;
 if ($inodex_ct > 0) {
+$DB::single=2;
+   $rptkey = "TEMSREPORT016";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Send Node Status Exception Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: Send Node Status Exception Report\n";
    $cnt++;$oline[$cnt]="Node,Count,Hostaddr,Thrunode,Product,Version\n";
+   my $agent_ct = 0;
    foreach $f ( sort { $a cmp $b } keys %inodex) {
       my $inode_ref = $inodex{$f};
       next if $inode_ref->{count} == 1;
+      $agent_ct += 1;
+      my $tnodea_ct = scalar keys %{$inode_ref->{aff}};
+      $inodea_ct += 1 if $tnodea_ct > 1;
       foreach $g (keys %{$inode_ref->{instances}}) {
          my $inodei_ref = $inode_ref->{instances}{$g};
          $outl = $f . ",";                 # node
@@ -5346,23 +5515,56 @@ if ($inodex_ct > 0) {
          $outl .= $inodei_ref->{product} . ",";
          $outl .= $inodei_ref->{version} . ",";
          $cnt++;$oline[$cnt]=$outl . "\n";
-         $advi++;$advonline[$advi] = "Node $f at $inodei_ref->{hostaddr} has $inodei_ref->{count} sendstatus - possible duplicate agent";
-         $advcode[$advi] = "TEMSAUDIT1033W";
-         $advimpact[$advi] = $advcx{$advcode[$advi]};
-         $advsit[$advi] = "duplicate";
       }
+   }
+$DB::single=2;
+   if ($agent_ct > 0) {
+      $advi++;$advonline[$advi] = "Node [$agent_ct] have multiple sendstatus observed - see $rptkey Report";
+      $advcode[$advi] = "TEMSAUDIT1033W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "duplicate";
    }
 }
 
+if ($inodea_ct > 0) {
+   $rptkey = "TEMSREPORT017";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Send Node Status Affinity Exception Report\n";
+   $cnt++;$oline[$cnt]="Node,Count,Hostaddr,Thrunode,Product,Version\n";
+   foreach $f ( sort { $a cmp $b } keys %inodex) {
+      my $inode_ref = $inodex{$f};
+      next if $inode_ref->{count} == 1;
+      my $tnodea_ct = scalar keys %{$inode_ref->{aff}};
+      next if $tnodea_ct <= 1;
+$DB::single=2;
+      foreach $g (keys %{$inode_ref->{aff}}) {
+         my $inodea_ref = $inode_ref->{aff}{$g};
+         $outl = $f . ",";                 # node
+         $outl .= $inodea_ref->{count} . ",";
+         $outl .= $inodea_ref->{product} . ",";
+         $outl .= $inodea_ref->{affinities} . ",";
+         $outl .= $inodea_ref->{hostaddr} . ",";
+         $outl .= $inodea_ref->{thrunode} . ",";
+         $outl .= $inodea_ref->{version} . ",";
+         $outl .= $inodea_ref->{reserved} . ",";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+      }
+      $advi++;$advonline[$advi] = "Agents [$inodea_ct] have multiple affinities - possible duplicate agent - see $rptkey Report";
+      $advcode[$advi] = "TEMSAUDIT1079W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "duplicate";
+   }
+}
 
 my $timex_ct = scalar keys %timex;
 if ($timex_ct > 0) {
-   $advi++;$advonline[$advi] = "$timex_ct Agent time out messages";
+   $rptkey = "TEMSREPORT018";$advrptx{$rptkey} = 1;         # record report key
+   $advi++;$advonline[$advi] = "$timex_ct Agent time out messages - see $rptkey Report";
    $advcode[$advi] = "TEMSAUDIT1021W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "timeout";
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Agent Timeout Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: Agent Timeout Report\n";
    $cnt++;$oline[$cnt]="Table,Situation,Count\n";
    foreach $f ( sort { $timex{$b}->{count} <=> $timex{$a}->{count} } keys %timex) {
       my $ptable = $f;
@@ -5378,12 +5580,13 @@ if ($timex_ct > 0) {
 }
 
 if ($comme_ct > 0) {
-   $advi++;$advonline[$advi] = "Remote Procedure Connection lost $comme_ct";
+   $rptkey = "TEMSREPORT019";$advrptx{$rptkey} = 1;         # record report key
+   $advi++;$advonline[$advi] = "Remote Procedure Connection lost $comme_ct - see $rptkey Report";
    $advcode[$advi] = "TEMSAUDIT1039W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "RPCFail";
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="RPC Error report\n";
+   $cnt++;$oline[$cnt]="$rptkey: RPC Error report\n";
    $cnt++;$oline[$cnt]="Error,Target,Count\n";
    foreach $f ( sort { $commex{$b}->{count} <=> $commex{$a}->{count} } keys %commex) {
       my $perror = $f;
@@ -5404,8 +5607,9 @@ $hist_elapsed_time = $hist_max_time - $hist_min_time;
 my $time_elapsed;
 
 if ($histi != -1) {
+   $rptkey = "TEMSREPORT020";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Historical Export summary by time\n";
+   $cnt++;$oline[$cnt]="$rptkey: Historical Export summary by time\n";
    $cnt++;$oline[$cnt]="Time,,,,Rows,Bytes,Secs,Bytes_min\n";
    foreach $f ( sort { $histtime[$histtimex{$a}] <=> $histtime[$histtimex{$b}] || $a cmp $b } keys %histtimex ) {
       $i = $histtimex{$f};
@@ -5425,8 +5629,9 @@ if ($histi != -1) {
 
 
 if ($histi != -1) {
+   $rptkey = "TEMSREPORT021";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Historical Export summary by object\n";
+   $cnt++;$oline[$cnt]="$rptkey: Historical Export summary by object\n";
    $cnt++;$oline[$cnt]="Object,Table,Appl,Rowsize,Rows,Bytes,Bytes_Min,Cycles,MinRows,MaxRows,AvgRows,LastRows\n";
    foreach $f ( sort { $hist[$histx{$a}] cmp $hist[$histx{$b}] || $a cmp $b } keys %histx ) {
       $i = $histx{$f};
@@ -5458,8 +5663,9 @@ if ($histi != -1) {
 
 
 if ($histi != -1) {
+   $rptkey = "TEMSREPORT022";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Historical Export summary by Object and time\n";
+   $cnt++;$oline[$cnt]="$rptkey: Historical Export summary by Object and time\n";
    $cnt++;$oline[$cnt]="Object,Table,Appl,Rowsize,Rows,Bytes,Time\n";
 #   foreach $f ( sort { $histobjectx{$a} cmp $histobjectx{$b} } keys %histobjectx ) {
    foreach $f ( sort keys %histobjectx ) {
@@ -5478,11 +5684,13 @@ if ($histi != -1) {
    $outl .= $total_hist_bytes . ",";
    $cnt++;$oline[$cnt]=$outl . "\n";
 }
+
 my %time_slot;
 if ($opt_ri == 1) {
 my $time_slag = 0;
+   $rptkey = "TEMSREPORT023";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Time Slot Result workload\n";
+   $cnt++;$oline[$cnt]="$rptkey: Time Slot Result workload\n";
    $cnt++;$oline[$cnt]="Time,Count,Rows,Bytes,MaxSituation,MaxCount\n";
    foreach $f ( sort { $a <=> $b } keys %resx ) {
       my $res_ref = $resx{$f};
@@ -5521,12 +5729,13 @@ my $time_slag = 0;
 }
 
 if ($atrwx_ct > 0) {
-   $advi++;$advonline[$advi] = "$atrwx_ct Attribute file warning messages";
+   $rptkey = "TEMSREPORT024";$advrptx{$rptkey} = 1;         # record report key
+   $advi++;$advonline[$advi] = "$atrwx_ct Attribute file warning messages - see $rptkey Report";
    $advcode[$advi] = "TEMSAUDIT1030W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "attribute";
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Attribute File Warning Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: Attribute File Warning Report\n";
    $cnt++;$oline[$cnt]="AttributeName,WarningType,\n";
    $cnt++;$oline[$cnt]=",,filename,app,table,column,\n";
    foreach $f ( sort { $a cmp $b } keys %atrwx) {
@@ -5551,10 +5760,11 @@ if ($atrwx_ct > 0) {
 }
 
 if ($loci_ct > 0) {
+   $rptkey = "TEMSREPORT025";$advrptx{$rptkey} = 1;         # record report key
    my $loci_worry = 0;
    my $worry_ct = int(($loci_ct*$opt_nominal_loci)/100);
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Loci Count Report - $loci_ct found\n";
+   $cnt++;$oline[$cnt]="$rptkey: Loci Count Report - $loci_ct found\n";
    $cnt++;$oline[$cnt]="Locus,Count,PerCent,Example_Line\n";
    foreach $f ( sort { $locix{$b}->{count} <=> $locix{$a}->{count} || $a cmp $b } keys %locix) {
       last if $locix{$f}->{count} < $worry_ct;
@@ -5565,7 +5775,7 @@ if ($loci_ct > 0) {
       $loci_worry += 1;
    }
    if ($loci_worry > 0 ) {
-      $advi++;$advonline[$advi] = "$loci_worry worrying diagnostic messages - see later report section";
+      $advi++;$advonline[$advi] = "$loci_worry worrying diagnostic messages - see $rptkey report";
       $advcode[$advi] = "TEMSAUDIT1035W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "diagnostic";
@@ -5574,9 +5784,10 @@ if ($loci_ct > 0) {
 
 
 if ($pcb_deletePCB > 0) {
+   $rptkey = "TEMSREPORT026";$advrptx{$rptkey} = 1;         # record report key
    my $pcb_deletePCB_ct =0;
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Agent connection churning Report - top 95% systems\n";
+   $cnt++;$oline[$cnt]="$rptkey: Agent connection churning Report - top 95% systems\n";
    $cnt++;$oline[$cnt]="ip_address,Count,NewPCB,DeletePCB,Agents(count),\n";
    foreach $f ( sort { $pcbx{$b}->{deletePCB} <=> $pcbx{$a}->{deletePCB} || $a cmp $b } keys %pcbx) {
       my $pcb_ref = $pcbx{$f};
@@ -5595,8 +5806,9 @@ if ($pcb_deletePCB > 0) {
 
 $soaperror_ct = scalar keys %soaperror;
 if ($soaperror_ct > 0) {
+   $rptkey = "TEMSREPORT027";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="SOAP Error Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: SOAP Error Report\n";
    $cnt++;$oline[$cnt]="Count,Fault,\n";
    $cnt++;$oline[$cnt]=",Count,Client,\n";
    foreach $f ( sort { $soaperror{$b}->{count} <=> $soaperror{$a}->{count} } keys %soaperror) {
@@ -5612,8 +5824,9 @@ if ($soaperror_ct > 0) {
 }
 
 if ($change_real > 0) {
+   $rptkey = "TEMSREPORT028";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Agent Flipping Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report\n";
    $cnt++;$oline[$cnt]="Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,\n";
    foreach $f ( sort { $a cmp $b } keys %changex) {
       my $change_ref = $changex{$f};
@@ -5633,8 +5846,9 @@ if ($change_real > 0) {
 }
 
 if ($sit32_total > 0) {
+   $rptkey = "TEMSREPORT029";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Situation Length 32 Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: Situation Length 32 Report\n";
    $cnt++;$oline[$cnt]="Count,Sitname,,\n";
    foreach $f ( sort { $a cmp $b } keys %sit32x) {
       $outl = $sit32x{$f} . ",";
@@ -5695,6 +5909,12 @@ if ($eph_ct > 0) {
       my $ivirtpeer = $recvect_def->{virt_peer};
       my $iephemeral = $recvect_def->{ephemeral};
       my $ithrunode =   $recvect_def->{thrunode};
+      my $iservice_point =   $recvect_def->{service_point};
+      my $iservice_type =   $recvect_def->{service_type};
+      my $idriver =   $recvect_def->{driver};
+      my $ibuild_date =   $recvect_def->{build_date};
+      my $ibuild_target =   $recvect_def->{build_target};
+      my $iprocess_time =   $recvect_def->{process_time};
       $iphyspeer =~ /(.*)\:(.*)/;
       my $isystem = $1;
       my $iport = $2;
@@ -5704,6 +5924,12 @@ if ($eph_ct > 0) {
                           count => 0,
                           pipes => {},
                           thrunode => $ithrunode,
+                          service_point => $iservice_point,
+                          service_type => $iservice_type,
+                          driver => $idriver,
+                          build_date => $ibuild_date,
+                          build_target => $ibuild_target,
+                          process_time => $iprocess_time,
                           ports => {},
                        );
          $phys_ref = \%physref;
@@ -5754,7 +5980,6 @@ if ($ct_rbdup > 0 ) {
             my $physid = "";
             my $path = "";
             my $thrunode = "";
-$DB::single=2 if $g eq "0.0.0.98[7757]";
             ($physid,$path,$thrunode) = getphys($g);
             $physid =~ /(.*)\:(.*)/;
             my $isystem = $1;
@@ -5780,8 +6005,9 @@ $DB::single=2 if $g eq "0.0.0.98[7757]";
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="RB Node Status Unusual Behavior Reports\n";
    if ($ct_rbdup_dupflag > 0) {
+      $rptkey = "TEMSREPORT030";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="RB Duplicate Node Evidence Report\n";
+      $cnt++;$oline[$cnt]="$rptkey: RB Duplicate Node Evidence Report\n";
       $cnt++;$oline[$cnt]="Node,HostAddr,Interval,Dup_count,Reason(s),\n";
       foreach $f ( sort { $rbdupx{$b}->{dupflag} <=> $rbdupx{$a}->{dupflag}
                           || $a cmp $b } keys %rbdupx) {
@@ -5816,14 +6042,15 @@ $DB::single=2 if $g eq "0.0.0.98[7757]";
             }
          }
       }
-      $advi++;$advonline[$advi] = "Duplicate Agent Evidence in $ct_rbdup_dupflag agents - See following report";
+      $advi++;$advonline[$advi] = "Duplicate Agent Evidence in $ct_rbdup_dupflag agents - See $rptkey report";
       $advcode[$advi] = "TEMSAUDIT1068W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
    }
    if ($ct_rbdup_thruchg > 0) {
+      $rptkey = "TEMSREPORT031";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="RB Thrunode Change Report\n";
+      $cnt++;$oline[$cnt]="$rptkey: RB Thrunode Change Report\n";
       $cnt++;$oline[$cnt]="Node,HostAddr,Thrunode_count,Thrunode(s),\n";
       my $max_thruchg = 0;
       foreach $f ( sort { $rbdupx{$b}->{thruchg} <=> $rbdupx{$a}->{thruchg}
@@ -5842,14 +6069,15 @@ $DB::single=2 if $g eq "0.0.0.98[7757]";
          }
          $cnt++;$oline[$cnt]= $f . "," . $hostaddr1 . "," . $rbdup_ref->{thruchg} . "," . $tstring . ",\n";
       }
-      $advi++;$advonline[$advi] = "Agent Thrunode Changing Evidence in $ct_rbdup_thruchg agents max[$max_thruchg] - See following report";
+      $advi++;$advonline[$advi] = "Agent Thrunode Changing Evidence in $ct_rbdup_thruchg agents max[$max_thruchg] - See $rptkey report";
       $advcode[$advi] = "TEMSAUDIT1069W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
    }
    if ($ct_rbdup_system > 0) {
+      $rptkey = "TEMSREPORT032";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="RB Multiple System Report\n";
+      $cnt++;$oline[$cnt]="$rptkey: RB Multiple System Report\n";
       $cnt++;$oline[$cnt]="Node,System_count,System(s),\n";
       my $max_system = 0;
       foreach $f ( sort { $rbdupx{$b}->{system} <=> $rbdupx{$a}->{system}
@@ -5864,15 +6092,17 @@ $DB::single=2 if $g eq "0.0.0.98[7757]";
          }
          $cnt++;$oline[$cnt]= $f . "," . $hstring . ",\n";
       }
-      $advi++;$advonline[$advi] = "Agent Multiple System Evidence in $ct_rbdup_system agents max[$max_system] - See following report";
+      $advi++;$advonline[$advi] = "Agent Multiple System Evidence in $ct_rbdup_system agents max[$max_system] - See $rptkey report";
       $advcode[$advi] = "TEMSAUDIT1073W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
    }
    if ($ct_rbdup_system_ports > 0) {
+      $rptkey = "TEMSREPORT033";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="RB System Multiple Listening Ports Report\n";
+      $cnt++;$oline[$cnt]="$rptkey: RB System Multiple Listening Ports Report\n";
       $cnt++;$oline[$cnt]="Node,PipeAddr,Count,Ports,\n";
+      my $agent_ct = 0;
       foreach $f ( sort { $rbdupx{$b}->{system} <=> $rbdupx{$a}->{system}
                           || $a cmp $b } keys %rbdupx) {
          my $rbdup_ref = $rbdupx{$f};
@@ -5883,17 +6113,22 @@ $DB::single=2 if $g eq "0.0.0.98[7757]";
             my @pastring = keys %{$system_ref->{ports}};
             my $pstring = join(" ",@pastring);
             $cnt++;$oline[$cnt]= $f . "," . $g . "," . $port_ct . "," . $pstring . ",\n";
-            $advi++;$advonline[$advi] = "Agent System $g with with Multiple Listening ports $port_ct - See following report";
-            $advcode[$advi] = "TEMSAUDIT1076W";
-            $advimpact[$advi] = $advcx{$advcode[$advi]};
-            $advsit[$advi] = "$f";
+            $agent_ct += 1;
          }
+      }
+      if ($agent_ct > 0) {
+         $advi++;$advonline[$advi] = "Agent System [$agent_ct] with with Multiple Listening ports - See $rptkey report";
+         $advcode[$advi] = "TEMSAUDIT1076W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "duplicate";
       }
    }
    if ($eph_ports_ct > 0) {
+      $rptkey = "TEMSREPORT034";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="RB System Multiple Listening Ports on Physical Systems Report\n";
+      $cnt++;$oline[$cnt]="$rptkey: RB System Multiple Listening Ports on Physical Systems Report\n";
       $cnt++;$oline[$cnt]="Node,PipeAddr,Count,Ports,\n";
+      my $agent_ct = 0;
       foreach $f ( sort { $a cmp $b } keys %physicalx) {
          my $physical_ref = $physicalx{$f};
          my $port_ct = scalar keys %{$physical_ref->{ports}};
@@ -5901,15 +6136,19 @@ $DB::single=2 if $g eq "0.0.0.98[7757]";
          my @pastring = keys %{$physical_ref->{ports}};
          my $pstring = join(" ",@pastring);
          $cnt++;$oline[$cnt]= $f . "," . $physical_ref->{thrunode} . "," . $port_ct . "," . $pstring . ",\n";
-         $advi++;$advonline[$advi] = "System [$f] with with Multiple Listening ports $port_ct - See following report";
+         $agent_ct += 1;
+      }
+      if ($agent_ct > 0) {
+         $advi++;$advonline[$advi] = "Systems [$agent_ct] with with Multiple Listening ports - See $rptkey report";
          $advcode[$advi] = "TEMSAUDIT1077W";
          $advimpact[$advi] = $advcx{$advcode[$advi]};
-         $advsit[$advi] = "$f";
+         $advsit[$advi] = "duplicate";
       }
    }
    if ($ct_rbdup_hostaddr > 0) {
+      $rptkey = "TEMSREPORT035";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="RB Multiple Hostaddr Report\n";
+      $cnt++;$oline[$cnt]="$rptkey: RB Multiple Hostaddr Report\n";
       $cnt++;$oline[$cnt]="Node,HostAddr_count,HostAddr(s),\n";
       my $max_hostaddr = 0;
       foreach $f ( sort { $rbdupx{$b}->{hostaddr} <=> $rbdupx{$a}->{hostaddr}
@@ -5928,14 +6167,15 @@ $DB::single=2 if $g eq "0.0.0.98[7757]";
          }
          $cnt++;$oline[$cnt]= $f . "," . $rbdupx{$f}->{hostaddr} . "," . $hstring . ",\n";
       }
-      $advi++;$advonline[$advi] = "Agent Multiple Hostaddr Evidence in $ct_rbdup_hostaddr agents max[$max_hostaddr] - See following report";
+      $advi++;$advonline[$advi] = "Agent Multiple Hostaddr Evidence in $ct_rbdup_hostaddr agents max[$max_hostaddr] - See $rptkey report";
       $advcode[$advi] = "TEMSAUDIT1070W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
    }
    if ($ct_rbdup_newonline1 > 0) {
+      $rptkey = "TEMSREPORT036";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="RB Multiple Agent Initial Status Report\n";
+      $cnt++;$oline[$cnt]="$rptkey: RB Multiple Agent Initial Status Report\n";
       $cnt++;$oline[$cnt]="Node,HostAddr,InitialStatus_Count,\n";
       my $max_newonline1 = 0;
       foreach $f ( sort { $rbdupx{$b}->{newonline1} <=> $rbdupx{$a}->{newonline1}
@@ -5950,48 +6190,68 @@ $DB::single=2 if $g eq "0.0.0.98[7757]";
          }
          $cnt++;$oline[$cnt]= $f . "," . $hostaddr1 . "," . $rbdup_ref->{newonline1} . ",\n";
       }
-      $advi++;$advonline[$advi] = "Agent Multiple Initial Status Evidence in $ct_rbdup_newonline1 agents max[$max_newonline1] - See following report";
+      $advi++;$advonline[$advi] = "Agent Multiple Initial Status Evidence in $ct_rbdup_newonline1 agents max[$max_newonline1] - See $rptkey report";
       $advcode[$advi] = "TEMSAUDIT1071W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
    }
    if ($ct_rbdup_simpleneg > 0) {
+      $rptkey = "TEMSREPORT037";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="RB Negative Heartbeat Time Report\n";
+      $cnt++;$oline[$cnt]="$rptkey: RB Negative Heartbeat Time Report\n";
       $cnt++;$oline[$cnt]="Node,Negative_interval(s),\n";
       foreach $f ( sort { $a cmp $b } keys %rbdupx) {
          $rbdup_ref = $rbdupx{$f};
          next if $rbdup_ref->{simpleneg} == 0;
          $cnt++;$oline[$cnt]= $f . "," . $rbdup_ref->{simpleneg} . ",\n";
       }
-      $advi++;$advonline[$advi] = "Agent Negative Heartbeat Time Evidence in $ct_rbdup_simpleneg agents - See following report";
+      $advi++;$advonline[$advi] = "Agent Negative Heartbeat Time Evidence in $ct_rbdup_simpleneg agents - See $rptkey report";
       $advcode[$advi] = "TEMSAUDIT1072W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
    }
 }
 
+$phys_ct = scalar keys %rbdupx;
 if ($phys_ct > 0) {
+      $rptkey = "TEMSREPORT038";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="Pipeline Report\n";
+      $cnt++;$oline[$cnt]="$rptkey: Pipeline Report\n";
       $cnt++;$oline[$cnt]="Node,Thrunode,Physical,Path,Pipeaddr,\n";
       foreach $f ( sort { $a cmp $b } keys %rbdupx) {
          $rbdup_ref = $rbdupx{$f};
          foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{physicals}}) {
             my $phys_ref = $rbdup_ref->{physicals}{$g};
             next if $phys_ref->{path} eq "";
-$DB::single=2;
+#$DB::single=2;
             $cnt++;$oline[$cnt]= $f  . "," . $phys_ref->{thrunode} . "," . $g . "," . $phys_ref->{path} . "," . $phys_ref->{hostaddr} . ",\n";
-$DB::single=2;
-my $x = 1;
+#$DB::single=2;
+#my $x = 1;
          }
       }
 }
 
 if ($eph_ct > 0) {
+   $rptkey = "TEMSREPORT039";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="Receive Vector Report\n";
-   $cnt++;$oline[$cnt]="temsnodeid,phys_addr,phys_count,pipe_addr,pipe_count,xlate,xlate_count,gateway,\n";
+   $cnt++;$oline[$cnt]="$rptkey: Summary Receive Vector Report\n";
+   $cnt++;$oline[$cnt]="temsnodeid,phys_addr,phys_count,pipe_addr,pipe_count,\n";
+   foreach $f ( sort { $a cmp $b } keys %physicalx) {
+      my $phys_ref = $physicalx{$f};
+      foreach $g ( sort { $a cmp $b } keys %{$phys_ref->{pipes}}) {
+         my $pipe_ref = $phys_ref->{pipes}{$g};
+         $outl = $opt_nodeid . ",";
+         $outl .= $f . ",";
+         $outl .= $phys_ref->{count} . ",";
+         $outl .= $pipe_ref->{count} . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+         last;
+      }
+   }
+   $rptkey = "TEMSREPORT040";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Detail Receive Vector Report\n";
+   $cnt++;$oline[$cnt]="temsnodeid,phys_addr,phys_count,pipe_addr,pipe_count,xlate,xlate_count,gateway,service_point,service_type,driver,build_date,build_target,process_time,\n";
    foreach $f ( sort { $a cmp $b } keys %physicalx) {
    my $phys_ref = $physicalx{$f};
       foreach $g ( sort { $a cmp $b } keys %{$phys_ref->{pipes}}) {
@@ -6006,16 +6266,24 @@ if ($eph_ct > 0) {
             $outl .= $h . ",";
             $outl .= $ephem_ref->{count} . ",";
             $outl .= $ephem_ref->{gate} . ",";
+            $outl .= $phys_ref->{service_point} . ",";
+            $outl .= $phys_ref->{service_type} . ",";
+            $outl .= $phys_ref->{driver} . ",";
+            $outl .= $phys_ref->{build_date} . ",";
+            $outl .= $phys_ref->{build_target} . ",";
+            $outl .= $phys_ref->{process_time} . ",";
             $cnt++;$oline[$cnt]="$outl\n";
          }
       }
    }
 }
 
+
 my $dnode_ct = scalar keys %dnodex;
 if ($dnode_ct > 0) {
+   $rptkey = "TEMSREPORT041";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="Node Validity Duplicate Node Report\n";
+      $cnt++;$oline[$cnt]="$rptkey: Node Validity Duplicate Node Report\n";
       $cnt++;$oline[$cnt]="Count,Node,Thrunode,Product,Thrunode_new,Product_new,\n";
       foreach $f ( sort { $dnodex{$b}->{count} <=>  $dnodex{$a}->{count} || $a cmp $b } keys %dnodex) {
          my $dnode_ref = $dnodex{$f};
@@ -6027,10 +6295,10 @@ if ($dnode_ct > 0) {
          $outl .= $dnode_ref->{product_new} . ",";
          $cnt++;$oline[$cnt]= "$outl\n";
       }
-      $advi++;$advonline[$advi] = "KFA Node Validity detected $dnode_ct potential duplicate agent name cases - See following report";
-      $advcode[$advi] = "TEMSAUDIT1078E";
-      $advimpact[$advi] = $advcx{$advcode[$advi]};
-      $advsit[$advi] = "TEMS";
+   $advi++;$advonline[$advi] = "KFA Node Validity detected $dnode_ct potential duplicate agent name cases - See $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1078E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
 
 }
 
@@ -6071,6 +6339,7 @@ if ($advi != -1) {
                           $advonline[$advx{$a}] cmp $advonline[$advx{$b}]
                         } keys %advx ) {
       my $j = $advx{$f};
+      next if $advimpact[$j] == -1;
       print OH "$advimpact[$j],$advcode[$j],$advsit[$j],$advonline[$j]\n";
       $max_impact = $advimpact[$j] if $advimpact[$j] > $max_impact;
       $advgotx{$advcode[$j]} = $advimpact[$j];
@@ -6088,8 +6357,22 @@ if ($advi != -1) {
    print OH "\n";
    print OH "Advisory Trace, Meaning and Recovery suggestions follow\n\n";
    foreach $f ( sort { $a cmp $b } keys %advgotx ) {
+      next if substr($f,0,9) ne "TEMSAUDIT";
       print OH "Advisory code: " . $f  . "\n";
       print OH "Impact:" . $advgotx{$f}  . "\n";
+#     print STDERR "$f missing\n" if !defined $advtextx{$f};
+      print OH $advtextx{$f};
+   }
+}
+
+my $rpti = scalar keys %advrptx;
+if ($rpti != -1) {
+   print OH "\n";
+   print OH "TEMS Audit Reports - Meaning and Recovery suggestions follow\n\n";
+   foreach $f ( sort { $a cmp $b } keys %advrptx ) {
+      next if !defined $advrptx{$f};
+      print STDERR "$f missing\n" if !defined $advtextx{$f};
+      print OH "$f\n";
       print OH $advtextx{$f};
    }
 }
@@ -6133,7 +6416,7 @@ if ($opt_eph == 1) {
    if ($eph_ct > 0) {
       my $opt_eph_fn = $opt_ephdir . $opt_nodeid . "_ephemeral_detail.txt";
       open EPH, ">$opt_eph_fn" or die "Unable to open Ephemeral Detail output file $opt_eph_fn\n";
-      print EPH "temsnodeid,eph_addr,pipe_addr,fixup,phys_self,phys_peer,virt_self,virt_peer,ephemeral,\n";
+      print EPH "temsnodeid,eph_addr,pipe_addr,fixup,phys_self,phys_peer,virt_self,virt_peer,ephemeral,service_point,service_type,driver,build_date,build_target,process_time\n";
       foreach $f ( sort { $a cmp $b } keys %recvectx) {
          my $recvect_def = $recvectx{$f};
          $outl = $recvect_def->{thrunode} . ",";
@@ -6145,13 +6428,17 @@ if ($opt_eph == 1) {
          $outl .= $recvect_def->{virt_self} . ",";
          $outl .= $recvect_def->{virt_peer} . ",";
          $outl .= $recvect_def->{ephemeral} . ",";
+         $outl .= $recvect_def->{service_point} . ",";
+         $outl .= $recvect_def->{service_type} . ",";
+         $outl .= $recvect_def->{driver} . ",";
+         $outl .= $recvect_def->{build_date} . ",";
+         $outl .= $recvect_def->{build_target} . ",";
+         $outl .= $recvect_def->{process_time} . ",";
          print EPH "$outl\n";
       }
       close EPH;
    }
 }
-
-
 
 if ($opt_sum != 0) {
 # REFIC 90 910 77.83% 06.30.05 chub-gt6-mw1 13532 https://ibm.biz/BdFrJL
@@ -6628,10 +6915,12 @@ exit;
 #          Eliminate Bad Port report and add Multiple Listening port report
 #          Add KFA Validity Node duplicate agent report
 #          Revise GSKit error - handle all error codes
+#1.71000 - Advisory on KDEB_INTERFACELIST and KDCB0_HOSTNAME
+#        - Advisory on same agent name different affinity
+#        - Added inline report explanations.
 
 # Following is the embedded "DATA" file used to explain
-# advisories the the report. It replicates text in
-# Appendix 2 of TEMS Audit Users Guide.docx
+# advisories and reports.
 __END__
 TEMSAUDIT1001W
 Text: num Filter object(s) too big situations and/or reports
@@ -8102,14 +8391,1133 @@ investigate the agent systems to diagnose and correct the issues.
 TEMSAUDIT1078E
 Text: KFA Node Validity detected count potential duplicate agent name cases - See following report
 
-
 Tracing: error
 5970DEB6.0002-2E:kfavalid.c,773,"KFA_ValidateNodeNameSpace") Potential DUPLICATE NODE INSERT detected
 
 Meaning: Hub TEMS node validity checking very likely duplicate
 agent name condition.
 
+Recovery plan:  Review the supplied report section and
+investigate the agent systems to diagnose and correct the issues.
+----------------------------------------------------------------
+
+TEMSAUDIT1079W
+Text:  Node node at ip_addr has $tnodea_ct affinities - See following report
+
+Tracing: error (UNIT:kfaprpst ER ST) (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
+(5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+(58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
+
+Meaning: The same agent name is showing as having different affinities.
+This could mean agents running at different maintenance levels, a
+truncated agent name, or incorrect usage of Agent configuration
+controls, especially CTIRA_SUBSYSTEM_ID which contradict the agent name
+versus the actual type of agent.
 
 Recovery plan:  Review the supplied report section and
 investigate the agent systems to diagnose and correct the issues.
 ----------------------------------------------------------------
+
+TEMSAUDIT1080E
+Text:  KDEB_INTERFACELIST[value] and KDCB0_HOSTNAME[value] conflict
+
+Tracing: error
+(5914DB2A.0065-6:kbbssge.c,72,"BSS1_GetEnv") KDEB_HOSTNAME=KDCB0_HOSTNAME="it06qam020xjbxm"
+(5914DB2A.0064-6:kbbssge.c,72,"BSS1_GetEnv") KDEB_INTERFACELIST="!158.98.138.32"
+
+Meaning: The KDEB_INTERFACELIST with ! means an exclusive bind to an
+interface. KDCB0_HOSTNAME means a nonexclusive bind to a interface
+and this one overrides the first. Thus the result may be very different
+than the user intended.
+
+If the KDEB_INTERFACELIST does not have an ! to start, it may work
+OK. This form means a statement about which interface to be advertised
+first. If the values are different some agents may not be able to
+connect to the TEMS as expected.
+
+
+Recovery plan:  Best would be to remove the KDCB0_HOSTNAME from
+config/kbbenv.ini and tables/<temsnodeid>/KBBENV and whereever else
+found. That way KDEB_INTERFACELIST can keep the value configued.
+----------------------------------------------------------------
+
+TEMSREPORT001
+Text: Too Big Report
+
+Tracing: error (unit:kpxrpcrq,Entry="IRA_NCS_Sample" state er)
+(53CD5BBD.0000-1B:kpxreqds.cpp,1723,"buildThresholdsFilterObject") Filter object too big (60320 + 24958),Table NTEVTLOG Situation KQ5_EVTLog_CA_Cluster2_C.
+
+Meaning: When a situation is starting the formula is converted into
+to binary objects [plan and pool] If either of these are larger
+than 32767 bytes, they are not transmitted to the agent. Instead
+the agent receives an empty filter. Each cycle the agent sends
+all possible rows to the TEMS. The TEMS then does the needed filtering
+
+The impact is often a performance disaster. The TEMS is overwhelmed
+with work and goes unstable. That is not always true: for example
+if relatively few agents are running the situation and there are
+not many result rows. However that no problem condition is rare.
+
+The condition can be detected during situation development by
+editing the product provided TEMS_Alert situation, distributing
+to *ALL_CMS and auto-starting. When the condition occurs a
+situation event will be seen.
+
+This condition is often surprising. That is mostly because the
+situation editor shows a per cent full. However that is just the
+first of 5 different situation limit. The Filter Object too
+big is the 4th.
+
+Recovery plan:  The situation should be divided into multiple
+situations. There is no alternative.
+----------------------------------------------------------------
+
+TEMSREPORT002
+Text: Summary Statistics
+
+Tracing: error (unit:kpxrpcrq,Entry="IRA_NCS_Sample" state er)
+
+Meaning:
+This presents the impact of incoming result data from agents.
+The "Total Results per minute" is probably most important.
+Experience shows that a rate of 500,000 bytes per minute is
+easily sustainable. Depending on system power and storage
+higher incoming rates can be accommodated. At 5megs/min is
+problems are usually seen. The highest ever measured
+was 127 megs/min and the TEMS was in a sorry state.
+
+Summary Statistics
+Duration (seconds),,,23138
+Total Count,,,45316
+Total Rows,,,33545
+Total Result (bytes),,,12239004
+Total Results per minute,,,31737
+
+The trace report was added because one TEMS was seen
+with RAS1=ALL and the TEMS was just barely surviving.
+The KBB_RAS1 line was captured from startup. The TEMS
+might well have run with another dynamically set trace.
+
+KBB_RAS1= ERROR (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" OUT ER) ...
+Trace duration (seconds),,,30938
+Trace Lines Per Minute,,,178
+Trace Bytes Per Minute,,,29473
+
+The No Matching Request line shows severe TEMS stress. A real-time
+data request was made, the request timed out and later the agent
+returned data which was discarded of course. A well running TEMS
+never sees this issue.
+
+Sample No Matching Request count,,,14,
+
+Following is the report section that shows which situations or
+real time request are causing the most data to be returned. The
+largest contributors are shown first. This is a relatively lightly
+running system and HEARTBEATs [technically node status updates]
+dominate at 43% of the bytes. More often one or more situations
+totally dominate. By stopping or rethinking those the workload
+stress can be relieved. This is often not seen as high CPU.
+TEMS has a lot of internal locking and the effect is a lot of
+ waiting and general slow processing.
+
+Situation Summary ReportSituation,Table,Count,Rows,ResultBytes,Result/Min,Fraction,Cumulative%,MinResults,MaxResults,MaxNode
+HEARTBEAT,*.RNODESTS,23821,23821,5240620,13589,42.82%,42.82%,220,220,mla_udmypdmdb01:07
+all_logscrp_x07w_aix,*.K07K07LGS0,7614,7614,5086152,13189,41.56%,84.37%,668,1336,mla_au122db1080mlax2:07
+all_svc_gntw_win_3,*.NTSERVICE,800,576,845568,2192,6.91%,91.28%,0,1468,mla_au13uap203mlaw2:NT
+all_lastbkp_gudw_db2,*.KUD3437600,160,315,522900,1355,4.27%,95.55%,0,4980,db2inst1:mla_uqmyposms1:UD
+... more follow
+
+Following is a second sorting of report that shows which
+managed systems are sending the most result data and what
+the peak contributing situation is.
+
+Managed System Summary Report - non-HEARTBEAT situations
+Node,Table,Count,Rows,ResultBytes,Result/Min,MinResults,MaxResults,MaxSit
+db2inst1:mla_uqmyposms1:UD,*.KUD3437600,158,315,522900,1355,3320,4980,all_lastbkp_gudw_db2
+mla_norfolk:NT,*.NTPROCESS,120,84,106092,275,0,1468,all_svc_gntw_win_3
+mla_au12uap202mlaw2:NT,*.NTPAGEFILE,103,65,94848,245,0,1468,all_svc_gntw_win_3
+... more follow
+
+Recovery plan: If the workload is high reduce it by stopping or
+reworking situations or other workload elements. If needed
+split the agent workload over multiple remote TEMS.
+----------------------------------------------------------------
+
+TEMSREPORT003
+Text: Situation Result Over Time Report [Top 5 situation contributors] and Result Graph
+
+Tracing: error (unit:kpxrpcrq,Entry="IRA_NCS_Sample" state er)
+Parameter added -rd
+
+Meaning:
+
+The first extra report shows a minute by minute presentation of
+incoming results and the top 5 contributors. This can be very
+helpful in understanding burst behavior. In one case a burst of
+139 megs was arriving every 15 minutes which crushed remote TEMS
+processing ... even though the long term average wasnít so bad.
+
+201702161534,,151,37,13684,
+,HEARTBEAT,31,31,6820,49.84%,49.84%,
+,has_zom_rlzc_redhat,9,5,5720,41.80%,91.64%,
+,cur_zom_rlzc_redhat,1,1,1144,8.36%,100.00%,
+
+201702161535,,383,75,37060,
+,am3_dcss_g3zc_adv3,4,8,11712,31.60%,31.60%,
+,HEARTBEAT,50,50,11000,29.68%,61.28%,
+,has_zom_rlzc_redhat,9,5,5720,15.43%,76.72%,
+,cur_zom_rlzc_redhat,2,3,3432,9.26%,85.98%,
+,has_dbstat_gudc_db2,1,1,1852,5.00%,90.98%,
+
+
+This linear report is followed by a graphical display. Here is an extract
+
+Situation Result Over Time Graph - peak rate is 1303148 bytes per minute
+Each hour is shown, each column is a minute, numbers represent 10 minutes
+
+                           .              .              .
+           .               .              .              .
+           ..             ..             ..             ..
+           ..             ..             ..             ..
+           ..             ..             ..             ..
+           ..             ..             ..             ..
+2017021616 0_________1_________2_________3_________4_________5__________
+
+Each column represents 10% of the maximum, rounded to nearest 10%. This
+pattern seems to show a burst roughly every fifteen minutes. In this case
+the detailed report looked like
+
+201702161600,,54,806,650316,
+,(NULL)-*.KVMSERVERN,2,216,173664,26.70%,26.70%,
+,(NULL)-*.KVMSERVRDS,2,238,171360,26.35%,53.05%,
+,(NULL)-*.KVMVMDSUTL,2,234,137592,21.16%,74.21%,
+,(NULL)-*.KVMSERVERG,2,54,123552,19.00%,93.21%,
+,(NULL)-*.KVMCLUSTRT,2,16,13952,2.15%,95.36%,
+
+The workload was not situation related but was likely driven by a TEPS
+workspace summary display against KVM servers. Peak rate was only
+1.3 megs/minute and so probably sustainable.
+----------------------------------------------------------------
+
+TEMSREPORT004
+Text: Endpoint Communication Problem Report
+
+Tracing: error
+
+Meaning:
+
+Code,Text,Count,Source,Level
+1C010001:1DE0000F, Endpoint unresponsive,3,
+,,3,ip.spipe:#10.230.2.45:3660,tms_ctbs630fp7:d6305a,
+
+This reports on ITM communications failures. In any large environment,
+there are usually some number of these. If there are a lot of them
+there may be network issues or the TEMS or the agent can be overloaded.
+In this case a hub TEMS saw time outs talking to one remote TEMS and
+that could mean an overloaded remote TEMS.
+
+Recovery plan: There is no specific recovery plan. If there are
+a lot of these the condition should be investigated and resolved.
+----------------------------------------------------------------
+
+TEMSREPORT005
+Text: Reflex Command Summary Report
+
+Tracing: error (unit:kraafira,Entry="runAutomationCommand" all)(unit:kglhc1c all)
+
+Meaning:
+
+First section shows the action commands run and counts.
+
+Count,Error,Elapsed,Cmd
+1651,0,1649,"/opt/IBM/ITM/scripts/bsm_history.pl ""MHC_COG_SU_Marketing_Tx"" 'RRT_Response_Time_Critical' 3 ""1170306151941000"" 5 ""Performance degraded"" >/dev/null"
+duration 1651,1649,1651,0,
+
+The second part shows the maximum simultaneous number seen operating
+at one time. All commands run in the same process space as the TEMS
+and as subprocesses. There have been cases where hundreds ran at the
+same time and destabilized the TEMS.
+
+Maximum action command overlay - 32
+Seq,Command
+0,/opt/IBM/ITM/scripts/bsm_history.pl "MHC_SAP_SMP_Login_Tx" 'RRT_Response_Time_Critical' 3 "1170306152002000" 5 "Performance degraded" >/dev/null,
+1,/opt/IBM/ITM/scripts/bsm_history.pl "MHC_SAP_SMP_Login_Tx" 'RRT_Response_Time_Critical' 3 "1170306151944000" 5 "Performance degraded" >/dev/null,
+2,/opt/IBM/ITM/scripts/bsm_history.pl "MHC_COG_SU_Marketing_Tx" 'RRT_Response_Time_Critical' 3 "1170306151947000" 5 "Performance degraded" >/dev/null,
+
+Action commands running at the time can be very intensive and can
+even trigger TEMS instability. Avoid that by limiting such usage.
+The highest intensity is when the action command is configured to
+run on each evaluation, not just the first time. That is rarely
+useful and should be avoided.
+
+Recovery plan: Mimimize the number of action commands.
+----------------------------------------------------------------
+
+TEMSREPORT006
+Text: SQL Summary Report
+
+Trace: error (unit:kdssqprs in metrics er)
+
+Meaning:
+
+Count,SQL
+1655,User=SRVR01 Net=ip.spipe:#167.192.1.21[3660].,"SELECT NODE, THRUN
+232,User=sufuser Net=ip.ssl:#129.39.23.53:52078.,"INSERT INTO O4SRV.TS
+151,User=KSH Net=ip.ssl:#129.39.23.53:52072.,"SELECT SITNAME, ORIGINNO
+80,User=SRVR01 Net=ip.spipe:#100.66.233.8[3660].,"SELECT AFFINITIES,HO
+75,User=KSH Net=ip.ssl:#129.39.23.53:52085.,"SELECT SITNAME, ORIGINNOD
+
+This report shows the SQL being processed by the TEMS. If this is high
+it may imply a work overload at the TEMS.
+
+Recovery plan: If too high reduce it or create more remote TEMSes
+to handle the workload.
+----------------------------------------------------------------
+
+TEMSREPORT007
+Text: SQL Detail Report
+
+Trace: error (unit:kdssqprs in metrics er)
+Parameter added -sqldetail
+
+Meaning:
+
+Type,Count,Duration,Rate,Source,Table,SQL
+total,2527,4609,32.90,
+source,911,4993,10.95,User=SRVR01 Net=ip.spipe:#167.192.1.21[3660].,      table,896,4993,10.77,,O4SRV.INODESTS,
+sql,881,4993,10.59,,,SELECT NODE, THRUNODE, HOSTADDR  FROM O4SRV.INODESTS sql,15,4431,0.20,,,SELECT ORIGINNODE, PRODUCT, O4ONLINE, THRUNODE,
+table,15,4683,0.19,,O4SRV.TNODELST,
+sql,15,4683,0.19,,,SELECT NODELIST,AFFINITIES,NODE,LSTDATE,LSTUSRPRF,NODET
+
+This is a detailed report showing the source of SQL, the tables
+involved and the SQL statement instances. In this case the SQLs
+were being processed 32.90 times a minute. The source was probably
+another TEMS [based on the 3660 port]. The table involved was
+INODESTS or the in-core node status table.
+
+This can reflect a work overload condition. In one case the high
+SQL came from agents that were supposed to have been taken out
+of service.
+
+
+Recovery plan: If too high reduce it or create more remote TEMSes
+to handle the workload.
+----------------------------------------------------------------
+
+TEMSREPORT008
+Text: SOAP SQL Summary Repor
+
+Trace: error (unit:kshdhtp,Entry="getHeaderValue"  all) (unit:kshreq,Entry="buildSQL" all)
+
+Meaning:
+IP,Count,SQL
+ip.ssl:#127.0.0.1:41067,83,"SELECT NODE, AFFINITIES FROM O4SRV.TNODELST WHERE NODELIST='*HUB'"
+ip.ssl:#127.0.0.1:41067,83,"SELECT VALUE FROM O4SRV.TSYSVAR WHERE NAME ='KT1_TEMS_SECURE'"
+ip.ssl:#127.0.0.1:41067,39,"SELECT NODELIST FROM O4SRV.TNODELST WHERE NODE='REMOTE_uswhram022hasra' AND NODETYPE='M'"
+ip.ssl:#127.0.0.1:41067,39,"SELECT THRUNODE, AFFINITIES FROM O4SRV.INODESTS WHERE NODE='REMOTE_uswhram022hasra' "
+ip.ssl:#127.0.0.1:59724,37,"SELECT THRUNODE, AFFINITIES, VERSION, O4ONLINE FROM O4SRV.INODESTS WHERE NODE='has_D219421VCSS0001: NT'"
+
+This shows the SQLs coming through SOAP and the origin. 127.0.0.1
+means it was run on the hub TEMS itself. These are often tacmd
+functions which use SOAP for many functions. There have been cases
+where so many tacmd functions were run that the hub TEMS became
+unstable. Thus caution should be observed.
+
+
+Recovery plan: If too high reduce the number of SQLs. That usually
+means changing the schedule of when SOAP tasks are run. The
+can include tacmd functions in a shell script.
+----------------------------------------------------------------
+
+TEMSREPORT008
+Text: SOAP SQL Summary Repor
+
+Trace: error (unit:kshdhtp,Entry="getHeaderValue"  all) (unit:kshreq,Entry="buildSQL" all)
+
+Meaning:
+IP,Count,SQL
+ip.ssl:#127.0.0.1:41067,83,"SELECT NODE, AFFINITIES FROM O4SRV.TNODELST WHERE NODELIST='*HUB'"
+ip.ssl:#127.0.0.1:41067,83,"SELECT VALUE FROM O4SRV.TSYSVAR WHERE NAME ='KT1_TEMS_SECURE'"
+ip.ssl:#127.0.0.1:41067,39,"SELECT NODELIST FROM O4SRV.TNODELST WHERE NODE='REMOTE_uswhram022hasra' AND NODETYPE='M'"
+ip.ssl:#127.0.0.1:41067,39,"SELECT THRUNODE, AFFINITIES FROM O4SRV.INODESTS WHERE NODE='REMOTE_uswhram022hasra' "
+ip.ssl:#127.0.0.1:59724,37,"SELECT THRUNODE, AFFINITIES, VERSION, O4ONLINE FROM O4SRV.INODESTS WHERE NODE='has_D219421VCSS0001: NT'"
+
+This shows the SQLs coming through SOAP and the origin. 127.0.0.1
+means it was run on the hub TEMS itself. These are often tacmd
+functions which use SOAP for many functions. There have been cases
+where so many tacmd functions were run that the hub TEMS became
+unstable. Thus caution should be observed.
+
+
+Recovery plan: If too high reduce the number of SQLs. That usually
+means changing the schedule of when SOAP tasks are run. The
+can include tacmd functions in a shell script.
+----------------------------------------------------------------
+
+TEMSREPORT009
+Text: Process Table Report
+
+Trace: error (unit:kdsstc1,Entry="ProcessTable" all er)
+
+Meaning
+Process Table Duration: 92 seconds
+Table,Path,Insert,Query,Select,SelectPreFiltered,Delete,Total,Total/min,Error,Error/min,Errors
+CHK532600,,0,0,0,39,0,39,25,39,25, 74,
+NTSERVICE,NTSERVICE,0,0,19,0,0,19,12,19,12, 74,
+NTPROCESS,NTPROCESS,0,0,0,10,0,10,6,10,6, 74,
+KA4PFJOB,,0,0,0,8,0,8,5,8,5, 74,
+
+This report summarizes the completion of each SQL process. If the
+numbers of a table is very high that can result can indicate a overload
+work condition. The resolution is to reduce the workload or run on a
+more powerful system.
+
+Recovery plan: Evaluate workload and reduce if needed. In
+large environments this could mean creating a second hub TEMS.
+----------------------------------------------------------------
+
+TEMSREPORT010
+Text: PostEvent Report
+
+Trace: error (unit:kfastpst,Entry="KFA_PostEvent" all er)
+
+Meaning
+Situation,Node,Count,AtomCount,Thrunodes,
+has_fss_rlzw_redhat,has_usdaram012hasra:LZ,48,1,REMOTE_uswhram012hasra,
+all_svrtsmr_gvmw_esx,VM:vcs2002-d122835esxs2402:ESX,46,1,REMOTE_uswhram022hasra,
+all_svrtsmr_gvmw_esx,VM:vcs2002-d122835esxs2404:ESX,36,1,REMOTE_uswhram022hasra,
+all_svrtsmr_gvmw_esx,VM:vcs2002-d122835esxs2403:ESX,31,1,REMOTE_uswhram022hasra,
+
+This is seen at the hub TEMS and it shows the number of events
+arriving. If the numbers are very high this can severely impact
+the hub TEMS and the TEPS. Situations should be rare and
+exceptional reports and not arrive in floods.
+
+Recovery plan: Evaluate workload and reduce if needed.
+----------------------------------------------------------------
+
+TEMSREPORT011
+Text: Multiple Agent online Report - top 20 max
+
+Trace: error
+
+Meaning
+UMBSRVCTXDEV:XA,903,
+coibmrppaix01:KUX,195,
+coibmrppaix01:KUL,186,
+coibmptpaix01:KUL,174,
+
+The diagnostic log shows that agents were coming online over
+and over. That often suggests that different systems are running
+agents with the same name. That is a problem since ITM expects
+to have unique names. It also means that only one agent at a time
+is being monitored. Also the condition can cause TEMS instability.
+Usually you need IBM Support to track down the duplications.
+
+Recovery plan: Eliminate duplicate name agents.
+----------------------------------------------------------------
+
+TEMSREPORT012
+Text: Invalid Node Name Repor
+
+Trace: error
+
+Meaning
+Node,Count,Type
+VM::v5wvcs01-a0001peenxg0001:ESX,1, Validation for affinity failed.,
+VM:v5wvcs01-a001p5eenxg0002:ESX ,1, Validation for affinity failed.,
+VM:v5wvcs03-a00001p5eenxg0006:EX,2, Validation for affinity failed.,
+PRR-Contabilit√ :Grp            ,1, Validation for node failed.,
+
+Nodes and nodelists can be invalid for several reasons. In some
+cases illegal characters are used in others [like this case]
+application support is missing. From ITM 630 on such agents are
+rejected by default and so monitoring is not being performed as
+expected. Names should be changed to legal names and application
+support should be added to increase the quality of monitoring.
+
+Recovery plan: Reconfigure agents with invalid names.
+----------------------------------------------------------------
+
+TEMSREPORT013
+Text: Reflex [Action] Command failures
+
+Trace: error
+
+Meaning
+Situation,Status,Count
+Mem_NT_SCRIPT,4,19,
+
+An intended action command failed. This needs to be researched
+otherwise the expected command does not run. The Status is platform
+dependent. The status 4 usually means an exception or crash.
+
+Recovery plan: Correct invalid action commands
+----------------------------------------------------------------
+
+TEMSREPORT014
+Text: Fast Simple Heartbeat report
+
+Trace: error (UNIT:kfaprpst ER ST)
+
+Meaning
+
+Node,Count,RatePerHour,NonModeCount,NonModeSum,InterArrivalTimes
+gto_rep69alll:Warehouse,388,6.00980982703726,6,198,600=381;633=3;567=3;,
+gto_it06qam020xjbxm:Warehouse,387,5.99432062645211,1,303,903=1;600=385;,
+gto_it06qam010xjbxm:Warehouse,387,5.99432062645211,1,345,600=385;945=1;,
+
+The goal here is to show the inter-arrival time of agent node
+status updates. The first one shows must 600 seconds [10 minutes]
+but there were 3 at 33 seconds early and 3 at 33 seconds late. If
+there is a tremendous variability, that suggests that the TEMS
+is overloaded or a network problem. TEMS is a real-time system
+in many ways and so it should be run with enough capacity to handle
+the ebbs and flows of activity.
+
+An overloaded TEMS does not usually show as high CPU. There is a
+lot of internal locking and the result is usually just a slowdown
+of normal processes.
+
+Recovery plan: Correct agent balance and configuration to make
+sure heartbeats arrive smoothly.
+----------------------------------------------------------------
+
+TEMSREPORT015
+Text: Major Jitter Report
+
+Trace: error (UNIT:kfaprpst ER ST)
+Parameter: -jitter
+
+Meaning
+
+Minute,Nodes
+02,gto_it01qam010xjbxm:Warehouse|647|1170328050232000
+03,gto_it01qam020xjbxm:Warehouse|690|1170328050332000
+21,rep70alll:Warehouse|27|1170325162113000
+21,rep70alll:Warehouse|27|1170327002113000
+
+This reports the second of the minute when agents send status
+which are far away from the expected regular timing.
+
+This report defaults to off, largely replaced by the
+more advanced RB reports later on.
+
+Recovery plan: Correct agent balance and configuration to make
+sure heartbeats arrive smoothly.
+----------------------------------------------------------------
+
+TEMSREPORT016
+Text: Send Node Status Exception Report
+
+Trace: error (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
+
+Meaning
+
+Node,Count,Hostaddr,Thrunode,Product,Version
+UITASM1A:KA4,1,ip.pipe:#10.75.200.108[10111]<NM>UITASM1A</NM>,REMOTE_USWS0047,A4,06.21.00,
+UITASM1A:KA4,1,ip.pipe:#10.75.200.109[6015]<NM>UITASM1X</NM>,REMOTE_USWS0047,A4,06.21.00,
+UITASM1A:KA4,1,ip.pipe:#10.75.200.109[6015]<NM>UITASM1A</NM>,REMOTE_USWS0047,A4,06.21.00,
+
+This records a time when a remote TEMS sends an updated agent
+status to a hub TEMS. If this occurs a lot that may indicate
+duplicate agents or some other agent misconfiguration or perhaps
+a network issues.
+
+Recovery plan: Correct agent balance and configuration to make
+sure heartbeats arrive smoothly.
+----------------------------------------------------------------
+
+TEMSREPORT017
+Text: Send Node Status Affinity Exception Report
+
+Trace: error (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
+
+Meaning
+
+[example report to be added]
+
+This records a time when a remote TEMS sends an updated agent
+status to a hub TEMS. The exception is when multiple affinities
+are seen for one agent name. This is a clear indication of
+duplicate agent names. The condition could be on the same system
+or several different systems.
+
+Recovery plan: Correct agent name and configuration to rectify
+this confition.
+----------------------------------------------------------------
+
+TEMSREPORT018
+Text: Agent Timeout Report
+
+Trace: error
+
+Meaning
+
+Table,Situation,Count
+KISMSTATS,KIS_Bridge_Inactive,1,
+KISMSTATS,KIS_HTTPS_Inactive,1,
+KISMSTATS,KIS_HTTP_Inactive,1,
+KISMSTATS,KIS_TCPPORT_Inactive,1,
+FILEINFO,HUB_UX_SizFilSys_Mi_ALL_1,1,
+
+This relates to a TEMS attempting to communicate with an agent
+concerning a situation. That usually happens when the agent has
+registered with the TEMS but is not ready for full communications.
+To understand what agent is involved you needed added kpx tracing
+to see the agent address and timing and context.
+
+Small numbers of these are normal. During the TEMS startup
+occasionaly an agent will be in the middle of registering but
+agent is not equipped to do communications with TEMS yet. The
+TEMS attempts to start a situation or something and it faile.
+There is no harm since the functoion is retried later.
+
+Recovery plan: If this happens a lot work with IBM Support to
+diagnose the issue.
+----------------------------------------------------------------
+
+TEMSREPORT019
+Text: RPC Error report
+
+Trace: error
+
+Meaning
+
+Error,Target,Count
+1C010001:1DE0004D,ip.spipe:#10.230.2.44:3660,1,
+1C010001:1DE0004D,ip.spipe:#10.231.46.80:3660,4,
+
+This reports on Remote Procedure Call errors. These can indicate
+network or TEMS or Agent workload issues.
+
+Recovery plan: If this happens a lot work with IBM Support to
+diagnose the issue.
+----------------------------------------------------------------
+
+TEMSREPORT020
+Text: Historical Export summary by time
+
+Trace: error (unit:khdxdacl,Entry="routeExportRequest" state er)
+(unit:khdxdacl,Entry=" routeData" detail er)
+
+Meaning
+
+Time,,,,Rows,Bytes,Secs,Bytes_min
+1605160900,,,,184645,81023272,1077,4513831,
+*total,1076,,,0,0,
+
+For large environments it is best practice to collect data at the
+agents and export to the WPA from the agents. However if you do
+collect at the TEMS and export, this tells you how much data is
+being exported over time. At one customer, the import rate was
+25 megs/min and the export rate was 10 megs/minute - largely
+because of network limitations. This report helped them make
+better choices about how much to collect.
+
+Recovery plan: Make sure system and network capacity can handle
+the TEMS historical data workload collection and export process.
+Consider collecting historical data at the agent.
+----------------------------------------------------------------
+
+TEMSREPORT021
+Text: Historical Export summary by object
+
+Trace: error (unit:khdxdacl,Entry="routeExportRequest" state er)
+(unit:khdxdacl,Entry=" routeData" detail er)
+
+Meaning
+
+Object,Table,Appl,Rowsize,Rows,Bytes,Bytes_Min,Cycles,MinRows,MaxRows,AvgRows,LastRows
+Application_Server,KYNAPSRV,KYN,1580,1559,2463220,137354,0,0,0,0,0,
+Application_Server_Status,KYNAPSST,KYN,1712,1560,2670720,148924,0,0,0,0,0,
+
+How much export data by attribute group.
+
+Recovery plan: See recovery discussion in TEMSREPORT020.
+----------------------------------------------------------------
+
+TEMSREPORT022
+Text: Historical Export summary by Object and time
+
+Trace: error (unit:khdxdacl,Entry="routeExportRequest" state er)
+(unit:khdxdacl,Entry=" routeData" detail er)
+
+Meaning
+
+Object,Table,Appl,Rowsize,Rows,Bytes,Time
+
+Application_Server_1605160900,KYNAPSRV,KYN,1580,1559,2463220,1605160900,
+Application_Server_Status_1605160900,KYNAPSST,KYN,1712,1560,2670720,1605160900,
+Current_Queue_Manager_Status_1605160900,QMCURSTAT,KMQ,2128,40,85120,1605160900,
+DB_Connection_Pools_1605160900,KYNDBCONP,KYN,1116,2748,3066768,1605160900,
+
+How much export data by attribute group over time.
+
+*Note: You can get the same sort of data from an ITM agent using the following trace
+
+       error (unit:khdxcpub,Entry="KHD_ValidateHistoryFile" state er)
+             (unit:khdxhist,Entry="openMetaFile" state er)
+             (unit:khdxhist,Entry="open" state er)
+             (unit:khdxhist,Entry="close" state er)
+             (unit:khdxhist,Entry="copyHistoryFile" state er)
+
+Recovery plan: See recovery discussion in TEMSREPORT020.
+----------------------------------------------------------------
+
+TEMSREPORT023
+Text: Time Slot Result workload
+
+Obsolete - Replaced by result detail report TEMSREPORT003,.
+
+Recovery plan:
+----------------------------------------------------------------
+
+TEMSREPORT024
+Text: Attribute File Warning Report
+
+Trace: error
+
+Meaning
+
+Trace: error
+
+AttributeName,WarningType,
+,,filename,app,table,column,
+attribute name conflict,Diagnostic.IMPORTANCE,
+,,KTO.ATR,KTO,TODIAG,IMPORT,
+,,KTU.ATR,KTU,TUDIAG,IMPORT,
+attribute name conflict,Diagnostic.MESSAGE,
+,,KTO.ATR,KTO,TODIAG,MESSAGE,
+,,KTU.ATR,KTU,TUDIAG,MESSAGE,
+
+TEMS depends on accurate consistent application support files
+including the attribute files. If an attribute is multiply defined,
+you will get messages like. The above case is simple and no
+trouble - although there is an APAR to eliminate. Most common
+are cases where the previous attribute file has been saved u
+nder a different name: like ktu.atr.orig. TEMS processes all
+names and not just the .atr names. The solution there is just
+to erase the saved file, or move it to another directory. In
+other cases contact IBM Support to achieve resolution.
+
+The impact is that some attributes might be mis-understood and
+situations not work as expected.
+
+Recovery plan: Correct attribute issues. Contact IBM Support
+if needed.
+----------------------------------------------------------------
+
+TEMSREPORT025
+Text: Loci Count Report
+
+Trace: error
+
+Meaning
+
+Loci Count Report - 25811 found
+
+Locus,Count,PerCent,Example_Line
+
+kfaprpst.c|NodeStatusRecordChange|3649,6742,26%,(59245816.0000-1F:kfaprpst.c
+kfaprpst.c|NodeStatusRecordChange|3582,6075,23%,(5924583C.0000-2B:kfaprpst.c
+kdsrqc1.c|AccessRowsets|2624,3309,12%,(59245E77.0001-19:kdsrqc1.c,2624,"Acce
+
+This is a catch-all report. The theory is that error messages
+often show is great volume. Some are ignored as known and
+uninteresting. The remaining ones are displayed. The first
+section or locus is the source unit, the function name and
+the line number. The next is a count of lines and a percentage
+of total recorded lines. In this way uncategorized error messages
+*may* be displayed for analysis. When the message count is
+very small the report is relatively un-interesting.
+
+Recovery plan: Contact IBM Support if messages are concerning.
+----------------------------------------------------------------
+
+TEMSREPORT026
+Text: Agent connection churning Report
+
+Trace: error
+
+Meaning
+
+Agent connection churning Report - 3 systems
+
+ip_address,Count,NewPCB,DeletePCB,Agents(count),
+10.230.2.40,306,153,153,,
+10.230.2.44,6,4,2,,
+10.231.46.80,5,3,2,,
+
+In a well running ITM environment connections are made [NewPCB]
+and then stay active for long periods of time - weeks or months.
+Sometimes we see the same ip address being created and then deleted
+over and over. That often means a configuration issue at the agent,
+where two agents are contending for the same connection. Often a
+mis-use of KDEB_INTERFACELIST causes the issue. In any case, the
+affected agents are severely affected and the TEMS itself can
+experience serious issues include failure at high rates. This
+report is of only 3 systems so the big effect is that the agents
+involved are likely not monitoring as expected.
+
+Recovery plan: Contact IBM Support if messages are concerning.
+----------------------------------------------------------------
+
+TEMSREPORT027
+Text: SOAP Error Report
+
+Trace: error
+
+Meaning
+
+Count,Fault,
+,Count,Client,
+8,Unable to open request (79),
+,8 , ip.ssl:#127.0.0.1,
+
+This shows SOAP problems. Usually they are seen during
+development periods. However they can also be seen when
+there are too much simultaneous SOAP activity. Usually
+the hub TEMS stability is not affected.
+
+Recovery plan: Identify SOAP usage and correct errors.
+----------------------------------------------------------------
+
+TEMSREPORT028
+Text: Agent Flipping Report
+
+Trace: error
+Parameter added -noflip to suppress
+
+Meaning
+
+Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,
+Host info/loc/addr,23,Primary:ATENEA2:NT,1,RTEMS01,ip.pipe:#10.231.33.234,,
+Host info/loc/addr,23,Primary:ATENEA2:NT,20,RTEMS01,ip.pipe:#10.231.33.95,,
+Host info/loc/addr,23,Primary:ATENEA2:NT,2,RTEMS02,ip.pipe:#10.231.33.95,,
+...
+Thrunode,3,sappspaix04:KUX,2,RTEMS01,ip.spipe:#10.231.38.65,RTEMS02,
+Thrunode,3,sappspaix04:KUX,1,RTEMS02,ip.spipe:#10.231.38.65,RTEMS01,
+Thrunode,4,enertperpprd:KUX,2,RTEMS02,ip.pipe:#10.231.29.131,RTEMS01,
+Thrunode,4,enertperpprd:KUX,2,RTEMS01,ip.pipe:#10.231.29.131,RTEMS02,
+...
+
+This report is new at ITM 630 FP7 on a hub or remote TEMS. It means
+that a given agent is reporting differently. In the first set of 3
+a Windows OS Agent Primary:ATENEA2:NT is reporting from two
+different ip addresses. In addition one of the addresses
+10.231.33.95 is reporting through two different remote TEMSes.
+
+In the second set one agent is reporting through two different
+remote TEMSes, apparently flipping back and forth. That is true
+for two different agents.
+
+In the report, there were 1678 lines in that report section.
+Things are seriously wrong.
+
+There can be many reasons. For example, the agents may be
+configured with the same name even though they are on different
+systems. If the OS agent is in the ITM 622 GA to FP2 level, the
+agent can be connected to two different remote TEMS at the same
+time. And there are lots of other potential problems. The impact
+is severe. You can wind up running situations on only part of
+the agents and the TEMS itself can be unstable and crash.
+
+
+Recovery plan: Work with IBM Support to resolve issues.
+----------------------------------------------------------------
+
+TEMSREPORT029
+Text: Situation Length 32 Report
+
+Trace: error
+
+Meaning
+
+Count,Sitname,,
+1,ARG_BK_FilSys_Ma_coibmbppaix01_2,
+1,ARG_BK_FilSys_Ma_coibmbwdaix01_2,
+
+This is rarely seen. It usually means a situation was constructed
+manually and uploaded using tacmd createsit without the benefit
+of the TEP situation editor validity checking. The result is that
+the situation is not working, which is obviously a poor result.
+
+On rare occasions this might be a leftover from a ITM 6.1 created
+situation where 32 character names were legal.
+
+Recovery plan: Recreate the situation in the TEP situation editor.
+----------------------------------------------------------------
+
+TEMSREPORT030
+Text: RB Duplicate Node Evidence Reports details
+
+Trace: error (UNIT:kfaprpst ER ST)
+
+Meaning
+
+Node,HostAddr,Interval,Dup_count,Reason(s),
+b0d0r41d:KUX,,600,5,early_heartbeat(5) ,
+b0d0r41d:KUX,,600,,early_heartbeat,288:5945837C:279:594586EB:47:59458E22:280:59459192:279:59459501,
+b0d0r41d:KUX,,600,frequencies,47(1) 279(2) 280(1) 288(1) ,
+
+
+There are five cases of evidence: leftover_seconds,
+                                  heartbeat_outside_grace,
+                                  double_heartbeat,
+                                  double_offline,
+                                  early_heartbeat.
+
+The double heartbeat and double offline - cases showing in the
+same second  just show you the time the condition was observed.
+That time is a epoch seconds in hex and is present in the the
+diagnostic logs. The other three contain a time different value
+and also the epoch seconds in hex, For those three, there is
+another line that shows you the frequency of the time differences.
+
+In this example case there were 5 cases of early heartbeats.
+The interval is recorded at 600 seconds [default 10 minutes]
+and four were observed at 279/280/288 seconds. This is evidence
+there are duplicate agents. Late heartbeats get counted separately
+since there is can often be a few second plus or minus from the
+600 second target and this is considered normal.
+
+Here is another great example
+
+em3_A0172O3WAPPP117:NT,10.130.65.150[52892],600,frequencies,76(5) 77(25) 78(308) 79(16) 521(16) 522(307) 523(24) 524(6) ,
+
+There is a cluster of early arrivals, one around 78 seconds and
+another around 522 seconds. This just happen to add up to 600 seconds,
+a strong indication of duplicate agents. The large range indicates
+the TEMS is under severe stress of some sort.
+
+More information on the various evidence cases are seen at the end
+of the TEMS Audit report. As we gain more experience, we will add
+more to the blog post commentary.
+
+Recovery plan: Work with IBM Support to resolve these issues.
+----------------------------------------------------------------
+
+TEMSREPORT031
+Text: RB Thrunode Change Report
+
+Trace: error (UNIT:kfaprpst ER ST)
+
+Meaning
+
+Node,HostAddr,Thrunode_count,Thrunode(s),
+has_A0001V5WAPP0012:NT,10.176.66.20[50283],1063,REMOTE_usdaram012hasra(532) REMOTE_uswhram012hasra(532) ,
+has_JSKS-VM:KUX,10.130.2.10[7757],92,REMOTE_usdaram012hasra(47) REMOTE_uswhram012hasra(46) ,
+
+These are both strong indications of duplicate agent name cases.
+Many connects via one remote TEMS and many from another.
+
+Recovery plan: Work with IBM Support to resolve these issues.
+----------------------------------------------------------------
+
+TEMSREPORT032
+Text: RB Multiple System Report
+
+Trace: error (UNIT:kfaprpst ER ST)
+
+Meaning
+
+Node,System_count,System(s),
+has_A0001V5WAPP0012:NT,10.176.66.20 10.176.66.21 10.176.66.22 ,
+em3_A0172O3WAPPP117:NT,10.130.65.150 10.130.65.156 ,
+
+This is a strong indication that the agents on multiple systems
+are accidentally configured with the same name. This causes
+severe TEPS performance issues. It causes TEMS instability
+including crashes and should be corrected by reconfiguring
+the agents so they have the unique names as ITM expects.
+
+Recovery plan: Work with IBM Support to resolve these issues.
+----------------------------------------------------------------
+
+TEMSREPORT033
+Text: RB System Multiple Listening Ports Report
+
+Trace: error (UNIT:kfaprpst ER ST)
+
+Meaning
+
+Node,PipeAddr,Count,Ports,
+tbk_tbexhcprd07:06,10.190.50.70,4,43879 31474 21036 6536,
+tbk_tbkdrad04:NT,10.190.50.51,3,59824 55120 60997,
+tbk_tbctftpdrs1:NT,172.19.215.23,3,60927 60158 61217,
+
+This is a strong indication that the agents reported on are
+are having severe connection issues. This can be network
+issues. It could be a configuration issue such as inconsistent
+use of KDEB_INTERFACELIST and/or KDCB0_HOSTNAME.
+
+This causes severe TEPS performance issues. It causes TEMS
+instability including crashes and should be corrected by
+reconfiguring the agents and resolving network issues so
+the connections persist for long periods.
+
+Recovery plan: Work with IBM Support to resolve these issues.
+----------------------------------------------------------------
+
+TEMSREPORT034
+Text: RB System Multiple Listening Ports on Physical Systems Report
+
+Trace: error (UNIT:kfaprpst ER ST)
+             (comp:kde,unit:kdebp0r,Entry="receive_vectors" all er)
+             (comp:kde,unit:kdeprxi,Entry="KDEP_ReceiveXID" all er)
+
+Meaning
+
+Node,PipeAddr,Count,Ports,
+10.100.2.22,REMOTE_th01ram090tbkxs,2,45143 45154,
+10.145.113.132,REMOTE_th01ram090tbkxs,2,11852 64622,
+10.180.128.61,REMOTE_th01ram090tbkxs,2,11852 2806,
+
+This is similar to TEMSREPORT033 however the system reported
+is reported against the physical address of the agent and not
+the pipe address the TEMS uses. This is the same in simple
+environments but can be quite different when ephemeral:y or
+firewalls or KDE_Gateways are in use.
+
+This is a strong indication that the agents reported on are
+are having severe connection issues. This can be network
+issues. It could be a configuration issue such as inconsistent
+use of KDEB_INTERFACELIST and/or KDCB0_HOSTNAME.
+
+This causes severe TEPS performance issues. It causes TEMS
+instability including crashes and should be corrected by
+reconfiguring the agents and resolving network issues so
+the connections persist for long periods.
+
+Recovery plan: Work with IBM Support to resolve these issues.
+----------------------------------------------------------------
+
+TEMSREPORT035
+Text: RB Multiple Hostaddr Report
+
+Trace: error (UNIT:kfaprpst ER ST)
+
+Meaning
+
+Node,HostAddr_count,HostAddr(s),
+w82_apc14cnhl:MQ,3,10.240.137.9[34013] 10.240.137.9[38270] 10.240.137.9[51465] ,
+xia_dbc28giax:07,2,160.220.169.32[53613] 160.220.169.32[53842] ,
+
+When an agent registers with a TEMS it supplies a listening ip
+address and a port. The above cases are probably the normal
+result of an agent recycles. If you see a lot of them - and
+ones from different ip addresses, both agent duplicate name
+and agent mal-configuration may be in play.
+
+Recovery plan: Work with IBM Support to resolve these issues.
+----------------------------------------------------------------
+
+TEMSREPORT036
+Text: RB Multiple Agent Initial Status Report
+
+Trace: error (UNIT:kfaprpst ER ST)
+
+Meaning
+
+Node,HostAddr,InitialStatus_Count,
+b0d0r41d:KUX,,5,
+b0d02ie2:KUX,,4,
+
+When an agent sends node status to a TEMS for the first time,
+that is tagged with Status '1'. Later it is tagged with 'Y'.
+When an agent sends initial status many times, that suggest
+a configuration issue at the agent and needs to be investigated.
+A certain number are expected: the first connection of course...
+but also when agent switches from one remote TEMS to another.
+It will also be seen after communication outages. Use your own
+best judgement about whether an investigation and diagnosis is needed.
+
+Recovery plan: Work with IBM Support to resolve these issues.
+----------------------------------------------------------------
+
+TEMSREPORT037
+Text: RB Negative Heartbeat Time Report.
+
+Trace: error (UNIT:kfaprpst ER ST)
+
+Meaning
+
+This usually indicates the diagnostic logs were hand assembled
+out of time order.
+
+Recovery plan: Whatever was done should repeated correctly.
+----------------------------------------------------------------
+
+TEMSREPORT038
+Text: Pipeline Report
+
+Trace: error (UNIT:kfaprpst ER ST)
+             (comp:kde,unit:kdebp0r,Entry="receive_vectors" all er)
+             (comp:kde,unit:kdeprxi,Entry="KDEP_ReceiveXID" all er)
+
+Meaning
+
+[example to be added later].
+
+This shows what agent physical addresses are, what the internal
+pipe address is, and what if any the gateway address is. This is
+limited to the agents showing in the RB reports.
+
+Recovery plan: Nothing... used to help explain other reports.
+----------------------------------------------------------------
+
+TEMSREPORT039
+Text: Summary Receive Vector Report
+
+Trace: error (UNIT:kfaprpst ER ST)
+             (comp:kde,unit:kdebp0r,Entry="receive_vectors" all er)
+             (comp:kde,unit:kdeprxi,Entry="KDEP_ReceiveXID" all er)
+
+Meaning
+
+temsnodeid,phys_addr,phys_count,pipe_addr,pipe_count,
+REMOTE_NLAM3-MCTVPVL00,67.204.110.170,1,1,
+REMOTE_NLAM3-MCTVPVL00,67.204.111.201,61,1,
+
+This summarizes receive vector information. If a physical
+address has many pipe_addr, that usually means an agent
+mal-configuration or a network connection issue.
+
+Recovery plan: Diagnose and correct Agent side issues.
+----------------------------------------------------------------
+
+TEMSREPORT040
+Text: Detail Receive Vector Report
+
+Trace: error (UNIT:kfaprpst ER ST)
+             (comp:kde,unit:kdebp0r,Entry="receive_vectors" all er)
+             (comp:kde,unit:kdeprxi,Entry="KDEP_ReceiveXID" all er)
+
+Meaning
+
+temsnodeid,phys_addr,phys_count,pipe_addr,pipe_count,xlate,xlate_count,gateway,service_point,service_type,driver,build_date,build_target,process_time,
+REMOTE_th01ram090tbkxs,10.145.113.132,3,10.145.113.132:7756,1,,1,,,,,,,0,
+REMOTE_th01ram090tbkxs,10.178.120.12,2,10.178.120.12:7756,1,,1,,,,,,,0,
+REMOTE_th01ram090tbkxs,10.180.128.48,2,10.180.128.48:11852,1,,1,,,,,,,0,
+
+This reports detailed receive vector information.
+
+Recovery plan: Used used to help explain other reports.
+----------------------------------------------------------------
+
+TEMSREPORT041
+Text: Node Validity Duplicate Node Report
+
+Trace: error (UNIT:kfaprpst ER ST)
+
+Meaning
+
+[example to be added later].
+
+This shows hub TEMS detected node duplication. This usually means
+duplicate agent name cases.
+
+Recovery plan: Involve IBM support to resolve issues.
+----------------------------------------------------------------
+
