@@ -23,17 +23,22 @@
 ##  (5459ADD0.0000-23:kpxreqi.cpp,126,"InitializeClass") *INFO : Using 20 CTIRA_Recursive_lock objects for class RequestImp
 ## ...kpxcloc.cpp,1651,"KPX_CreateProxyRequest") Reflex command length <513> is too large, the maximum length is <512>
 ##  ...kpxcloc.cpp,1653,"KPX_CreateProxyRequest") Try shortening the command field in situation <my_test_situation>
-## kglaffam.c|AFF1_IsPartOf|294,16618,10%,(58231CDA.0002-18:kglaffam.c,294,"AFF1_IsPartOf") Warning: No affinity entry for <&IBM.CAM7_WAS>
-## socket_imp.c|_create_eipc_client|2020,1824,11%,(59198C7E.005E-A:socket_imp.c,2020,"_create_eipc_client") KDE1_StringToAddress returned 0x1DE00003 for none
-## kdsxoc2.c|VXO2_MakeTime|2081,3232,1%,(59199276.0204-39D:kdsxoc2.c,2081,"VXO2_MakeTime") MKTIME result is not a valid timestamp (mktime returned -1)
-## kdsruc1.c|GetRule|6624,2,0%,(59198D87.0003-9:kdsruc1.c,6624,"GetRule") Read error status: 5 reason: 26 Rule name: KQ5.VKQ5CLUSUM
-## kdssnc1.c|CreateSituation|967,2,0%,(59198D87.0005-9:kdssnc1.c,967,"CreateSituation") Cannot create the RULE tree
+## (58231CDA.0002-18:kglaffam.c,294,"AFF1_IsPartOf") Warning: No affinity entry for <&IBM.CAM7_WAS>
+##  47955.080.678.pdcollect-dkccham010apmxm.jar_unpack
 
-my $gVersion = 1.62000;
+## (591F66A8.0000-C:kpxreqds.cpp,3555,"addTargetToRegistrationList") Error <2> occurred while attempting to dynamically add node <minsrmped:KUX> to Registration List
+##  24058.000.661.pdcollect-itmrtems02_19_Mayo.tar.Z_unpack
+
+## (591F6677.0009-15:kpxrreg.cpp,1623,"IRA_NotifySDAInstallStatus") SDA Notification failed, agent "sapprdaix04:KUX", product "UX" found unexpected RegBind type=4. Can't provide agent with SDA install result.
+##  87348,082,000
+##  /ecurep/pmr/8/7/87348,082,000/2017-05-19/87348.082.000.pdcollect-dkha3080.tar.Z_unpack/
+
+my $gVersion = 1.63000;
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
 use warnings;
+use Time::Local;
 
 # CPAN packages used
 use Data::Dumper;               # debug only
@@ -200,6 +205,8 @@ my $rc;
 
 sub gettime;                             # get time
 sub capture_sqlrun;
+sub time2sec;
+sub sec2time;
 
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
@@ -262,6 +269,16 @@ my %advcx = (
               "TEMSAUDIT1054W" => "80",
               "TEMSAUDIT1055W" => "90",
               "TEMSAUDIT1056W" => "85",
+              "TEMSAUDIT1057W" => "80",
+              "TEMSAUDIT1058E" => "100",
+              "TEMSAUDIT1059W" => "90",
+              "TEMSAUDIT1060W" => "95",
+              "TEMSAUDIT1061E" => "90",
+              "TEMSAUDIT1062W" => "85",
+              "TEMSAUDIT1063E" => "100",
+              "TEMSAUDIT1064E" => "90",
+              "TEMSAUDIT1065W" => "75",
+              "TEMSAUDIT1066W" => "75",
             );
 
 my %advtextx = ();
@@ -269,6 +286,18 @@ my $advkey = "";
 my $advtext = "";
 my $advline;
 my %advgotx = ();
+
+my %sit32x = ();
+my %sitrulx = ();
+my $sitrul_ref;
+my $sitrul_state = 0;
+my $sitrul_sitname = 0;
+my $sitrul_pdt = 0;
+my $sitrul_atr = 0;
+
+my %node_ignorex = ();
+
+my %sthx = ();
 
 my %valvx;
 my $val_ref;
@@ -283,7 +312,7 @@ my %lociex = (                    # generic loci counter exclusion
                 "RAS1|CTBLD" => 1,
                 "kdyshdlib.cpp|issueNodeStatusOpenThread" => 1,
                 "kdyshdlib.cpp|issueNodeStatusOpenThread" => 1,
-                "kkdyinodests.cpp|selectNodeStatus" => 1,
+                "kdyinodests.cpp|selectNodeStatus" => 1,
                 "kdyctrl.cpp|rTEMSSynchThread" => 1,
                 "kpxreqhb.cpp|HeartbeatInserter" => 1,
                 "kdepnpc.c|KDEP_NewPCB" => 1,
@@ -306,7 +335,12 @@ my %pcbx;
 my %pcbr;
 
 my $hublost_total = 0;
+my $gskit_nocipher = 0;
 my $intexp_total = 0;
+my $seq999_total = 0;
+my $ruld_total = 0;
+my $mktime_total = 0;
+my $eipc_none = 0;
 
 
 my %soaperror;
@@ -643,10 +677,13 @@ my %rtablex = ();
 my $rtable;
 my %rdtablex = ();
 my $rdtable;
+my %rdtime;
+my $cur_rdtime;
+my $rd_start = "";
+my $rd_end = "";
 my %vtablex = ();
 my $vtable;
 my $rindex;
-
 
 my %resx;        # hash of result details by minute
 my %res_stampx;  # hash of times to result minute stamps
@@ -1617,6 +1654,7 @@ for(;;)
          }
       }
    }
+
    # (58D77E39.0002-11A0:ko4mgtsk.cpp,133,"ManagedTask::sendStatus") Connection to HUB lost - stopping situation status insert
    if (substr($logunit,0,12) eq "ko4mgtsk.cpp") {
       if ($logentry eq "ManagedTask::sendStatus") {
@@ -1624,6 +1662,18 @@ for(;;)
          $rest = $2;                       # Connection to HUB lost - stopping situation status insert
          if (substr($rest,1,22) eq "Connection to HUB lost") {
             $hublost_total += 1;
+            next;
+         }
+      }
+   }
+
+   # (59183B36.0000-53:kdebeal.c,81,"ssl_provider_open") GSKit error 402: GSK_ERROR_NO_CIPHERS - errno 11
+   if (substr($logunit,0,9) eq "kdebeal.c") {
+      if ($logentry eq "ssl_provider_open") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # GSKit error 402: GSK_ERROR_NO_CIPHERS - errno 11   insert
+         if (substr($rest,1,16) eq "GSKit error 402:") {
+            $gskit_nocipher += 1;
             next;
          }
       }
@@ -1637,6 +1687,147 @@ for(;;)
          if (substr($rest,1,25) eq "KDSTMDTE: Interval Missed") {
             $intexp_total += 1;
             next;
+         }
+      }
+   }
+
+   # (59198C7E.005E-A:socket_imp.c,2020,"_create_eipc_client") KDE1_StringToAddress returned 0x1DE00003 for none
+   if (substr($logunit,0,12) eq "socket_imp.c") {
+      if ($logentry eq "_create_eipc_client") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # KDE1_StringToAddress returned 0x1DE00003 for none
+         if (substr($rest,1,49) eq "KDE1_StringToAddress returned 0x1DE00003 for none") {
+            $eipc_none += 1;
+            next;
+         }
+      }
+   }
+
+   # (59199276.0204-39D:kdsxoc2.c,2081,"VXO2_MakeTime") MKTIME result is not a valid timestamp (mktime returned -1)
+   if (substr($logunit,0,9) eq "kdsxoc2.c") {
+      if ($logentry eq "VXO2_MakeTime") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # MKTIME result is not a valid timestamp (mktime returned -1)   History file T6SUBTXCS corruption found at file position 008F2E18. EndOfFileReached = 0, CurrRowValid = 0, NextRowValid = 1.
+         if (substr($rest,1,38) eq "MKTIME result is not a valid timestamp") {
+             $mktime_total += 1;
+             next;
+         }
+      }
+   }
+
+   # (591D9C01.0005-129:khdxhist.cpp,3796,"validateRow") History file T6SUBTXCS corruption found at file position 008F2E18. EndOfFileReached = 0, CurrRowValid = 0, NextRowValid = 1.
+   if (substr($logunit,0,12) eq "khdxhist.cpp") {
+      if ($logentry eq "validateRow") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       #  History file T6SUBTXCS corruption found at file position 008F2E18. EndOfFileReached = 0, CurrRowValid = 0, NextRowValid = 1.
+         if (substr($rest,1,12) eq "History file") {
+            $rest =~ /file (\S+) corruption/;
+            if (defined $1) {
+               my $atrg = $1;
+               $sthx{$atrg} += 1;
+               next;
+            }
+         }
+      }
+   }
+
+
+   # (59198D87.0005-9:kdssnc1.c,967,"CreateSituation") Cannot create the RULE tree
+   if (substr($logunit,0,9) eq "kdssnc1.c") {
+      if ($logentry eq "CreateSituation") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Cannot create the RULE tree
+         if (substr($rest,1,27) eq "Cannot create the RULE tree") {
+            $ruld_total += 1;
+            next;
+         }
+      }
+   }
+
+   # (5912EC8A.05F0-1F:kfastplr.c,92,"KFA_LogRecTimestamp") Sequence number overflow, reusing 999
+   if (substr($logunit,0,10) eq "kfastplr.c") {
+      if ($logentry eq "KFA_LogRecTimestamp") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Sequence number overflow
+         if (substr($rest,1,24) eq "Sequence number overflow") {
+            $seq999_total += 1;
+            next;
+         }
+      }
+   }
+
+   # (591F66A7.0000-8:ko4sitma.cpp,481,"IBInterface::lodge") Error: sit name <ARG_NT_DisSpa_Cr_COIBMPDPW6K01_1> length <32> invalid
+   if (substr($logunit,0,12) eq "ko4sitma.cpp") {
+      if ($logentry eq "IBInterface::lodge") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Error: sit name <ARG_NT_DisSpa_Cr_COIBMPDPW6K01_1> length <32> invalid
+         if (substr($rest,-19,19) eq "length <32> invalid") {
+            $rest=~ /name \<(\S+)\>/;
+            my $isitname = $1;
+            $sit32x{$isitname} += 1;
+            next;
+         }
+      }
+   }
+
+   if (substr($logunit,0,12) eq "ko4rulex.cpp") {
+      if ($logentry eq "PredParser::build") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Unsupported request method "NESSUS"
+         if (substr($rest,1,6) eq "Error:") {
+            $sitrul_state = 1;                     #state 1 = looking for further data.
+         } elsif (substr($rest,1,12) eq "..Situation:") {
+           if ($sitrul_state == 1) {
+              $rest =~ /\<(\S+)\>$/;
+              $sitrul_sitname = $1;
+              $sitrul_state = 2;
+            }
+         } elsif (substr($rest,1,6) eq "..PDT:") {
+           if ($sitrul_state == 2) {
+              $rest =~ /\<(.*)\>/;
+              $sitrul_pdt = $1;
+              $sitrul_state = 3;
+           }
+        }
+        next;
+      }
+   }
+   if (substr($logunit,0,12) eq "ko4rulfa.cpp") {
+     if ($logentry eq "NodeFactory::createNode") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       #
+         if (substr($rest,1,24) eq "Error: Unknown attribute") {
+           if ($sitrul_state == 3) {
+              $rest =~ /\<(\S+)\> /;
+              $sitrul_atr = $1;
+              my $sitrul_key = $sitrul_sitname . "|" . $sitrul_atr;
+              $sitrul_ref = $sitrulx{$sitrul_key};
+              if (!defined $sitrul_ref) {
+                 my %sitrulref = (
+                                    count => 0,
+                                    sitname => $sitrul_sitname,
+                                    pdt => $sitrul_pdt,
+                                    atr => $sitrul_atr,
+                                 );
+                 $sitrul_ref = \%sitrulref;
+                 $sitrulx{$sitrul_key} = \%sitrulref;
+              }
+              $sitrul_ref->{count} += 1;
+           }
+         }
+      }
+   }
+
+   # (591F6750.0002-2C:kfastinh.c,1114,"KFA_InsertNodestatus") Affinity not loaded for node <UMBSRVCTXDEV:XA> thrunode <RTEMS02> affinities <%IBM.KXA                0000000001000Jyw0a7>.  Node Status Ignored.
+   if (substr($logunit,0,10) eq "kfastinh.c") {
+      if ($logentry eq "KFA_InsertNodestatus") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       #  Affinity not loaded for node <UMBSRVCTXDEV:XA> thrunode <RTEMS02> affinities <%IBM.KXA                0000000001000Jyw0a7>.  Node Status Ignored.
+         if (substr($rest,1,19) eq "Affinity not loaded") {
+            $rest =~ /\<(\S+)\> thrunode \<(\S+)\>/;
+            my $inode = $1;
+            my $ithrunode = $2;
+            $node_ignorex{$inode} = $ithrunode;
          }
       }
    }
@@ -2348,6 +2539,7 @@ for(;;)
          }
       }
    }
+
    # (591116EF.0000-EEC:kdspmcat.c,979,"CompilerCatalog") Column ATFSTAT in Table LIMS_SYSS for Application KIP Not Found.
    if (substr($logunit,0,10) eq "kdspmcat.c") {
       if ($logentry eq "CompilerCatalog") {
@@ -2898,8 +3090,18 @@ for(;;)
       if ($logentry eq "kglcb_getFsyncConfig") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       #  fsync() is NOT ENABLED. KGLCB_FSYNC_ENABLED='0'
-         $rest =~ /KGLCB_FSYNC_ENABLED\=\'(\d)\'/;
-         $fsync_enabled = $1 if defined $1;
+         $rest =~ /KGLCB_FSYNC_ENABLED\=\'(\S+)\'$/;
+         my $test_fsync = $1;
+         if (defined $test_fsync) {
+             if ($test_fsync !~ /^\d+$/) {
+                $advi++;$advonline[$advi] = "KGLCB_FSYNC_ENABLED is not numeric [$test_fsync]";
+                $advcode[$advi] = "TEMSAUDIT1059W";
+                $advimpact[$advi] = $advcx{$advcode[$advi]};
+                $advsit[$advi] = "TEMS";
+             }
+         } else {
+            $fsync_enabled = $test_fsync;
+         }
       }
    }
    # (53FE31BA.0043-61C:kglhc1c.c,563,"KGLHC1_Command") Entry
@@ -3710,9 +3912,84 @@ if ($hublost_total > 0) {
       $advsit[$advi] = "HUB";
    }
 }
+
 if ($intexp_total > 0) {
    $advi++;$advonline[$advi] = "Time interval expired late $intexp_total times";
    $advcode[$advi] = "TEMSAUDIT1053W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+if ($eipc_none > 0) {
+   $advi++;$advonline[$advi] = "EIF unknown transmision target [none] $eipc_none times";
+   $advcode[$advi] = "TEMSAUDIT1066W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+if ($mktime_total > 0) {
+   $advi++;$advonline[$advi] = "Situation with *TIME returned invalid timestamp [$mktime_total] times";
+   $advcode[$advi] = "TEMSAUDIT1065W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+if ($ruld_total > 0) {
+   $advi++;$advonline[$advi] = "TEMS cannot create Rule tree [$ruld_total] times";
+   $advcode[$advi] = "TEMSAUDIT1063E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+if ($gskit_nocipher > 0) {
+   $advi++;$advonline[$advi] = "GSKIT Secure Communications - no common cipher found";
+   $advcode[$advi] = "TEMSAUDIT1058E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Comm";
+}
+
+my $sit32_total = scalar keys %sit32x;
+if ($sit32_total > 0) {
+   $advi++;$advonline[$advi] = "Situations [$sit32_total] with length 32 - see following report";
+   $advcode[$advi] = "TEMSAUDIT1060W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+my $sitrul_total = scalar keys %sitrulx;
+if ($sitrul_total > 0) {
+   foreach my $f (keys %sitrulx) {
+      $sitrul_ref = $sitrulx{$f};
+      $advi++;$advonline[$advi] = "Situation [$sitrul_ref->{sitname}] with unknown attribute [$sitrul_ref->{atr}] - [$sitrul_ref->{pdt}]";
+      $advcode[$advi] = "TEMSAUDIT1061E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+}
+
+my $nodeignore_total = scalar keys %node_ignorex;
+if ($nodeignore_total > 0) {
+   foreach my $f (keys %node_ignorex) {
+      $advi++;$advonline[$advi] = "Node [$f] thrunode [$node_ignorex{$f}] ignored because attribute unknown";
+      $advcode[$advi] = "TEMSAUDIT1062W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+}
+
+my $sth_total = scalar keys %sthx;
+if ($sth_total > 0) {
+   foreach my $f (keys %sthx) {
+      $advi++;$advonline[$advi] = "TEMS Short Term History file [$f] is broken [$sthx{$f}] times";
+      $advcode[$advi] = "TEMSAUDIT1064E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+}
+
+if ($seq999_total > 0) {
+   $advi++;$advonline[$advi] = "Sequence Number Overflow $seq999_total times - rapid incoming events";
+   $advcode[$advi] = "TEMSAUDIT1057W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
 }
@@ -3894,16 +4171,21 @@ $outl .= $respermin;
 $cnt++;$oline[$cnt]=$outl . "\n";
 
 if ($opt_rd == 1) {
+   my $peakrate = 0;
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="Situation Result Over Time Report [Top $opt_rdtop situation contributors]\n";
    $cnt++;$oline[$cnt]="Time,Situation,Count,Rows,Bytes,Percent,Cumulative_Percent,\n";
    foreach $f ( sort { $a <=> $b } keys %rdx ) {
+      my $ftime = time2sec($f . "00");
+      $rd_start = $ftime if $rd_start eq "";
+      $rd_end= $ftime;
       $rd_ref = $rdx{$f};
       $outl = $f . ",,";
       $outl .= $rd_ref->{count} . ",";
       $outl .= $rd_ref->{rows} . ",";
       $outl .= $rd_ref->{bytes} . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
+      $peakrate = $rd_ref->{bytes} if $rd_ref->{bytes} > $peakrate;
       my $toprd = 0;
       my $cum_bytes = 0;
       foreach $g ( sort { $rd_ref->{sitx}{$b}->{bytes} <=> $rd_ref->{sitx}{$a}->{bytes} || $a cmp $b } keys %{$rd_ref->{sitx}} ) {
@@ -3922,6 +4204,74 @@ if ($opt_rd == 1) {
          $res_pc = ($cum_bytes*100)/$rd_ref->{bytes};
          $ppc = sprintf '%.2f%%', $res_pc;
          $outl .= $ppc . ",";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+      }
+      $cnt++;$oline[$cnt]="\n";
+   }
+
+   if ($rd_start ne "") {
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="Situation Result Over Time Graph - peak rate is $peakrate bytes per minute\n";
+      $cnt++;$oline[$cnt]="Each hour is shown, each column is a minute, numbers represent 10 minutes\n";
+      $cnt++;$oline[$cnt]="\n";
+      # calculate the epoch second when the first hour of results started
+      my $rd_starttime = substr(sec2time($rd_start),0,10);
+      my $rd_start_secs = time2sec($rd_starttime . "0000");
+
+      # calculate the hour when the last result was observed
+      my $rd_endtime = substr(sec2time($rd_end),0,10);
+      my $rd_end_secs = time2sec($rd_endtime . "0000");
+
+      # walk through each hour and produce a 10 high graph
+      my $rd_curr_secs = $rd_start_secs;
+      while ($rd_curr_secs <= $rd_end_secs) {
+         my $stime = substr(sec2time($rd_curr_secs),0,10);
+         my @rows;                      # produce 10 rows of
+         for (my $r=10; $r>0; $r--) {
+            for (my $s=0;$s<60;$s++) {
+               my $ratekey = $stime . substr("00" . $s,-2,2);
+               my $rd_ref = $rdx{$ratekey};
+               if (!defined $rd_ref) {
+                 $rows[$r] .= " ";
+               } else {
+                  my $mbyte = $rd_ref->{bytes} + int($peakrate/20);
+                  my $tbyte = int($r*($peakrate/10));
+                  if ($mbyte > $tbyte) {
+                     $rows[$r] .= "+" if $r == 10;
+                     $rows[$r] .= "." if $r < 10;
+                  } else {
+                     $rows[$r] .= " ";
+                  }
+               }
+            }
+         }
+         for (my $r=10; $r>0; $r--) {
+            $cnt++;$oline[$cnt]=" " x 11 . $rows[$r] . "\n";
+         }
+         $outl = $stime . " " . "0_________1_________2_________3_________4_________5__________";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+         $cnt++;$oline[$cnt]="\n";
+         $rd_curr_secs += 3600;
+      }
+   }
+}
+
+$et = scalar keys %codex;
+if ($et > 0) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Endpoint Communication Problem Report\n";
+   $cnt++;$oline[$cnt]="Code,Text,Count,Source,Level\n";
+   foreach my $f ( sort { $a cmp $b } keys %codex ) {
+      $code_ref = $codex{$f};
+      $outl = $f . ",";
+      $outl .= $code_ref->{text} . ",";
+      $outl .= $code_ref->{count} . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      foreach my $g ( sort { $a cmp $b } keys %{$code_ref->{conv}} ) {
+         my $conv_ref = $code_ref->{conv}{$g};
+         $outl = ",," . $conv_ref->{count} . ",";
+         $outl .= $g . ",";
+         $outl .= $conv_ref->{level} . ",";
          $cnt++;$oline[$cnt]=$outl . "\n";
       }
       $cnt++;$oline[$cnt]="\n";
@@ -4701,6 +5051,17 @@ if ($change_real > 0) {
    }
 }
 
+if ($sit32_total > 0) {
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="Situation Length 32 Report\n";
+   $cnt++;$oline[$cnt]="Count,Sitname,,\n";
+   foreach $f ( sort { $a cmp $b } keys %sit32x) {
+      $outl = $sit32x{$f} . ",";
+      $outl .= $f . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+}
+
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
 open OH, ">$opt_o" or die "can't open $opt_o: $!";
@@ -5053,6 +5414,34 @@ sub gettime
    return sprintf "%4d-%02d-%02d %02d:%02d:%02d",$year+1900,$mon+1,$mday,$hour,$min,$sec;
 }
 
+sub time2sec
+{
+   my ($itime) = @_;
+   my $year = substr($itime,0,4) - 1900;
+   my $mon = substr($itime,4,2) - 1;
+   my $day = substr($itime,6,2);
+   my $hour = substr($itime,8,2);
+   my $min = substr($itime,10,2);
+   my $sec = substr($itime,12,2);
+   return timegm($sec,$min,$hour,$day,$mon,$year);
+}
+sub sec2time
+{
+   my ($itime) = @_;
+
+   my $sec;
+   my $min;
+   my $hour;
+   my $mday;
+   my $mon;
+   my $year;
+   my $wday;
+   my $yday;
+   my $isdst;
+   ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=gmtime($itime);
+   return sprintf "%4d%02d%02d%02d%02d%02d",$year+1900,$mon+1,$mday,$hour,$min,$sec;
+}
+
 
 #------------------------------------------------------------------------------
 sub GiveHelp
@@ -5186,6 +5575,8 @@ exit;
 # 1.61000 - Correct logic in 1056W advisory - was blocking TEMSAUDIT1011W
 #         - remove port number from Soap Error report client, hides counts of interest
 # 1.62000 - Correct logic in 1055W advisory - missing some cases
+# 1.63000 - Add result data graphical display
+#         - Add a number of advisories and reports based on recent diagnostics.
 
 # Following is the embedded "DATA" file used to explain
 # advisories the the report. It replicates text in
@@ -6238,5 +6629,176 @@ backlevel. The impact is that situations and real time
 reports will not be run as expected.
 
 Recovery plan: Install the missing application support.
+----------------------------------------------------------------
+
+TEMSAUDIT1057W
+Text: Sequence Number Overflow count times - rapid incoming events
+
+Tracing: error
+(5912EC8A.05F0-1F:kfastplr.c,92,"KFA_LogRecTimestamp") Sequence number overflow, reusing 999
+
+Meaning: This is sometimes normal and sometimes abnormal.
+
+At the hub TEMS incoming events are assigned a time stamp
+valid to the second. The ITM time stamp has three characters
+past the second used to record sequence of arrival during
+that second - sort of a tie breaker. If more than 999 events
+arrive in one second, this message is produced.
+
+This is sometimes seen in FTO [Fault Tolerant Option] configuration
+and is considered normal.
+
+If this occurs more often the workload [situations] should be
+examined and changed to avoid the issue. In the worst case
+such a high volume can cause TEMS instablity and even crashes.
+
+Recovery plan: Change workload to avoid such intense levels
+of activity.
+----------------------------------------------------------------
+
+TEMSAUDIT1058E
+Text: GSKIT Secure Communications - no common cipher found
+
+Tracing: error
+(59183B36.0000-53:kdebeal.c,81,"ssl_provider_open") GSKit error 402: GSK_ERROR_NO_CIPHERS - errno 11
+
+Meaning: When secure communications is established using
+GSKIT, a common cipher is negotiated. This message means
+there is no common cipher defined and thus communications
+has failed.
+
+Recovery plan: Reconfigure the two ITM processes so there is a
+a common cipher.
+----------------------------------------------------------------
+
+TEMSAUDIT1059W
+Text: KGLCB_FSYNC_ENABLED is not numeric [value]
+
+Tracing: error
+(591F44AA.0015-1:kglcbbio.c,129,"kglcb_getFsyncConfig") fsync() is ENABLED. KGLCB_FSYNC_ENABLED=''0''
+
+Meaning: The setting was likely '0' instead of 0. This will
+reverse the intent of the setting.
+
+On the other hand, this setting to 0 is very bad practice
+and puts the TEMS database files at increased risk of corruption.
+
+Recovery plan: Remove that setting whereever it is defined.
+----------------------------------------------------------------
+
+TEMSAUDIT1060W
+Text: Situations [count] with length 32 - see following report
+
+Tracing: error
+(591F66A7.0000-8:ko4sitma.cpp,481,"IBInterface::lodge") Error: sit name <ARG_NT_DisSpa_Cr_COIBMPDPW6K01_1> length <32> invalid
+
+Meaning: These are likely situations composed in ITM 6.1 level when
+situation names could be 32 bytes long. From ITM 6.2 onward these
+are not permitted. The result is that the situations are not running.
+
+Recovery plan: Re-author the situations with a shorter name.
+----------------------------------------------------------------
+
+TEMSAUDIT1061E
+Text: Situation [name] with unknown attribute [attribute] - [pdt]
+
+Tracing: error
+(591F66A5.0003-8:ko4rulex.cpp,729,"PredParser::build") Error: Failed to process situation formula rc <1133>
+(591F66A5.0004-8:ko4rulex.cpp,731,"PredParser::build") ..Situation: <ARG_UX_FilSys_M1386196025092200>
+(591F66A5.0005-8:ko4rulex.cpp,732,"PredParser::build") ..PDT:       <*IF ((*VALUE Disk.Mount_Point_U *EQ '/proc' *AND *VALUE Disk.Space_Used_Pce_Used_Percent *LT 90))>
+(591F66A5.0007-8:ko4rulfa.cpp,121,"NodeFactory::createNode") Error: Unknown attribute <Disk.Space_Used_Pce_Used_Percent> at position <56>
+
+Meaning: This message means the application support is missing
+or out of date compared to the hub TEMS. As a result the situations
+will not run as expected
+
+Recovery plan: Install the missing application support at the TEMS.
+----------------------------------------------------------------
+
+TEMSAUDIT1062W
+Text: Node [agent] thrunode [tems] ignored because attribute unknown
+
+Tracing: error
+(591F6750.0002-2C:kfastinh.c,1114,"KFA_InsertNodestatus") Affinity not loaded for node <UMBSRVCTXDEV:XA> thrunode <RTEMS02> affinities <%IBM.KXA                0000000001000Jyw0a7>.  Node Status Ignored.
+
+Meaning: This message means the application support is missing
+for the agent connecting. It is ignored.
+
+Recovery plan: Install the missing application support at the TEMS.
+----------------------------------------------------------------
+
+TEMSAUDIT1063E
+Text: TEMS cannot create Rule tree [count] times
+
+Tracing: error
+(59198D87.0005-9:kdssnc1.c,967,"CreateSituation") Cannot create the RULE tree
+
+Meaning: This is quite serious. The situation formula [or predicate] is converted
+to ITM SQL during situation start. The SQL is stored in the SITDB table
+QA1CRULD.DB/IDX file. Usually this means the SITDB file is broken in some way.
+
+The result is that situations are not running as expected.
+
+Recovery plan: Reset the QA1CRULD.DB/IDX and the QA1CCOBJ.DB/IDX
+files to emptytable status while the TEMS is stopped. This is always
+safe since needed entries will be rebuild. See this document for
+details http://ibm.biz/BdsYzS - or contact IBM Support for aid.
+----------------------------------------------------------------
+
+TEMSAUDIT1064E
+Text: TEMS Short Term History file [name] is broken [count] times
+
+Tracing: error
+(591D9C01.0005-129:khdxhist.cpp,3796,"validateRow") History file T6SUBTXCS corruption found at file position 008F2E18. EndOfFileReached = 0, CurrRowValid = 0, NextRowValid = 1.
+
+Meaning: Best practice is to collect historical data at the agent.
+However it is is kept at the TEMS, the above condition means that
+the named attribute group is not in the proper form. Because of this
+none of the historical data will be exported to the TDW.
+
+Recovery plan: Usual recovery is to save the XXXX and XXXX.hdr file
+and then while TEMS is stopped erase those two files. XXXX represents
+the STH file name involved. If it is critical to recover some of the
+historical data, work with IBM Support.
+----------------------------------------------------------------
+
+TEMSAUDIT1065W
+Text: Situation with *TIME returned invalid timestamp [count] times
+
+Tracing: error
+(59199276.0204-39D:kdsxoc2.c,2081,"VXO2_MakeTime") MKTIME result is not a valid timestamp (mktime returned -1)
+
+Meaning: This condition needs additional diagnostic tracing to
+determine what situation(s) are involved. One diagnosed case
+was a situation against FILEINFO where *TIME was used and so
+much data was returned that the internal limit of 16 megs
+was reached only partial data was returned. In another case a
+file system returned all zeros - APAR IV50626 was created at
+ITM 623 FP5 to suppress such errors.
+
+Situation formula with *TIME can be highly impactful and can
+even de-stabilize the TEMS receiving the data.
+
+Recovery plan: Determine which situations are causing the issue
+and consider how to rework them to avoid the issue.
+----------------------------------------------------------------
+
+TEMSAUDIT1066W
+Text: EIF unknown transmision target [none] $eipc_none times
+
+Tracing: error
+(59198C7E.005E-A:socket_imp.c,2020,"_create_eipc_client") KDE1_StringToAddress returned 0x1DE00003 for none
+
+Meaning: TEMS can be configured to send event data to an
+event receiver - EIF or Event Integration Facility. The target
+is defined during a hub TEMS configuration.
+
+When there is no event receiver, that address must be entered
+as the number 0. This message indicates the configuration
+was set to "none". In that case the EIF facility keeps looking
+to resolve "none" as a domain name and complains at the failiure.
+
+Recovery plan: Recongfigure the TEMS and specify zero [0] as the
+EIF target if no event receiver target is needed.
 ----------------------------------------------------------------
 
