@@ -1042,11 +1042,17 @@ my $syncdist_first_time;    # First noted time in log
 my $syncdist_timei = -1;    # count of sync. dist. time counts
 my $syncdist_time = ();     # count of sync. dist.
 
+my %loginx;
+
+my %ptix;
+my $pti_ref;
+my $pti_stime = 0;
+my $pti_etime = 0;
+
 my $total_sendq = 0;
 my $total_recvq = 0;
 my $max_sendq = 0;
 my $max_recvq = 0;
-
 
 my $soapi = -1;             # count of soap SQLa
 my @soap = ();              # indexed array to SOAP SQLs
@@ -1069,7 +1075,6 @@ my @soap_burst_log = ();    # log being worked on
 my @soap_burst_l = ();      # log line being worked on
 my $soap_burst_next;        # time for begining of next SOAP call minute
 
-my %loginx;
 
 my $pti = -1;               # count of process table records
 my @pt  = ();               # pt keys - table_path
@@ -2822,7 +2827,6 @@ for(;;)
       }
    }
 
-
    # (58C49DE0.0000-B:kqmchkpt.cpp,619,"checkPoint::setGblTimestamp") Invalid checkpoint timestamp - ignoring. NAME = <M:LOCALNODESTS> TIMESTAMP <1170312020051000>,
    if (substr($logunit,0,12) eq "kqmchkpt.cpp") {
       if ($logentry eq "checkPoint::setGblTimestamp") {
@@ -3837,6 +3841,42 @@ for(;;)
       }
       next;
    }
+
+   #(5A2668D0.0004-68:kdsvws1.c,2421,"ManageView") ProcessTable TNODESTS Insert Error status = ( 1551 ).  SRVR01 ip.spipe:#10.64.11.30[3660]
+   if (substr($logunit,0,9) eq "kdsvws1.c") {
+      if ($logentry eq "ManageView") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       #  ProcessTable TNODESTS Insert Error status = ( 1551 ).  SRVR01 ip.spipe:#10.64.11.30[3660] EMORY
+         if (index($rest,"ProcessTable TNODESTS Insert") != -1) {
+            if ($pti_stime == 0) {
+                $pti_stime = $logtime;
+                $pti_etime = $logtime;
+            }
+            if ($logtime < $pti_stime) {
+               $pti_stime = $logtime;
+            }
+            if ($logtime > $pti_etime) {
+                 $pti_etime = $logtime;
+            }
+            $rest =~ /\( (\d+) \).*?SRVR01 (\S+\])/;
+            my $icode = $1;
+            my $iaddr = $2;
+            $pti_ref = $ptix{$iaddr};
+            if (!defined $pti_ref) {
+               my %ptiref = (
+                               count => 0,
+                               codes => {},
+                            );
+               $pti_ref = \%ptiref;
+               $ptix{$iaddr} = \%ptiref;
+            }
+            $pti_ref->{count} += 1;
+            $pti_ref->{codes}{$icode} += 1;
+         }
+         next;
+      }
+   }
+
    # (56F2B983.0007-1F:kdspmcat.c,449,"CompilerCatalog") Table name TAPPLPROPS for  Application O4SRV Not Found.
    if (substr($logunit,0,10) eq "kdspmcat.c") {
       if ($logentry eq "CompilerCatalog") {
@@ -6490,6 +6530,26 @@ if ($soaperror_ct > 0) {
          $cnt++;$oline[$cnt]="$outl\n";
       }
    }
+}
+
+my $pti_ct = scalar keys %ptix;
+if ($pti_ct > 0) {
+   $rptkey = "TEMSREPORT050";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: TNODESTS Insert Error Summary Report\n";
+   $cnt++;$oline[$cnt]="IP_Addr,Count,\n";
+   foreach $f ( sort { $a cmp $b } keys %ptix) {
+      $pti_ref = $ptix{$f};
+      my $pmsg;
+      foreach $g ( sort { $a <=> $b } keys %{$pti_ref->{codes}}) {
+         $pmsg .= $g . "[" . $pti_ref->{codes}{$g} . "] ";
+      }
+      $outl = "$f" . "," . $pmsg . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   my $pti_dur = $pti_etime - $pti_stime;
+   $outl = $pti_dur . " seconds";
+   $cnt++;$oline[$cnt]="$outl\n";
 }
 
 if ($change_real > 0) {
@@ -10962,6 +11022,28 @@ that is likely normal behaviour.
 
 Recovery plan: Investigate possible duplicate agents and eliminate
 to get accurate and complete monitoring.
+----------------------------------------------------------------
+
+TEMSREPORT050
+Text: TNODESTS Insert Error Summary Report
+
+Tracing: error
+(5A2668D0.0004-68:kdsvws1.c,2421,"ManageView") ProcessTable TNODESTS Insert Error status = ( 1551 ).  SRVR01 ip.spipe:#10.64.11.30[3660]
+
+Meaning
+
+TEMSREPORT050: TNODESTS Insert Error Summary Report
+IP_Addr,Count,
+ip.spipe:#10.64.11.30[3660],1551[735] ,
+
+The TEMS was updating a node status on another TEMS. However
+the target TEMS reported the agent no longer was connected to
+that TEMS.
+
+Recovery plan: If these numbers are high, the TEMSes should
+be studied to determine the high rate of agent switching. There
+can be many reasons such as duplicate agent name cases and
+agent, TEMS mal-configuration or communication issues.
 ----------------------------------------------------------------
 
 TEMSREPORT051
