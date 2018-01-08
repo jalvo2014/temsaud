@@ -376,6 +376,7 @@ my %advcx = (
               "TEMSAUDIT1089E" => "100",
               "TEMSAUDIT1090I" => "0",
               "TEMSAUDIT1091I" => "0",
+              "TEMSAUDIT1092W" => "50",
             );
 
 my %advtextx = ();
@@ -421,6 +422,13 @@ my $rxrun_def;
 
 my %physicalx = ();
 my %pipex = ();
+
+my %prtx;      # Process table capture
+my %prtrunx;   # Process table run capture by thread
+my %prtdurx;    # Duration
+my $prt_current = 0;
+my $prt_max = 0;
+my $prt_max_l = 0;
 
 
 my %valvx;
@@ -2787,6 +2795,7 @@ for(;;)
          }
       }
    }
+
 
    # (58C49DE0.0000-B:kqmchkpt.cpp,619,"checkPoint::setGblTimestamp") Invalid checkpoint timestamp - ignoring. NAME = <M:LOCALNODESTS> TIMESTAMP <1170312020051000>,
    if (substr($logunit,0,12) eq "kqmchkpt.cpp") {
@@ -5730,38 +5739,131 @@ if ($soapi != -1) {
    }
 }
 
-if ($pti != -1) {
+my $prt_ct = scalar keys %prtx;
+if ($prt_ct > 0) {
    $pt_dur = $pt_etime - $pt_stime;
+   my $pr_total_total = 0;
    $rptkey = "TEMSREPORT009";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Process Table Report\n";
    $cnt++;$oline[$cnt]="Process Table Duration: $pt_dur seconds\n";
    $cnt++;$oline[$cnt]="Table,Path,Insert,Query,Select,SelectPreFiltered,Delete,Total,Total/min,Error,Error/min,Errors\n";
-   foreach $f ( sort { $pt_total_ct[$ptx{$b}] <=> $pt_total_ct[$ptx{$a}] || $a cmp $b } keys %ptx) {
-      $i = $ptx{$f};
-      $outl = $pt_table[$i] . ",";
-      $outl .= $pt_path[$i] . ",";
-      $outl .= $pt_insert_ct[$i] . ",";
-      $outl .= $pt_query_ct[$i] . ",";
-      $outl .= $pt_select_ct[$i] . ",";
-      $outl .= $pt_selectpre_ct[$i] . ",";
-      $outl .= $pt_delete_ct[$i] . ",";
-      $outl .= $pt_total_ct[$i] . ",";
-      $respermin = int($pt_total_ct[$i] / ($pt_dur / 60));
+   foreach $f ( sort { $prtx{$b}->{count} <=> $prtx{$a}->{count} || $prtx{$a}->{table} cmp $prtx{$b}->{table} } keys %prtx) {
+      my $prt_ref = $prtx{$f};
+      $outl = $prt_ref->{table} . ",";
+      $outl .= $prt_ref->{path} . ",";
+      $outl .= $prt_ref->{insert_ct} . ",";
+      $outl .= $prt_ref->{query_ct} . ",";
+      $outl .= $prt_ref->{select_ct} . ",";
+      $outl .= $prt_ref->{selectpre_ct} . ",";
+      $outl .= $prt_ref->{delete_ct} . ",";
+      $outl .= $prt_ref->{total_ct} . ",";
+      $pr_total_total += $prt_ref->{total_ct};
+      $respermin = int($prt_ref->{total_ct} / ($pt_dur / 60));
       $outl .= $respermin . ",";
-      $outl .= $pt_error_ct[$i] . ",";
-      $respermin = int($pt_error_ct[$i] / ($pt_dur / 60));
+      $respermin = int($prt_ref->{error_ct} / ($pt_dur / 60));
       $outl .= $respermin . ",";
-      $outl .= $pt_errors[$i] . ",";
+      my @perror = keys %{$prt_ref->{errors}};
+      $outl .= join(" ",@perror) . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
    $respermin = int($pt_total_total / ($pt_dur / 60));
    $cnt++;$oline[$cnt]="*total*,,,,,,,$pt_total_total,$respermin,\n";
+
+   $rptkey = "TEMSREPORT052";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Process Table Report Delays - Max overlay $prt_max\n";
+   $cnt++;$oline[$cnt]="LocalTime,Epoch,Delay,Line,Table/Path,Max,\n";
+   foreach $f ( sort { $prtdurx{$b}->{dur} <=> $prtdurx{$a}->{dur} } keys %prtdurx) {
+      my $prtdur_ref = $prtdurx{$f};
+      my $ltime = sec2ltime($prtdur_ref->{entry_time}+$local_diff);
+      $outl = $ltime . ",";
+      $outl .= $prtdur_ref->{epoch} . ",";
+      $outl .= $prtdur_ref->{dur} . ",";
+      $outl .= $prtdur_ref->{l} . ",";
+      $outl .= $prtdur_ref->{key} . ",";
+      $outl .= $prtdur_ref->{max} . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+}
+my $total_evt = 0;
+my %total_status = ();
+my $pe_dur;
+my $pevt_size = scalar keys %pevtx;
+if ($pevt_size > 0) {
+   $pe_dur = $pe_etime - $pe_stime;
+   $rptkey = "TEMSREPORT010";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: PostEvent Report\n";
+   $cnt++;$oline[$cnt]="Situation,Node,Count,AtomCount,Thrunodes,Status,\n";
+   my %pesumx;
+   my $pesum_ref;
+   foreach $f ( sort { $pevtx{$b}->{count} <=> $pevtx{$a}->{count} } keys %pevtx) {
+      $outl = $pevtx{$f}->{sitname} . ",";
+      $outl .= $pevtx{$f}->{node} . ",";
+      $outl .= $pevtx{$f}->{count} . ",";
+      $total_evt += $pevtx{$f}->{count};
+      my $acount = keys %{$pevtx{$f}->{atoms}};
+      $outl .= $acount . ",";
+      my $tlist = join(" ",keys %{$pevtx{$f}->{thrunode}});
+      $outl .= $tlist . ",";
+      my $pstatus = "";
+      foreach $g (keys %{$pevtx{$f}->{status}}) {
+         $pstatus .= $g . "[" . $pevtx{$f}->{status}{$g} . "] ";
+      }
+      $outl .= $pstatus . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      $pesum_ref = $pesumx{$pevtx{$f}->{sitname}};
+      if (!defined $pesum_ref) {
+         my %pesumref = (
+                           count => 0,
+                           nodes => 0,
+                           status => {},
+                        );
+         $pesum_ref = \%pesumref;
+         $pesumx{$pevtx{$f}->{sitname}} = \%pesumref;
+      }
+      $pesum_ref->{count} += $pevtx{$f}->{count};
+      $pesum_ref->{nodes} += 1;
+      foreach $g (keys %{$pevtx{$f}->{status}}) {
+         $pesum_ref->{status}{$g} += $pevtx{$f}->{status}{$g};
+      }
+   }
+   my $evtpermin = $total_evt / ($pe_dur / 60) if $pe_dur > 0;
+   my $ppc = sprintf '%.2f', $evtpermin;
+   $cnt++;$oline[$cnt]="*total*,$pe_dur,$total_evt,$ppc/min,\n";
+
+   $rptkey = "TEMSREPORT045";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: PostEvent Report Summary\n";
+   $cnt++;$oline[$cnt]="Situation,Count,Nodes,Rate,Status\n";
+   foreach $f ( sort { $pesumx{$b}->{count} <=> $pesumx{$a}->{count} } keys %pesumx) {
+      $outl = $f . ",";
+      $outl .= $pesumx{$f}->{count} . ",";
+      $outl .= $pesumx{$f}->{nodes} . ",";
+      my $evtpermin = $pesumx{$f}->{count} / ($pe_dur / 60) if $pe_dur > 0;
+      my $ppc = sprintf '%.2f', $evtpermin;
+      $outl .= $ppc . "/min,";
+      my $pstatus = "";
+      foreach $g (keys %{$pesumx{$f}->{status}}) {
+         $pstatus .= $g . "[" . $pesumx{$f}->{status}{$g} . "] ";
+         $total_status{$g} += $pesumx{$f}->{status}{$g};
+      }
+      $outl .= $pstatus . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+   foreach $f (keys %total_status) {
+      $outl = "Incoming $f" . "[$total_status{$f}] rate ";
+      my $statrate = $total_status{$f} / ($pe_dur / 60) if $pe_dur > 0;
+      my $ppc = sprintf '%.2f', $statrate;
+      $outl .= $ppc . "/min over $pe_dur seconds.";
+      $advi++;$advonline[$advi] = "Situation Event Status $f" . "[$total_status{$f}] rate $ppc/min over $pe_dur seconds - see reports TEMSREPORT010 and TEMSREPORT045.";
+      $advcode[$advi] = "TEMSAUDIT1092W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
 }
 
-my $total_evt = 0;
-my $pe_dur;
-my $pevt_size = scalar (keys %pevtx);
 if ($pevt_size > 0) {
    $pe_dur = $pe_etime - $pe_stime;
    $rptkey = "TEMSREPORT010";$advrptx{$rptkey} = 1;         # record report key
@@ -9486,6 +9588,17 @@ Meaning: This is an informational message and can be ignored.
 Recovery plan: nothing to be done
 --------------------------------------------------------------
 
+TEMSAUDIT1092W
+Text: Situation Event Status type rate count/min over count seconds.
+
+Tracing: error
+to be added.
+
+Meaning: to be added
+
+Recovery plan: to be added
+--------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -10834,4 +10947,17 @@ delays. The Recv-Q conditions are usually a side effect of
 the Send-Q issues.
 
 Recovery plan: Involve IBM Support to eliminate the issue.
+----------------------------------------------------------------
+
+TEMSREPORT052
+Text: Process Table Report Delays - Max overlay count
+
+Sample Report
+to be added
+
+Meaning:
+to be added
+
+
+Recovery plan: to be added
 ----------------------------------------------------------------
