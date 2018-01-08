@@ -370,6 +370,7 @@ my %advcx = (
               "TEMSAUDIT1083W" => "90",
               "TEMSAUDIT1084W" => "95",
               "TEMSAUDIT1085W" => "85",
+              "TEMSAUDIT1086W" => "90",
             );
 
 my %advtextx = ();
@@ -1018,6 +1019,8 @@ my @soap_burst_time = ();   # time being worked on since first one
 my @soap_burst_log = ();    # log being worked on
 my @soap_burst_l = ();      # log line being worked on
 my $soap_burst_next;        # time for begining of next SOAP call minute
+
+my %loginx;
 
 my $pti = -1;               # count of process table records
 my @pt  = ();               # pt keys - table_path
@@ -4944,6 +4947,15 @@ if ($soaperror_ct > 0) {
 
 }
 
+my $login_ct = scalar keys %loginx;
+if ($login_ct > 0) {
+   foreach $f (keys %loginx) {
+      $advi++;$advonline[$advi] = "SOAP User Login Failure $f [$loginx{$f}]";
+      $advcode[$advi] = "TEMSAUDIT1086W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "SOAP";
+   }
+}
 
 my $change_real = 0;
 if ($changex_ct > 0) {
@@ -9106,6 +9118,19 @@ Meaning: When there are many such cases, there is a strong
 implication that there are duplicate agent name cases. See
 REPORT048 for more details.
 ----------------------------------------------------------------
+
+TEMSAUDIT1086W
+Text: SOAP User Login Failure user [error_codes]
+
+Tracing: error
+
+Meaning: When a SOAP Logon validation fails, the failure
+is recorded. Typically it is a bad password but it could
+also be a unknown userid.
+
+Recovery plan: Correct the SOAP to refelect what the correct
+userid and password is.
+--------------------------------------------------------------
 
 TEMSREPORT001
 Text: Too Big Report
