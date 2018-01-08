@@ -374,6 +374,8 @@ my %advcx = (
               "TEMSAUDIT1087W" => "50",
               "TEMSAUDIT1088W" => "99",
               "TEMSAUDIT1089E" => "100",
+              "TEMSAUDIT1090I" => "0",
+              "TEMSAUDIT1091I" => "0",
             );
 
 my %advtextx = ();
@@ -474,6 +476,8 @@ my %soaperror;
 my $soaperror_fault = "";
 my $soaperror_client = "";
 my $soaperror_ct;
+my $tec_translate_ct = 0;
+my $tec_classname_ct = 0;
 
 my %changex;
 my $changex_ct = 0;
@@ -2759,6 +2763,26 @@ for(;;)
             $rest =~ /ReadNext Error, (.*)/;
             my $readnext_err = $1;
             $readnextx{$readnext_err} += 1;
+            next;
+         }
+      }
+   }
+   #(5A32F0B5.0001-31:kfaottev.c,4929,"Get_ClassName") TEC classname cannot be determined for situation <Perf_CPUBusy_65_C>. status <5>
+   #(5A32F0B5.0002-31:kfaottev.c,1105,"KFAOT_Translate_Event") Translate TEC event failed. status <1>. Situation <Perf_CPUBusy_65_C> event status <S> not sent
+   if (substr($logunit,0,10) eq "kfaottev.c") {
+      if ($logentry eq "Get_ClassName") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       #  TEC classname cannot be determined for situation <Perf_CPUBusy_65_C>. status <5>
+         if (substr($rest,1,34) eq "TEC classname cannot be determined") {
+            $tec_classname_ct += 1 if index($rest,"status <5>") != -1;
+            next;
+         }
+      }
+      if ($logentry eq "KFAOT_Translate_Event") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Translate TEC event failed. status <1>. Situation <Perf_CPUBusy_65_C> event status <S> not sent
+         if (substr($rest,1,26) eq "Translate TEC event failed") {
+            $tec_translate_ct += 1 if index($rest,"status <S>") != -1;
             next;
          }
       }
@@ -5218,6 +5242,20 @@ if ($et > 0) {
          $advsit[$advi] = $f;
       }
    }
+}
+
+if ($tec_classname_ct > 0) {
+   $advi++;$advonline[$advi] = "Translate TEC Send event failed $tec_classname_ct times - not a problem";
+   $advcode[$advi] = "TEMSAUDIT1090I";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+if ($tec_translate_ct > 0) {
+   $advi++;$advonline[$advi] = "TEC Classname unable to translate $tec_translate_ct times - not a problem";
+   $advcode[$advi] = "TEMSAUDIT1091I";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
 }
 
 $et = scalar keys %derrorx;
@@ -9424,6 +9462,28 @@ Alternatively this document
 Sitworld: TEMS Database Repair http://ibm.biz/BdsYzS
 
 contains everything needed to do the repair yourself.
+--------------------------------------------------------------
+
+TEMSAUDIT1090I
+Text: Translate TEC Send event failed count times - not a problem
+
+Tracing: error
+(5A32F0B5.0002-31:kfaottev.c,1105,"KFAOT_Translate_Event") Translate TEC event failed. status <1>. Situation <Perf_CPUBusy_65_C> event status <S> not sent
+
+Meaning: This is an informational message and can be ignored.
+
+Recovery plan: nothing to be done
+--------------------------------------------------------------
+
+TEMSAUDIT1091I
+Text: TEC Classname unable to translate count times - not a problem
+
+Tracing: error
+(5A32F0B5.0001-31:kfaottev.c,4929,"Get_ClassName") TEC classname cannot be determined for situation <Perf_CPUBusy_65_C>. status <5>
+
+Meaning: This is an informational message and can be ignored.
+
+Recovery plan: nothing to be done
 --------------------------------------------------------------
 
 TEMSREPORT001
