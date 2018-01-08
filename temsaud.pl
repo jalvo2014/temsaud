@@ -377,6 +377,7 @@ my %advcx = (
               "TEMSAUDIT1090I" => "0",
               "TEMSAUDIT1091I" => "0",
               "TEMSAUDIT1092W" => "50",
+              "TEMSAUDIT1093E" => "100",
             );
 
 my %advtextx = ();
@@ -868,6 +869,31 @@ my %advx = ();
 my $rptkey = "";
 
 my $max_impact = 0;
+
+my $logopfn = "";
+my $full_logopfn = "";
+my $optime = 0;
+
+# if Linux/Unix capture name of most recent operations log
+
+$pattern = "_ms_(\\d+)\.log\$";
+@results = ();
+opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n"); # get list of files
+@results = grep {/$pattern/} readdir(DIR);
+closedir(DIR);
+if ($#results != -1) {
+   foreach my $f (@results) {
+      next if index($f,"plugin") != -1;
+      $f =~ /(\d+)\.log/;
+#                   $oneline =~ /Nofile Limit: (\d+)(.?)/;
+      my $ioptime = $1;
+      if ($ioptime > $optime) {
+         $optime = $ioptime;
+         $logopfn = $f
+      }
+   }
+}
+$full_logopfn = $opt_logpath . $logopfn if $logopfn ne "";
 
 if ($logfn eq "") {
    $pattern = "(_ms|_MS)(_kdsmain)?\.inv";
@@ -7212,6 +7238,67 @@ if ($gotnet == 1) {
 
 }
 
+my %iheartx;
+
+if ($full_logopfn ne "") {
+   my $ol = 0;
+   if (open OPLOG,"< $full_logopfn") {
+      my $opline;
+      while (1) {
+         $opline = <OPLOG>;
+         last if !defined $opline;
+         $ol += 1;
+         next if length($opline) < 40;
+         #Fri Dec 15 04:33:13 2017 KDS9143I   An initial heartbeat has been received from the TEMS REMOTE_usrdrtm041ccpr2 by the hub TEMS HUB_usrdhtms21ccpx2.
+         my $opcode = substr($opline,25,8);
+         if ($opcode eq "KDS9143I") {
+            $opline =~ /has been received from the TEMS (\S+)/;
+            my $irtems = $1;
+            my $idate = substr($opline,0,24);
+            my $iheart_ref = $iheartx{$irtems};
+            if (!defined $iheart_ref) {
+               my %iheartref = (
+                                  count => 0,
+                                  stamps => [],
+                               );
+               $iheart_ref = \%iheartref;
+               $iheartx{$irtems} = \%iheartref;
+            }
+            $iheart_ref->{count} += 1;
+            push @{$iheart_ref->{stamps}},$idate;
+         }
+      }
+      close(OPLOG);
+   }
+}
+
+my $prob_initial = 0;
+foreach my $f (keys %iheartx) {
+   my $iheart_ref = $iheartx{$f};
+   next if $iheart_ref->{count} == 1;
+   $prob_initial += 1;
+   $advi++;$advonline[$advi] = "Excess Initial Heartbeats[$iheart_ref->{count}] from Remote TEMS $f - See TEMSREPORT054 report";
+   $advcode[$advi] = "TEMSAUDIT1093E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+if ($prob_initial > 0) {
+   $rptkey = "TEMSREPORT054";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Excess Initial Heartbeat report\n";
+   $cnt++;$oline[$cnt]="RemoteTems,Initial_count,Stamps\n";
+   foreach my $f (keys %iheartx) {
+      my $iheart_ref = $iheartx{$f};
+      next if $iheart_ref->{count} == 1;
+      $outl = $f . ",";
+      $outl .= $iheart_ref->{count} . ",";
+      $outl .= join("|",@{$iheart_ref->{stamps}}) . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+}
+
+
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
 open OH, ">$opt_o" or die "unable to open $opt_o: $!";
@@ -9598,6 +9685,29 @@ Meaning: to be added
 
 Recovery plan: to be added
 --------------------------------------------------------------
+TEMSAUDIT1093E
+Text: Excess Initial Heartbeats[count] from Remote TEMS temsnodeid
+
+Tracing: error
+
+Meaning: In normal circumstances, the hub TEMS will receive a single
+Initial Heartbeat received. It is seen on Linux/Unix in the operations
+log. Occasionally there may be a few of such messages when a
+remote TEMS is recycled or loses communication. If you see many
+of these messages there is often a serious issue and monitoring
+is not working as expected.
+
+One type of case involved a remote TEMS on a high latency link.
+
+Another case involved a serious agent side configuration error
+which caused many reconnections. Eventually the agent got
+stuck, the tcp socket from TEMS to agent got stuck and that
+prevented the TEMS from communicating.
+
+We expect there are other cases not yet diagnosed.
+
+Recovery plan: Work with IBM Support to resolve the root cause.
+--------------------------------------------------------------
 
 TEMSREPORT001
 Text: Too Big Report
@@ -10832,59 +10942,6 @@ best practice for situations: rare, exceptional and a condition
 which can be corrected by some manual or automated process.
 ----------------------------------------------------------------
 
-TEMSREPORT049
-Text: SOAP Detail Report
-
-Tracing: error (unit:kshdhtp,Entry="getHeaderValue"  all) (unit:kshreq,Entry="buildSQL" all)(unit:kshstrt.cpp,Entry="default_service" all er)(unit:kshxmlxp.cpp,Entry="addelement" all er)(unit:kshxmlxp.cpp,Entry="setValue" all er)(unit:kshreq.cpp,Entry="Fetch" all er)
-
-Meaning
-
-Local_Time,Duration,IP,Diagnostic_Line_Number,
-,SOAP_Message_Summary,
-,First_Row_Result,
-20171201161040,0,ip.ssl:#9.30.240.127:52381,55960,
-,CT_Export=;filename=a;request=;CT_Get=;userid=sysadmin;password=xxxxxxx;table=O4SRV.UTCTIME;sql=SELECT NODE, AFFINITIES, PRODUCT, VERSION, RESERVED, O4ONLINE FROM O4SRV.INODESTS WHERE (O4ONLINE = 'N' OR O4ONLINE = 'Y');,
-,<TABLE name="O4SRV.UTCTIME"><OBJECT>Universal_Time</OBJECT><DATA><ROW><NODE>54905lp7:KUX</NODE><AFFINITIES>%IBM.STATIC013          000000000P000Jyw0a7</AFFINITIES><PRODUCT>UX</PRODUCT><VERSION>06.23.05</VERSION><RESERVED>A=00:aix526;C=06.23.05.00:aix526;G=06.23.05.00:aix526;</RESERVED><O4ONLINE>N</O4ONLINE></ROW>
-
-Report on available details of SOAP processing.
-
-Line refers to the line number on the diagnostic logs where the
-initial reference was found. If there are more than one diagnostic
-log segment, the line number is cumulative across all the segments.
-
-The "Message Summary" line is the data which the SOAP process has
-extracted from the XML that defines the SOAP request.
-
-The "First Row" line is the data concerning the full row. The results
-can be very long indeed.
-
-Recovery plan: Use this to understand SOAP processing. This can
-be intensive and destabilize the hub TEMS. Reduce excess use or
-make more efficient SOAPs.
-----------------------------------------------------------------
-
-TEMSREPORT050
-Text: TNODESTS Insert Error Summary Report
-
-Tracing: error
-(5A2668D0.0004-68:kdsvws1.c,2421,"ManageView") ProcessTable TNODESTS Insert Error status = ( 1551 ).  SRVR01 ip.spipe:#10.64.11.30[3660]
-
-Meaning
-
-TEMSREPORT050: TNODESTS Insert Error Summary Report
-IP_Addr,Count,
-ip.spipe:#10.64.11.30[3660],1551[735] ,
-
-The TEMS was updating a node status on another TEMS. However
-the target TEMS reported the agent no longer was connected to
-that TEMS.
-
-Recovery plan: If these numbers are high, the TEMSes should
-be studied to determine the high rate of agent switching. There
-can be many reasons such as duplicate agent name cases and
-agent, TEMS mal-configuration or communication issues.
-----------------------------------------------------------------
-
 TEMSREPORT048
 Text: Nodelist Error report - possible duplicate node indications
 
@@ -10961,3 +11018,31 @@ to be added
 
 Recovery plan: to be added
 ----------------------------------------------------------------
+
+TEMSREPORT054
+Text: Excess Initial Heartbeat report
+
+Sample Report
+RemoteTems,Initial_count,Stamps
+REMOTE_usrdrtm051ccpr2,6,Fri Dec 15 04:33:45 2017|Wed Dec 20 12:36:18 2017|Sun Dec 31 18:40:56 2017|....
+
+Meaning: In normal circumstances, the hub TEMS will receive a single
+Initial Heartbeat received. It is seen on Linux/Unix in the operations
+log. Occasionally there may be a few of such messages when a
+remote TEMS is recycled or loses communication. If you see many
+of these messages there is often a serious issue and monitoring
+is not working as expected.
+
+One type of case involved a remote TEMS on a high latency link.
+
+Another case involved a serious agent side configuration error
+which caused many reconnections. Eventually the agent got
+stuck, the tcp socket from TEMS to agent got stuck and that
+prevented the TEMS from communicating.
+
+We expect there are other cases not yet diagnosed.
+
+This report shows the Remote TEMS involved, the count of Initial Heartbeat
+messages in the operations log, and the operation log time stamps
+
+Recovery plan: Work with IBM Support to resolve the root cause.
