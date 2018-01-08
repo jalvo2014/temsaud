@@ -369,6 +369,7 @@ my %advcx = (
               "TEMSAUDIT1082E" => "100",
               "TEMSAUDIT1083W" => "90",
               "TEMSAUDIT1084W" => "95",
+              "TEMSAUDIT1085W" => "85",
             );
 
 my %advtextx = ();
@@ -476,6 +477,15 @@ my $misscolx_ct;
 
 my %nodestx;
 
+my $nodelist_error;
+my $nodelist_operation;
+my $nodelist_id;
+my $nodelist_objname;
+my $nodelist_agent;
+my $nodelist_tems;
+my $nodeliste_state = 0;
+my %nodelistex;
+my $nodeliste_count = 0;
 
 my $stage2 = "";
 my $stage2_ct = 0;
@@ -2773,6 +2783,60 @@ for(;;)
          }
       }
       next;
+   }
+
+   # (5927EF95.0000-7:ko4stg3u.cpp,569,"IBInterface::handleNodelistRecord") Error: <1136> failed to download node list record
+   # (5927EF95.0001-7:ko4eibr.cpp,142,"EibRecord::dump") operation <I> id <5529> obj name <CTXAPP0054VB:51>
+   # (5927EF95.0002-7:ko4eibr.cpp,143,"EibRecord::dump") send id <> origin <>
+   # (5927EF95.0003-7:ko4eibr.cpp,144,"EibRecord::dump") timestamp <1170526040407000> user <_FAGEN>
+   # (5927EF95.0004-7:ko4eibr.cpp,145,"EibRecord::dump") raw obj <CTXAPP0054VB:51                 REMOTE_USDAD-METVPVL01>
+   if (substr($logunit,0,12) eq "ko4stg3u.cpp") {
+      if ($logentry eq "IBInterface::handleNodelistRecord") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Error: <1136> failed to download node list record
+         next if substr($rest,1,6) ne "Error:";
+         $nodelist_error = $rest;
+         $nodeliste_state = 0;
+      }
+   }
+   if (substr($logunit,0,11) eq "ko4eibr.cpp") {
+      if ($logentry eq "EibRecord::dump") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         $nodeliste_state += 1;
+         if ($nodeliste_state == 1) {        # operation <I> id <5529> obj name <CTXAPP0054VB:51>
+            $rest =~ /operation <(\S*)> id <(\d*)> obj name <(\S*)>/;
+            $nodelist_operation = $1;
+            $nodelist_id = $2;
+            $nodelist_objname = $3;
+         } elsif ($nodeliste_state == 2) {   # send id <> origin <>
+         } elsif ($nodeliste_state == 3) {   # timestamp <1170526040407000> user <_FAGEN>
+         } elsif ($nodeliste_state == 4) {   # raw obj <CTXAPP0054VB:51                 REMOTE_USDAD-METVPVL01>
+            $rest =~ /raw obj <(.*)>/;
+            $nodelist_agent = substr($1,0,32);
+            $nodelist_tems = substr($1,32);
+            $nodelist_agent =~ s/\s+$//;   #trim trailing whitespace
+            my $nodeliste_ref = $nodelistex{$nodelist_agent};
+            if (!defined $nodeliste_ref) {
+               my %nodelisteref = (
+                                     count => 0,
+                                     error => {},
+                                     op => {},
+                                     id => {},
+                                     tems => {},
+                                  );
+              $nodeliste_ref = \%nodelisteref;
+              $nodelistex{$nodelist_agent} = \%nodelisteref;
+            }
+            $nodeliste_ref->{count} += 1;
+            $nodeliste_ref->{error}{$nodelist_error} += 1;
+            $nodeliste_ref->{op}{$nodelist_operation} += 1;
+            $nodeliste_ref->{id}{$nodelist_id} += 1;
+            $nodeliste_ref->{tems}{$nodelist_tems} += 1;
+            $nodeliste_state = 0;
+            $nodeliste_count += 1;
+         }
+      }
    }
 
    next if $skipzero;
@@ -6693,6 +6757,42 @@ if ($dnode_ct > 0) {
 
 }
 
+if ($nodeliste_count > 0) {
+   $rptkey = "TEMSREPORT048";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Nodelist Error report - possible duplicate node indications\n";
+   $cnt++;$oline[$cnt]="Agent,Count,Error,Op,Id,TEMS,\n";
+   foreach $f ( sort { $nodelistex{$b}->{count} <=>  $nodelistex{$a}->{count} || $a cmp $b } keys %nodelistex) {
+      my $nodeliste_ref = $nodelistex{$f};
+#     next if $nodeliste_ref->{count} == 1;
+      $outl = $f . ",";
+      $outl .= $nodeliste_ref->{count} . ",";
+      foreach $g (keys %{$nodeliste_ref->{error}}) {
+         $outl .= $g . "(" . $nodeliste_ref->{error}{$g} . ") ";
+      }
+      $outl .= ",";
+      foreach $g (keys %{$nodeliste_ref->{op}}) {
+        $outl .= $g . "(" . $nodeliste_ref->{op}{$g} . ") ";
+      }
+      $outl .= ",";
+      foreach $g (keys %{$nodeliste_ref->{id}}) {
+         $outl .= $g . "(" . $nodeliste_ref->{id}{$g} . ") ";
+      }
+      $outl .= ",";
+      foreach $g (keys %{$nodeliste_ref->{tems}}) {
+         $outl .= $g . "(" . $nodeliste_ref->{tems}{$g} . ") ";
+      }
+      $outl .= ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   $advi++;$advonline[$advi] = "Nodelist Errors [$nodeliste_count] potential duplicate agent name cases - See $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1085W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+
+}
+
+
 #     #!usr/local/bin/perl
 #     open(FILE ,"name_of_the_file_to_be_read");
 #     seek(FILE, 9900,0); #point the pointer to 9900th byte from the start
@@ -8996,6 +9096,17 @@ a portion of the file can be recovered. If you require that
 contact IBM Support for aid.
 ----------------------------------------------------------------
 
+TEMSAUDIT1085W
+
+Text: Nodelist Errors [count] potential duplicate agent name cases
+
+Tracing: error
+
+Meaning: When there are many such cases, there is a strong
+implication that there are duplicate agent name cases. See
+REPORT048 for more details.
+----------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -10229,3 +10340,24 @@ best practice for situations: rare, exceptional and a condition
 which can be corrected by some manual or automated process.
 ----------------------------------------------------------------
 
+TEMSREPORT048
+Text: Nodelist Error report - possible duplicate node indications
+
+Tracing: error
+
+Meaning
+
+example added later
+
+At times a remote TEMS will get an instruction to change a
+EIB data, often Nodelist data. When the attempt to get
+additional data fails, this means the agent involved has
+switched remote TEMSes.
+
+When this occurs a lot that suggests strongly that a
+duplicate agent name condition exists. If it just a few times
+that is likely normal behaviour.
+
+Recovery plan: Investigate possible duplicate agents and eliminate
+to get accurate and complete monitoring.
+----------------------------------------------------------------
