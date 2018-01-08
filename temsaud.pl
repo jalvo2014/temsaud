@@ -33,9 +33,6 @@
 ##  87348,082,000
 ##  /ecurep/pmr/8/7/87348,082,000/2017-05-19/87348.082.000.pdcollect-dkha3080.tar.Z_unpack/
 
-## (591C3F9F.0000-A2:kfastins.c,2166,"GetSitLogRecord") ReadNext Error, status = 5
-##  /ecurep/pmr/0/1/01551,227,000/2017-05-23/01551.227.000.pdcollect-AVPIU507.tar.Z_unpack/
-
 ## (591ACD2E.0000-7C:kshcat.cpp,296,"RetrieveTableByTableName") Unable to get attributes for table tree TOBJACCL
 
 ## monitor cases where port != 1918/3660 + N*4096, or +1
@@ -85,9 +82,30 @@
 
 ## capture node status if available !1
 
-## (59C9B407.0000-4D:kfastins.c,2604,"GetSitLogRecord") ReadNext Error, status = 5
-
 ## (59DFC978.0002-9:ko4rulex.cpp,920,"PredParser::getDescription") Error: Missing situation <Linux_BP_SpaceUsedPct_Critical>.
+
+## (5927EF95.0000-7:ko4stg3u.cpp,569,"IBInterface::handleNodelistRecord") Error: <1136> failed to download node list record
+## (5927EF95.0001-7:ko4eibr.cpp,142,"EibRecord::dump") operation <I> id <5529> obj name <CTXAPP0054VB:51>
+## (5927EF95.0002-7:ko4eibr.cpp,143,"EibRecord::dump") send id <> origin <>
+## (5927EF95.0003-7:ko4eibr.cpp,144,"EibRecord::dump") timestamp <1170526040407000> user <_FAGEN>
+## (5927EF95.0004-7:ko4eibr.cpp,145,"EibRecord::dump") raw obj <CTXAPP0054VB:51                 REMOTE_USDAD-METVPVL01>
+
+##  (59F11DA8.55E2-2B00:kfaibloc.c,859,"IBL_Process") status = 62, jvalstatus = 0, records = 38113
+##  count of records retrieved from TEMS database??
+
+## (unit:kfaibloc state er)
+## (59F21851.060D-1E08:kfaibloc.c,541,"IBL_Process") StartBrowse (scan: 1, keylen: 64) at '' in TOVERITEM(QA1DOVRI   )
+## (59F21851.062C-1E08:kfaibloc.c,859,"IBL_Process") status = 62, jvalstatus = 0, records = 2
+
+## (59F300BA.0006-8:ko4accpr.cpp,1463,"WOSActivity::populate") Error: pcy <Run_nodata_Situations> act <WaitOnSituation1> tgt <bnc_check_datacollection_tems> sit def not found
+
+## (5A1D433C.0002-107:kshdsr.cpp,361,"login") Create Path Error st=1010 for 'ie4013t' 'xxxxxxxx' 'ip.ssl'
+## (5A1D433C.0003-107:kshhttp.cpp,493,"writeSoapErrorResponse") faultstring: CMS logon validation failed.
+## (5A1D433C.0004-107:kshhttp.cpp,523,"writeSoapErrorResponse") Client: ip.ssl:#127.0.0.1:59190
+
+## (5A2668D0.0004-68:kdsvws1.c,2421,"ManageView") ProcessTable TNODESTS Insert Error status = ( 1551 ).  SRVR01 ip.spipe:#10.64.11.30[3660]
+
+## (5A3E5FA4.0008-110:ko4bkgnd.cpp,482,"BackgroundController::nodeStatusUpdate") TEMS heartbeat insert failed with status 1542
 
 my $gVersion = 1.81000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
@@ -232,6 +250,10 @@ my @ssout;
 my $opt_flip = 1;
 my $opt_eph;                                     # produce ephemeral report
 my $opt_ephdir;                                  # produce ephemeral report
+my $opt_sth;                                     # produce event history status report
+my $opt_stfn;                                    # event history filename
+my $opt_ndfn;                                    # node history filename
+my $opt_evslot = 1;
 my $start_date = "";
 my $start_time = "";
 my $local_diff = -1;
@@ -431,7 +453,6 @@ my $prt_current = 0;
 my $prt_max = 0;
 my $prt_max_l = 0;
 
-
 my %valvx;
 my $val_ref;
 my %valx;
@@ -453,6 +474,8 @@ my %lociex = (                    # generic loci counter exclusion
                 "kdepdpc.c|KDEP_DeletePCB" => 1,
                 "kpxrwhpx.cpp|LookupWarehouse" => 1,
                 "kfastins.c|KFA_PutSitRecord" => 1,
+                "kfaottev.c|Get_ClassName" => 1,
+                "kfaottev.c|KFAOT_Translate_Event" => 1,
              );
 
 my %rdx;
@@ -583,6 +606,7 @@ my $opt_nominal_max_impact = 50;                     # Above this impact level, 
 my $opt_nominal_loci = 1;                     # Above this percent, record in loci report
 my $opt_portscan = 1;                         # portscan report
 my $opt_last = 1;
+my $opt_churnall = 0;                         # when 1, produce 100% churn report
 
 my $arg_start = join(" ",@ARGV);
 $hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
@@ -648,6 +672,18 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-eph") {
       $opt_eph = 1;
       shift(@ARGV);
+   } elsif ($ARGV[0] eq "-sth") {
+      $opt_sth = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-evslot") {
+      $opt_evslot = 10;
+      shift(@ARGV);
+      if (defined $ARGV[0]) {
+         if (substr($ARGV[0],0,1) ne "-") {
+            $opt_evslot = $ARGV[0];
+            shift(@ARGV);
+         }
+      }
    } elsif ($ARGV[0] eq "-nohdr") {
       $opt_nohdr = 1;
       shift(@ARGV);
@@ -656,6 +692,9 @@ while (@ARGV) {
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-noportscan") {
       $opt_portscan = 0;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-churnall") {
+      $opt_churnall = 1;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-rdslot") {
       shift(@ARGV);
@@ -721,6 +760,9 @@ if (!defined $opt_rdslot) {$opt_rdslot = 1;}
 if (!defined $opt_rdtop) {$opt_rdtop = 5;}
 if (!defined $opt_eph) {$opt_eph = 0;}
 if (!defined $opt_ephdir) {$opt_ephdir = "";}
+if (!defined $opt_sth) {$opt_sth = 0;}
+$opt_stfn = "eventhist.csv" if $opt_sth == 1;
+$opt_ndfn = "nodehist.csv" if $opt_sth == 1;
 
 
 if (!$opt_inplace) {
@@ -954,6 +996,13 @@ if (!defined $logbase) {
    $logbase = $logfn if ! -e $logfn;
 }
 
+if ($opt_sth == 1) {
+   open STH, ">$opt_stfn" or die "Unable to open Status History output file $opt_stfn\n";
+   print STH "Line,LocalTime,Thrunode,Sitname,Node,Atomize,GlobalTime,Status,\n";
+   open NDH, ">$opt_ndfn" or die "Unable to open Node History output file $opt_ndfn\n";
+   print NDH "Line,Time,Node,Thrunode,Reason,O4ONLINE,Product,Version,Reserved,Hostinfo,Hostaddr,Affinity,\n";
+}
+
 
 
 die "-expslot [$opt_expslot] is not numeric" if  $opt_expslot !~ /^\d+$/;
@@ -1042,6 +1091,21 @@ my $syncdist_first_time;    # First noted time in log
 my $syncdist_timei = -1;    # count of sync. dist. time counts
 my $syncdist_time = ();     # count of sync. dist.
 
+my $soapi = -1;             # count of soap SQLa
+my @soap = ();              # indexed array to SOAP SQLs
+my %soapx = ();             # associative array to SOAP SQLs
+my @soapct;                 # count of soap SQLs
+my @soapip;                 # last ip address seen in header
+my $soapip_lag = "";        # last ip address spotted
+my $soapct_tot;             # total count of SQLs
+my %soapdetx = ();          # hash of soap details
+my $soapdet_def;
+my %soaprunx = ();          # Soap details capture by thread;
+my $soaprun_def;
+my $soapkey;
+my %soapcapx;               # capture of Fetch first row
+my $soapcap_def;
+
 my %loginx;
 
 my %ptix;
@@ -1054,13 +1118,6 @@ my $total_recvq = 0;
 my $max_sendq = 0;
 my $max_recvq = 0;
 
-my $soapi = -1;             # count of soap SQLa
-my @soap = ();              # indexed array to SOAP SQLs
-my %soapx = ();             # associative array to SOAP SQLs
-my @soapct;                 # count of soap SQLs
-my @soapip;                 # last ip address seen in header
-my $soapip_lag = "";        # last ip address spotted
-my $soapct_tot;             # total count of SQLs
 
 my $soap_burst_start = 0;   # start of SOAP burst calculation
 my $soap_bursti = -1;       # count of SOAP call minutes
@@ -1074,7 +1131,6 @@ my @soap_burst_time = ();   # time being worked on since first one
 my @soap_burst_log = ();    # log being worked on
 my @soap_burst_l = ();      # log line being worked on
 my $soap_burst_next;        # time for begining of next SOAP call minute
-
 
 my $pti = -1;               # count of process table records
 my @pt  = ();               # pt keys - table_path
@@ -1287,6 +1343,10 @@ my $oplogid;
 
 my %miss_tablex;
 
+my %evhist;
+my $evhist_ref;
+sub sec2slot;
+
 my $lagline;
 my $lagtime;
 my $laglocus;
@@ -1302,6 +1362,8 @@ for(;;)
       last;
    }
    $l++;
+#print STDERR "workong on $l\n";
+
 #   last if $l > 300000;
 #print STDERR "Working on $l\n";
 # following two lines are used to debug errors. First you flood the
@@ -1560,6 +1622,7 @@ for(;;)
       $rvrun_def = $rvrunx{$contkey};
       $rxrun_def = $rxrunx{$contkey};
       $dnrun_def = $dnrunx{$contkey};
+      $soapcap_def = $soapcapx{$contkey};
       if (defined $rvrun_def) {
          $rest = substr($oneline,14);
          $rest =~ /^(.*?):(.*?)$/;
@@ -1688,6 +1751,18 @@ for(;;)
          } elsif ($first eq "Process Time") {
             $rxrun_def->{process_time} = $second;
             $rvrun_last_line = 0;
+         }
+      # +5A21EF8B.025B "<TABLE name="O4SRV.UTCTIME">
+      # +5A21EF8B.025B <OBJECT>Universal_Time</OBJECT>
+      } elsif (defined $soapcap_def) {
+         $soaprun_def = $soapcap_def;
+         $rest = substr($oneline,14);
+         $rest =~ / [\"]?(.*)$/;
+         my $ifrag = $1;
+         $ifrag =~ s/\s+$//;   #trim trailing whitespace
+         $soaprun_def->{fetch} .= $ifrag;
+         if (($ifrag eq "") or ($ifrag eq "</ROW>")) {
+            delete $soapcapx{$contkey};
          }
       }
    }
@@ -2927,6 +3002,8 @@ for(;;)
       }
    }
 
+
+
    next if $skipzero;
 
    # signal for KDEB_INTERFACELIST conflicts
@@ -3539,6 +3616,7 @@ for(;;)
          $rest = $2;                       # Header is <ip.ssl:#10.41.100.21:38317>
          my $pi = index($rest,"status queue record");
          if ($pi != -1) {
+            my $begins = substr($rest,0,10);
             $rest = substr($rest,$pi+20);
             $pi = index($rest,"while processing event record");
             if ($pi != -1) {
@@ -3549,96 +3627,147 @@ for(;;)
                # <1150213164502000REMOTE_va10p10023               wlp_rfmonitor_2ntw_rfax         RFMonitor:VA10PWPRFS002A:LO     RightFax_Warning, Line=(9 file of type *.job over 10 Minutes Old Found in Dir \\vapwprfnbes01\OutputPath\QCCMEDC\ on Server VA101150213164502999Y>
                # the following logic is used to avoid issues with data on continued lines.
                if (substr($rest,-1,1) eq ">") {                         # ignore continued lines for the moment
-                  if (length($rest) > 241) {                            # ignore short lines
-                     if (substr($rest,241,1) eq "1") {                  # ignore node status updates for the moment
-                        my $itime1 = substr($rest,1,16);
-                        $ithrunode = substr($rest,17,32);
-                        $ithrunode =~ s/\s+$//;   #trim trailing whitespace
-                        my $isitname = substr($rest,49,32);
-                        $isitname =~ s/\s+$//;   #trim trailing whitespace
-                        my $inode = substr($rest,81,32);
-                        $inode =~ s/\s+$//;   #trim trailing whitespace
-                        my $iatom = substr($rest,113,128);
-                        $iatom =~ s/\s+$//;   #trim trailing whitespace
-                        my $iunknown = substr($rest,239,2);
-                        my $itime2 = substr($rest,241,16);
-                        my $istatus = substr($rest,257,1);
-                        my $key = $inode . "|" . $isitname;
-                        my $evt_ref = $pevtx{$key};
-                        if (!defined $evt_ref) {
-                           my %evtref = (
-                                           sitname => $isitname,
-                                           node => $inode,
+                  if (length($rest) <= 260) {                           # Handle only situation summaries here
+                     my $itime1 = substr($rest,1,16);
+                     $ithrunode = substr($rest,17,32);
+                     $ithrunode =~ s/\s+$//;   #trim trailing whitespace
+                     my $isitname = substr($rest,49,32);
+                     $isitname =~ s/\s+$//;   #trim trailing whitespace
+                     my $inode = substr($rest,81,32);
+                     $inode =~ s/\s+$//;   #trim trailing whitespace
+                     my $iatom = substr($rest,113,128);
+                     $iatom =~ s/\s+$//;   #trim trailing whitespace
+                     my $itime2 = substr($rest,241,16);
+                     my $istatus = substr($rest,257,1);
+                     if ($opt_sth == 1) {
+                        my $sthline = $l . ",";
+                        $sthline .= $itime1 . ",";
+                        $sthline .= $ithrunode . ",";
+                        $sthline .= $isitname . ",";
+                        $sthline .= $inode . ",";
+                        $sthline .= $iatom . ",";
+                        $sthline .= $itime2 . ",";
+                        $sthline .= $istatus . ",";
+                        print STH "$sthline\n";
+                     }
+                     my $key = sec2slot($logtime);
+                     $evhist_ref = $evhist{$key};
+                     if (!defined $evhist_ref) {
+                        my %evhistref = (
+                                           status => {},
+                                           situation => {},
+                                           ptexit_ct => 0,
+                                           ptdur_tot => 0,
+                                           ptdur_max => 0,
+                                           ptdur_maxsl => 0,
+                                           ptdur_maxel => 0,
+                                           ptlevel_max => 0,
+                                           ptlevel_tot => 0,
                                            count => 0,
                                         );
-                           $pevtx{$key} = \%evtref;
-                           $evt_ref      = \%evtref;
-                        }
-                        $evt_ref->{count} += 1;
-                        $evt_ref->{atoms}->{$iatom} = 1 if $iatom ne "";
-                        $evt_ref->{thrunode}->{$ithrunode} = 1;
-                        if ($pe_stime == 0) {
-                            $pe_stime = $logtime;
-                            $pe_etime = $logtime;
-                        }
-                        if ($logtime < $pe_stime) {
-                           $pe_stime = $logtime;
-                        }
-                        if ($logtime > $pe_etime) {
-                              $pe_etime = $logtime;
-                        }
-                     } else {  # node status updates
-                        my $itime1 = substr($rest,1,16);
-                        $inode = substr($rest,17,32);
-                        $inode =~ s/\s+$//;       #trim trailing whitespace
-                        my $io4online = substr($rest,53,1);
-                        my $iproduct = substr($rest,54,2);
-                        $iproduct =~ s/\s+$//;       #trim trailing whitespace
-                        my $iversion = substr($rest,56,8);
-                        $iversion =~ s/\s+$//;       #trim trailing whitespace
-                        my $iaffinity = substr($rest,83,43);
-                        $ithrunode = substr($rest,127,32);
-                        $ithrunode =~ s/\s+$//;   #trim trailing whitespace
-                        my $ihostinfo = substr($rest,161,16);
-                        $ihostinfo =~ s/\s+$//;   #trim trailing whitespace
-                        my $ihostaddr = substr($rest,193,256);
-                        $ihostaddr =~ s/\s+$//;   #trim trailing whitespace
-                        my $ireserved = substr($rest,449.64);
-                        $ireserved =~ s/\s+$//;   #trim trailing whitespace
-                        my $nodest_ref = $nodestx{$inode};
-                        if (!defined $nodest_ref) {
-                           my %nodestref = (
-                                              count => 0,
-                                              instances => {},
-                                           );
-                           $nodest_ref = \%nodestref;
-                           $nodestx{$inode} = \%nodestref;
-                        }
-                        my $inkey = $ithrunode ."|" . $ihostaddr;
-                        my $instance_ref = $nodest_ref->{instances}{$inkey};
-                        if (!defined $instance_ref) {
-                           my %instanceref = (
-                                                 count => 0,
-                                                 thrunode => $ithrunode,
-                                                 hostaddr => $ihostaddr,
-                                                 product => $iproduct,
-                                                 online1 => 0,
-                                                 online => 0,
-                                                 offline => 0,
-                                                 version => $iversion,
-                                                 affinity => $iaffinity,
-                                                 hostinfo => $ihostinfo,
-                                                 reserved => $ireserved,
-                                             );
-                           $instance_ref = \%instanceref;
-                           $nodest_ref->{instances}{$inkey} = \%instanceref;
-                           $nodest_ref->{count} += 1;
-                        }
-                        $instance_ref->{count} += 1;
-                        $instance_ref->{online1} += 1 if $io4online eq "1";
-                        $instance_ref->{online} += 1 if $io4online eq "Y";
-                        $instance_ref->{offline} += 1 if $io4online eq "N";
+                        $evhist_ref = \%evhistref;
+                        $evhist{$key} = \%evhistref;
                      }
+                     $evhist_ref->{count} += 1;
+                     $evhist_ref->{status}{$istatus} += 1;
+                     $evhist_ref->{situation}{$isitname} += 1;
+                     $key = $inode . "|" . $isitname;
+                     my $evt_ref = $pevtx{$key};
+                     if (!defined $evt_ref) {
+                        my %evtref = (
+                                        sitname => $isitname,
+                                        node => $inode,
+                                        count => 0,
+                                        status => {},
+                                     );
+                        $pevtx{$key} = \%evtref;
+                        $evt_ref      = \%evtref;
+                     }
+                     $evt_ref->{count} += 1;
+                     $evt_ref->{atoms}->{$iatom} = 1 if $iatom ne "";
+                     $evt_ref->{thrunode}->{$ithrunode} = 1;
+                     $evt_ref->{status}{$istatus} += 1;
+                     if ($pe_stime == 0) {
+                         $pe_stime = $logtime;
+                         $pe_etime = $logtime;
+                     }
+                     if ($logtime < $pe_stime) {
+                        $pe_stime = $logtime;
+                     }
+                     if ($logtime > $pe_etime) {
+                           $pe_etime = $logtime;
+                     }
+                  } elsif (substr($begins,1,5) eq "First") {  # node status updates
+                                                              ##? "new work and Additional" need to be understood
+                     my $itime1 = substr($rest,1,16);
+                     $inode = substr($rest,17,32);
+                     $inode =~ s/\s+$//;       #trim trailing whitespace
+                     my $ireason = substr(51,2);
+                     $ireason =~ s/\s+$//;       #trim trailing whitespace
+                     my $io4online = substr($rest,53,1);
+                     my $iproduct = substr($rest,54,2);
+                     $iproduct =~ s/\s+$//;       #trim trailing whitespace
+                     my $iversion = substr($rest,56,8);
+                     $iversion =~ s/\s+$//;       #trim trailing whitespace
+                     my $iaffinity = substr($rest,83,43);
+                     $ithrunode = substr($rest,127,32);
+                     $ithrunode =~ s/\s+$//;   #trim trailing whitespace
+                     my $ihostinfo = substr($rest,161,16);
+                     $ihostinfo =~ s/\s+$//;   #trim trailing whitespace
+                     my $ihostaddr = substr($rest,193,256);
+                     $ihostaddr =~ s/\s+$//;   #trim trailing whitespace
+                     my $ireserved = substr($rest,449,64);
+                     $ireserved =~ s/\s+$//;   #trim trailing whitespace
+                     if ($opt_sth == 1) {
+                        my $ndhline = $l . ",";
+                        $ndhline .= $itime1 . ",";
+                        $ndhline .= $inode . ",";
+                        $ndhline .= $ithrunode . ",";
+                        $ndhline .= $ireason . ",";
+                        $ndhline .= $io4online . ",";
+                        $ndhline .= $iproduct . ",";
+                        $ndhline .= $iversion . ",";
+                        $ndhline .= $ireserved . ",";
+                        $ndhline .= $ihostinfo . ",";
+                        $ndhline .= $ihostaddr . ",";
+                        $ndhline .= $iaffinity . ",";
+                        print NDH "$ndhline\n";
+                     }
+                     my $nodest_ref = $nodestx{$inode};
+                     if (!defined $nodest_ref) {
+                        my %nodestref = (
+                                           count => 0,
+                                           instances => {},
+                                           status => {},
+                                        );
+                        $nodest_ref = \%nodestref;
+                        $nodestx{$inode} = \%nodestref;
+                     }
+                     my $inkey = $ithrunode ."|" . $ihostaddr;
+                     my $instance_ref = $nodest_ref->{instances}{$inkey};
+                     if (!defined $instance_ref) {
+                        my %instanceref = (
+                                              count => 0,
+                                              thrunode => $ithrunode,
+                                              hostaddr => $ihostaddr,
+                                              product => $iproduct,
+                                              online1 => 0,
+                                              online => 0,
+                                              offline => 0,
+                                              version => $iversion,
+                                              affinity => $iaffinity,
+                                              hostinfo => $ihostinfo,
+                                              reserved => $ireserved,
+                                          );
+                        $instance_ref = \%instanceref;
+                        $nodest_ref->{instances}{$inkey} = \%instanceref;
+                        $nodest_ref->{count} += 1;
+                     }
+                     $instance_ref->{count} += 1;
+                     $instance_ref->{online1} += 1 if $io4online eq "1";
+                     $instance_ref->{online} += 1 if $io4online eq "Y";
+                     $instance_ref->{offline} += 1 if $io4online eq "N";
+                     $nodest_ref->{status}{$io4online} += 1;
                   }
                }
             }
@@ -3647,6 +3776,79 @@ for(;;)
       next;
    }
 
+   # (5A21EF8B.014C-22:kshstrt.cpp,88,"default_service") Entry
+   # (5A21EF8B.0299-22:kshstrt.cpp,206,"default_service") Exit: 0x0
+   if (substr($logunit,0,11) eq "kshstrt.cpp") {
+      if ($logentry eq "default_service") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Entry
+                                           # Exit: 0x0
+         $soaprun_def = $soaprunx{$logthread};
+         if (substr($rest,1,5) eq "Entry") {
+            if (!defined $soaprun_def) {
+                my %soaprundef = (
+                                    line => $l,
+                                    start => $logtime,
+                                    end => 0,
+                                    msgi => -1,
+                                    msg => [],
+                                    fetchlen  => 0,
+                                    fetch => "",
+                                    ip => "",
+                                  );
+                $soaprun_def = \%soaprundef;
+                $soaprunx{$logthread} = \%soaprundef;
+             }
+         } elsif (substr($rest,1,5) eq "Exit:") {
+            if (defined $soaprun_def) {
+               $soaprun_def->{end} = $logtime;
+               # merge data into %soapdetx hash by line number
+               my %soapdet = (
+                                start => $soaprun_def->{start},
+                                end => $soaprun_def->{end},
+                                msgi => $soaprun_def->{msgi},
+                                msg => [],
+                                fetchlen => $soaprun_def->{fetchlen},
+                                fetch => $soaprun_def->{fetch},
+                                ip => $soaprun_def->{ip},
+                             );
+               my $soapdet_ref = \%soapdet;
+               @{$soapdet_ref->{msg}} = @{$soaprun_def->{msg}};
+               $soapdetx{$soaprun_def->{line}} = \%soapdet;
+               delete $soaprunx{$logthread};
+            }
+         }
+      }
+   }
+   # (5A21EF8B.016F-22:kshxmlxp.cpp,500,"addelement") Nodename: "CT_Get" ("CT_Get")
+   # (5A21EF8B.017F-22:kshxmlxp.cpp,875,"setValue") "userid" set to "sysadmin"
+   if (substr($logunit,0,12) eq "kshxmlxp.cpp") {
+      if ($logentry eq "addelement") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Nodename: "CT_Get" ("CT_Get")
+         if (substr($rest,1,8) eq "Nodename") {
+            $soaprun_def = $soaprunx{$logthread};
+            if (defined $soaprun_def) {
+               $rest =~ /Nodename: \"(\S+)\"/;
+               my $inodename = $1;
+               $soaprun_def->{msgi} += 1;
+               $soaprun_def->{msg}[$soaprun_def->{msgi}]{$inodename} = "";
+            }
+         }
+      } elsif ($logentry eq "setValue") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # "userid" set to "sysadmin"
+         if (index($rest,"set to") != -1) {
+            $soaprun_def = $soaprunx{$logthread};
+            if (defined $soaprun_def) {
+               $rest =~ /\"(\S+)\" set to \"(.*)\"/;
+               my $inodename = $1;
+               my $ivalue = $2;
+               $soaprun_def->{msg}[$soaprun_def->{msgi}]{$inodename} = $ivalue;
+            }
+         }
+      }
+   }
 
 
    if (substr($logunit,0,11) eq "kshdhtp.cpp") {
@@ -3656,11 +3858,38 @@ for(;;)
          next if substr($rest,1,13) ne "Header is <ip";
          $rest =~ /<(.*?)>/;
          $soapip_lag = $1;
+         $soaprun_def = $soaprunx{$logthread};
+         $soaprun_def->{ip} = $soapip_lag if defined $soaprun_def;
       }
       next;
    }
    if (substr($logunit,0,10) eq "kshreq.cpp") {
-      if ($logentry eq "buildSQL") {
+      # (5A21EF8B.025B-22:kshreq.cpp,2696,"Fetch") Response is l'250:
+      # +5A21EF8B.025B "<TABLE name="O4SRV.UTCTIME">
+      # +5A21EF8B.025B <OBJECT>Universal_Time</OBJECT
+      # +5A21EF8B.025B <DATA>
+      # +5A21EF8B.025B <ROW>
+      # +5A21EF8B.025B <THRUNODE>HUB_NMP180</THRUNODE>
+      # +5A21EF8B.025B <AFFINITIES>0000000080000000000000000000000004000H46Of0</AFFINITIES>
+      # +5A21EF8B.025B <VERSION>06.30.04</VERSION>
+      # +5A21EF8B.025B <O4ONLINE>Y</O4ONLINE>
+      # +5A21EF8B.025B </ROW>
+      # ...
+      # (5A21EF8B.025C-22:kshreq.cpp,2704,"Fetch") Exit: 0x0
+      if ($logentry eq "Fetch") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Response is l'250:
+         if (substr($rest,1,8) eq "Response") {
+            $soaprun_def = $soaprunx{$logthread};
+            if (defined $soaprun_def) {
+               $contkey = substr($oneline,1,13);
+               $soapcap_def = $soapcapx{$contkey};
+               if (!defined $soapcap_def) {
+                  $soapcapx{$contkey} = $soaprun_def;
+               }
+            }
+         }
+      } elsif ($logentry eq "buildSQL") {
          $histcnt++;
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Using pre-built SQL: SELECT NODE, AFFINITIES, PRODUCT, VERSION, RESERVED, O4ONLINE FROM O4SRV.INODESTS
@@ -3719,6 +3948,21 @@ for(;;)
       }
       next;
    }
+   #(5A1D433C.0002-107:kshdsr.cpp,361,"login") Create Path Error st=1010 for 'ie4013t' 'xxxxxxxx' 'ip.ssl'
+   if (substr($logunit,0,10) eq "kshdsr.cpp") {
+      if ($logentry eq "login") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Create Path Error st=1010 for 'ie4013t' 'xxxxxxxx' 'ip.ssl'
+         if (substr($rest,1,17) eq "Create Path Error"){
+            $rest =~ /Create Path Error st=(\d+) for \'(\S+)\'/;
+            my $ierror = $1;
+            my  $iuser = $2;
+            $loginx{$iuser} .= $ierror . ";";
+         }
+      }
+   }
+
+
    #(59082197.0003-2B7:kshhttp.cpp,493,"writeSoapErrorResponse") faultstring: CMS logon validation failed.
    #(59082197.0004-2B7:kshhttp.cpp,523,"writeSoapErrorResponse") Client: ip.ssl:#158.98.69.8:42858
    if (substr($logunit,0,11) eq "kshhttp.cpp") {
@@ -3778,68 +4022,167 @@ for(;;)
    }
 
 
-   #(52051207.0004-42:kdsstc1.c,2097,"ProcessTable") Table Status = 74, Rowcount = 0, TableName = WTMEMORY, Query Type = Select, TablePath = WTMEMORY
+   # (5A3D08BE.0057-3:kdsstc1.c,1451,"ProcessTable") Entry
+   # (5A3D08BE.0059-3:kdsstc1.c,2097,"ProcessTable") Table Status = 77, Rowcount = 0, TableName = TAPPLOGT, Query Type = Select, TablePath =
+   # (5A3D08BE.005A-3:kdsstc1.c,2184,"ProcessTable") Exit: 0x4D
    if (substr($logunit,0,9) eq "kdsstc1.c") {
       if ($logentry eq "ProcessTable") {
-         $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;                       # Table Status = 74, Rowcount = 0, TableName = WTMEMORY, Query Type = Select, TablePath = WTMEMORY
-         next if substr($rest,1,14) ne "Table Status =";
+         # record start/end times
          if ($pt_stime == 0) {
              $pt_stime = $logtime;
              $pt_etime = $logtime;
-         }
-         if ($logtime < $pt_stime) {
-            $pt_stime = $logtime;
-         }
-         if ($logtime > $pt_etime) {
-               $pt_etime = $logtime;
-         }
-         $rest =~ /.*?= (\S+)\,.*?=\s+(\S+)\,.*?= (\S+)\,.*?=\s*(.*?)\,.*?=\s*(\S*)/;
+            }
+         $pt_stime = $logtime if $logtime < $pt_stime;
+         $pt_etime = $logtime if $logtime > $pt_etime;
 
-         $ipt_status = $1;
-         $ipt_rows = $2;
-         $ipt_table = $3;
-         $ipt_type = $4;
-         $ipt_path  = $5;
-         my $post = index($ipt_type,",");
-         $ipt_type = substr($ipt_type,0,$post) if $post > 0;
-         $ipt_path =~ s/(^\s+|\s+$)//g;
-         $ipt_key = $ipt_table . "_" . $ipt_path;
-         $ix = $ptx{$ipt_key};
-         if (!defined $ix) {
-            $pti += 1;
-            $ix = $pti;
-            $pt[$ix] = $ipt_key;
-            $ptx{$ipt_key} = $ix;
-            $pt_table[$ix] = $ipt_table;
-            $pt_path[$ix] = $ipt_path;
-            $pt_insert_ct[$ix] = 0;
-            $pt_query_ct[$ix] = 0;
-            $pt_select_ct[$ix] = 0;
-            $pt_selectpre_ct[$ix] = 0;
-            $pt_delete_ct[$ix] = 0;
-            $pt_total_ct[$ix] = 0;
-            $pt_error_ct[$ix] = 0;
-            $pt_errors[$ix] = "";
+
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,5) eq "Entry") { #  Entry
+            my $prt_ref = $prtrunx{$logthread};
+            if (!defined $prt_ref) {
+               my %prtref = (
+                               entry_time => $logtime,
+                               epoch => $logtimehex,
+                               status_time => 0,
+                               exit_time => 0,
+                               exit_code => "",
+                               status => "",
+                               rows => 0,
+                               table => "",
+                               type => "",
+                               path => "",
+                               count => 0,
+                               l => $l,
+                            );
+               $prtrunx{$logthread} = \%prtref;
+               $prt_ref = \%prtref;
+            }
+            $prt_ref->{count} += 1;
+            $prt_current += 1;
+            if ($prt_current > $prt_max) {
+               $prt_max = $prt_current;
+               $prt_max_l = $l;
+            }
+         } elsif (substr($rest,1,14) eq "Table Status =") { # Table Status = 74, Rowcount = 0, TableName = WTMEMORY, Query Type = Select, TablePath = WTMEMORY
+            my $prt_ref = $prtrunx{$logthread};
+            if (defined $prt_ref) { # only process known cases from previous threads
+               $rest =~ /.*?= (\S+)\,.*?=\s+(\S+)\,.*?= (\S+)\,.*?=\s*(.*?)\,.*?=\s*(\S*)/;
+               $prt_ref->{status} = $1;
+               $prt_ref->{rows} = $2;
+               $prt_ref->{table} = $3;
+               $prt_ref->{type} = $4;
+               $prt_ref->{path} = $5;
+               $prt_ref->{status_time} = $logtime;
+            }
+         } elsif (substr($rest,1,5) eq "Exit:") { # Exit: 0x4D
+            my $prt_ref = $prtrunx{$logthread};
+            if (defined $prt_ref) { # only process known cases from previous threads
+               if ($prt_ref->{status_time} > 0) { # handle a case where a status line never showed
+                  $rest =~ /Exit: (\S*)/;
+                  $prt_ref->{exit_code} = $1;
+                  $prt_ref->{exit_time} = $logtime;
+                  $ipt_status = $prt_ref->{status};
+                  $ipt_rows = $prt_ref->{rows};
+                  $ipt_table = $prt_ref->{table};
+                  $ipt_type = $prt_ref->{type};
+                  $ipt_path  = $prt_ref->{path};
+                  my $post = index($ipt_type,",");
+                  $ipt_type = substr($ipt_type,0,$post) if $post > 0;
+                  $ipt_path =~ s/(^\s+|\s+$)//g;
+                  $ipt_key = $ipt_table . "_" . $ipt_path;
+                  my $prtsum_ref = $prtx{$ipt_key};
+                  if (!defined $prtsum_ref) {
+                     my %prtsumref = (
+                                        count => 0,
+                                        table => $ipt_table,
+                                        path => $ipt_path,
+                                        rows => 0,
+                                        status => {},
+                                        insert_ct => 0,
+                                        query_ct => 0,
+                                        select_ct => 0,
+                                        selectpre_ct => 0,
+                                        delete_ct => 0,
+                                        total_ct => 0,
+                                        error_ct => 0,
+                                        errors => {},
+                                     );
+                     $prtx{$ipt_key} = \%prtsumref;
+                     $prtsum_ref = \%prtsumref;
+                  }
+                  $prtsum_ref->{count} += 1;
+                  $prtsum_ref->{rows} +=  $ipt_rows;
+                  $prtsum_ref->{status}{$ipt_status} += 1;
+                  $prtsum_ref->{total_ct} += 1;
+                  $prtsum_ref->{insert_ct} += 1 if $ipt_type eq "Insert";
+                  $prtsum_ref->{query_ct} += 1 if $ipt_type eq "Query";
+                  $prtsum_ref->{select_ct} += 1 if $ipt_type eq "Select";
+                  $prtsum_ref->{selectpre_ct} += 1 if $ipt_type eq "Select PreFiltered";
+                  $prtsum_ref->{delete_ct} += 1 if $ipt_type eq "Delete";
+                  if ($ipt_type eq "Insert") {
+                    if (($ipt_status != 74) and ($ipt_status != 0) ) {
+                       $prtsum_ref->{error_ct} += 1;
+                       $prtsum_ref->{errors}{$ipt_status} += 1;
+                    }
+                  } elsif ($ipt_status != 0) {
+                    $prtsum_ref->{error_ct} += 1;
+                    $prtsum_ref->{errors}{$ipt_status} += 1;
+                  }
+
+                  # calculate ProcessTable at same time.
+                  my $ipt_dur = $prt_ref->{exit_time} - $prt_ref->{entry_time};
+                  if ($ipt_dur > 1) {
+                     my $key = $prt_ref->{entry_time} . "|" . $prt_ref->{l};
+                     my $dur_ref = $prtdurx{$key};
+                     if (!defined $dur_ref) {
+                        my %durref = (
+                                        entry_time => $prt_ref->{entry_time},
+                                        epoch => $prt_ref->{epoch},
+                                        l => $prt_ref->{l},
+                                        dur => $ipt_dur,
+                                        key => $ipt_key,
+                                        max => $prt_max,
+                                     );
+                        $dur_ref = \%durref;
+                        $prtdurx{$key} = \%durref;
+                     }
+
+                  }
+                  my $key = sec2slot($prt_ref->{entry_time});
+                  my $evhist_ref = $evhist{$key};
+                  if (!defined $evhist_ref) {
+                        my %evhistref = (
+                                           status => {},
+                                           situation => {},
+                                           ptexit_ct => 0,
+                                           ptdur_tot => 0,
+                                           ptdur_max => 0,
+                                           ptdur_maxsl => 0,
+                                           ptdur_maxel => 0,
+                                           ptlevel_max => 0,
+                                           ptlevel_tot => 0,
+                                           count => 0,
+                                        );
+                        $evhist_ref = \%evhistref;
+                        $evhist{$key} = \%evhistref;
+                     }
+                  $evhist_ref->{ptexit_ct} += 1;
+                  $evhist_ref->{ptdur_tot} += $logtime - $prt_ref->{entry_time};
+                  $evhist_ref->{ptlevel_tot} += $prt_current;
+                  $evhist_ref->{ptlevel_max} = $prt_current if $prt_current > $evhist_ref->{ptlevel_max};
+                  if (($logtime - $prt_ref->{entry_time}) > $evhist_ref->{ptdur_max}) {
+                     $evhist_ref->{ptdur_max} = $logtime - $prt_ref->{entry_time};
+                     $evhist_ref->{ptdur_maxsl} = $prt_ref->{l};
+                     $evhist_ref->{ptdur_maxel} = $l;
+                  }
+               }
+               $prt_current -= 1;
+               delete $prtrunx{$logthread};
+            }
          }
-         $pt_total_ct[$ix] += 1;
-         $pt_total_total += 1;
-         $pt_insert_ct[$ix] += 1 if $ipt_type eq "Insert";
-         $pt_query_ct[$ix] += 1 if $ipt_type eq "Query";
-         $pt_select_ct[$ix] += 1 if $ipt_type eq "Select";
-         $pt_selectpre_ct[$ix] += 1 if $ipt_type eq "Select PreFiltered";
-         $pt_delete_ct[$ix] += 1 if $ipt_type eq "Delete";
-         if ($ipt_type eq "Insert") {
-           if (($ipt_status != 74) and ($ipt_status != 0) ) {
-              $pt_error_ct[$ix] += 1;
-              $pt_errors[$ix] = $pt_errors[$ix] . " " . $ipt_status if index($pt_errors[$ix],$ipt_status) == -1;
-           }
-         } elsif ($ipt_status != 0) {
-           $pt_error_ct[$ix] += 1;
-           $pt_errors[$ix] = $pt_errors[$ix] . " " . $ipt_status if index($pt_errors[$ix],$ipt_status) == -1;
-         }
+         next;
       }
-      next;
    }
 
    #(5A2668D0.0004-68:kdsvws1.c,2421,"ManageView") ProcessTable TNODESTS Insert Error status = ( 1551 ).  SRVR01 ip.spipe:#10.64.11.30[3660]
@@ -5100,7 +5443,7 @@ if ($changex_ct > 0) {
       }
    }
    if ($change_real > 0) {
-      $advi++;$advonline[$advi] = "Agent Location Flipping Changes Detected [$change_real] - See TEMSREPORT28 report";
+      $advi++;$advonline[$advi] = "Agent Location Flipping Changes Detected [$change_real] - See TEMSREPORT028 report";
       $advcode[$advi] = "TEMSAUDIT1055W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "Agent";
@@ -5443,7 +5786,6 @@ foreach $f ( keys %sitrowx ) {
 foreach $f ( keys %sitrowsumx ) {
    $sitrowsum_ref = $sitrowsumx{$f};
    $sitrowsum_ref->{rowfraction} = ($sitrowsum_ref->{count} - $sitrowsum_ref->{norows}) / $sitrowsum_ref->{count};
- my $x = 1;
 }
 my $sitrowsum_ct = 0;
 my $sitrowsumx_ct = scalar keys %sitrowsumx;
@@ -5930,54 +6272,50 @@ if ($pevt_size > 0) {
    }
 }
 
-if ($pevt_size > 0) {
-   $pe_dur = $pe_etime - $pe_stime;
-   $rptkey = "TEMSREPORT010";$advrptx{$rptkey} = 1;         # record report key
+my $evhist_size = scalar keys %evhist;
+if ($evhist_size > 0) {
+   $rptkey = "TEMSREPORT053";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="$rptkey: PostEvent Report\n";
-   $cnt++;$oline[$cnt]="Situation,Node,Count,AtomCount,Thrunodes,\n";
-   my %pesumx;
-   my $pesum_ref;
-   foreach $f ( sort { $pevtx{$b}->{count} <=> $pevtx{$a}->{count} } keys %pevtx) {
-      $outl = $pevtx{$f}->{sitname} . ",";
-      $outl .= $pevtx{$f}->{node} . ",";
-      $outl .= $pevtx{$f}->{count} . ",";
-      $total_evt += $pevtx{$f}->{count};
-      my $acount = keys %{$pevtx{$f}->{atoms}};
-      $outl .= $acount . ",";
-      my $tlist = join(" ",keys %{$pevtx{$f}->{thrunode}});
-      $outl .= $tlist . ",";
-      $cnt++;$oline[$cnt]=$outl . "\n";
-      $pesum_ref = $pesumx{$pevtx{$f}->{sitname}};
-      if (!defined $pesum_ref) {
-         my %pesumref = (
-                           count => 0,
-                           nodes => 0,
-                        );
-         $pesum_ref = \%pesumref;
-         $pesumx{$pevtx{$f}->{sitname}} = \%pesumref;
-      }
-      $pesum_ref->{count} += $pevtx{$f}->{count};
-      $pesum_ref->{nodes} += 1;
-   }
-   my $evtpermin = $total_evt / ($pe_dur / 60) if $pe_dur > 0;
-   my $ppc = sprintf '%.2f', $evtpermin;
-   $cnt++;$oline[$cnt]="*total*,$pe_dur,$total_evt,$ppc/min,\n";
+   $cnt++;$oline[$cnt]="$rptkey: PostEvent/ProcessTable Report by time\n";
+   $cnt++;$oline[$cnt]="TimeSlot,Event_Count,Event_Rate/Sec,Situation_Count,Status_Count,Status_Type,PT_Count,PT_Rate/sec,Duration_total,Duration_max,Duration_Avg,Level_max,Level_min,Level_total,Level_Avg,\n";
+   my $rate;
+   my $ppc;
+   foreach $f ( sort { $a <=> $b } keys %evhist) {
+      my $evhist_ref = $evhist{$f};
 
-   $rptkey = "TEMSREPORT045";$advrptx{$rptkey} = 1;         # record report key
-   $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="$rptkey: PostEvent Report Summary\n";
-   $cnt++;$oline[$cnt]="Situation,Count,Nodes,Rate,\n";
-   foreach $f ( sort { $pesumx{$b}->{count} <=> $pesumx{$a}->{count} } keys %pesumx) {
       $outl = $f . ",";
-      $outl .= $pesumx{$f}->{count} . ",";
-      $outl .= $pesumx{$f}->{nodes} . ",";
-      my $evtpermin = $pesumx{$f}->{count} / ($pe_dur / 60) if $pe_dur > 0;
-      my $ppc = sprintf '%.2f', $evtpermin;
-      $outl .= $ppc . "/min,";
+      $outl .= $evhist_ref->{count} . ",";
+      $rate = ($evhist_ref->{count} ) / ($opt_evslot*60);
+      $ppc = sprintf '%.2f', $rate;
+      $outl .= $ppc . ",";
+      my $sit_ct = scalar keys %{$evhist_ref->{situation}};
+      $outl .= $sit_ct . ",";
+      my $pstatus = "";
+      my $pstatus_ct = 0;
+      foreach $g (keys %{$evhist_ref->{status}}) {
+         $pstatus .= $g . "[" . $evhist_ref->{status}{$g} . "] ";
+         $pstatus_ct += $evhist_ref->{status}{$g};
+      }
+      $outl .= $pstatus_ct . "," . $pstatus . ",";
+      $outl .= $evhist_ref->{ptexit_ct} . ",";
+      $rate = ($evhist_ref->{ptexit_ct} ) / ($opt_evslot*60);
+      $ppc = sprintf '%.2f', $rate;
+      $outl .= $ppc . ",";
+      $outl .= $evhist_ref->{ptdur_tot} . "," . $evhist_ref->{ptdur_max} . "(" . $evhist_ref->{ptdur_maxsl} . "-" .  $evhist_ref->{ptdur_maxel} . ")" . ",";
+      $rate = 0;
+      $rate = $evhist_ref->{ptdur_tot} / $evhist_ref->{ptexit_ct} if $evhist_ref->{ptexit_ct} > 0;
+      $ppc = sprintf '%.2f', $rate;
+      $outl .= $ppc . ",";
+      $outl .= $evhist_ref->{ptlevel_max} . ",";
+      $outl .= $evhist_ref->{ptlevel_tot} . ",";
+      $rate = 0;
+      $rate = $evhist_ref->{ptlevel_tot} / $evhist_ref->{ptexit_ct} if $evhist_ref->{ptexit_ct} > 0;
+      my $ppc = sprintf '%.2f', $rate;
+      $outl .= $ppc . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
 }
+
 
 my $nodest_size = scalar keys %nodestx;
 if ($nodest_size > 0) {
@@ -5985,12 +6323,18 @@ if ($nodest_size > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: PostEvent Node Status Instance Exceptions\n";
    $cnt++;$oline[$cnt]="Node,Count,Thrunode,Hostaddr,Product,Version,\n";
-   my $agent_ct = 0;
-   my $agent_status_ct = 0;
    foreach $f ( sort { $nodestx{$b}->{count} <=> $nodestx{$a}->{count} } keys %nodestx) {
       my $nodest_ref = $nodestx{$f};
       last if $nodest_ref->{count} == 1;
-      $agent_ct += 1;
+      if ($nodest_ref->{count} == 2) { # do not report on simple case if agent switching
+         if (($nodest_ref->{status}{"Y"} == 1) and ($nodest_ref->{status}{"N"} == 1)) {
+            next;
+         }
+      }
+      $advi++;$advonline[$advi] = "Agent sending status from $nodest_ref->{count} instances - see following report $rptkey";
+      $advcode[$advi] = "TEMSAUDIT1082E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "$f";
       foreach $g (keys %{$nodest_ref->{instances}}) {
          my $instance_ref = $nodest_ref->{instances}{$g};
          $outl = $f  . ",";
@@ -6000,13 +6344,8 @@ if ($nodest_size > 0) {
          $outl .= $instance_ref->{product} . ",";
          $outl .= $instance_ref->{version} . ",";
          $cnt++;$oline[$cnt]=$outl . "\n";
-         $agent_status_ct += $nodest_ref->{count};
       }
    }
-   $advi++;$advonline[$advi] = "Agents sending status $agent_status_ct times from $agent_ct instances - see following report $rptkey";
-   $advcode[$advi] = "TEMSAUDIT1082E";
-   $advimpact[$advi] = $advcx{$advcode[$advi]};
-   $advsit[$advi] = "TEMS";
 }
 
 my $agto_dur = $agto_etime - $agto_stime;
@@ -6509,7 +6848,11 @@ if ($pcb_deletePCB > 0) {
       $outl .= $pagents . ",";
       $cnt++;$oline[$cnt]="$outl\n";
       $pcb_deletePCB_ct += $pcb_ref->{deletePCB};
-      last if $pcb_deletePCB_ct >= $pcb_deletePCB90;
+      if ($pcb_deletePCB_tot > 100) {
+         if ($opt_churnall == 0) {
+            last if $pcb_deletePCB_ct >= $pcb_deletePCB90;
+         }
+      }
    }
 }
 
@@ -6529,6 +6872,34 @@ if ($soaperror_ct > 0) {
          $outl = "," . $client_ref->{count} . " , " . $g . ",";
          $cnt++;$oline[$cnt]="$outl\n";
       }
+   }
+}
+
+my $soapdet_ct = scalar keys %soapdetx;
+if ($soapdet_ct > 0) {
+   $rptkey = "TEMSREPORT049";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: SOAP Detail Report\n";
+   $cnt++;$oline[$cnt]="Local_Time,Duration,IP,Diagnostic_Line_Number,\n";
+   $cnt++;$oline[$cnt]=",SOAP_Message_Summary,\n";
+   $cnt++;$oline[$cnt]=",First_Row_Result,\n";
+   foreach $f ( sort { $a <=> $b } keys %soapdetx) {
+      $soaprun_def =  $soapdetx{$f};
+      my $ltime = sec2ltime($soaprun_def->{start}+$local_diff);
+      $outl = $ltime . ",";
+      my $dur = $soaprun_def->{end} - $soaprun_def->{start};
+      $outl .= $dur . "," . $soaprun_def->{ip} . "," . $f . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+      my $pmsg = '';
+      foreach $g (@{$soaprun_def->{msg}}) {
+         foreach $h (keys %{$g} ) {
+            $pmsg .= $h . "=" . $g->{$h} . ";"
+         }
+      }
+      $outl = "," . $pmsg . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+      $outl = "," . $soaprun_def->{fetch};
+      $cnt++;$oline[$cnt]="$outl\n";
    }
 }
 
@@ -7063,13 +7434,6 @@ if ($nodeliste_count > 0) {
 
 }
 
-
-#     #!usr/local/bin/perl
-#     open(FILE ,"name_of_the_file_to_be_read");
-#     seek(FILE, 9900,0); #point the pointer to 9900th byte from the start
-#     read(FILE,$ab,100); #note the last 100 bytes get stored in $ab
-#     close(FILE);
-
 # new report of last N lines of the itm_config.log and itm_install.log - record of recent start/stops/config operations
 
 if ($opt_last == 1) {
@@ -7506,6 +7870,9 @@ if ($opt_sum != 0) {
    close(SUM);
 }
 
+close(STH) if $opt_sth == 1;
+close(NDH) if $opt_sth == 1;
+
 print STDERR "Wrote $cnt lines\n" if $opt_odir eq "";
 
 # all done
@@ -7740,6 +8107,8 @@ sub open_kib {
          $seg[$segi] = $logfn;
          $segmax = 0;
    }
+   # Search for TEMS operations log
+
 }
 
 sub read_kib {
@@ -7830,6 +8199,19 @@ sub sec2ltime
    my $isdst;
    ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=localtime($itime);
    return sprintf "%4d%02d%02d%02d%02d%02d",$year+1900,$mon+1,$mday,$hour,$min,$sec;
+}
+
+sub sec2slot
+{
+   my ($itime) = @_;
+   my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=localtime($itime+$local_diff);
+   my $slotmin = substr('00' . int($min/$opt_evslot)*$opt_evslot,-2,2);
+   my $slothour = substr('00' . $hour,-2,2);
+   my $slotday = substr('00' . $mday,-2,2);
+   my $slotmonth = substr('00' . $mon+1,-2,2);
+   my $slotyear = substr('00' . $year+1900,-4,4);
+
+   return sprintf "$slotyear$slotmonth$slotday$slothour$slotmin" . "00";
 }
 
 
@@ -8002,6 +8384,7 @@ exit;
 #1.80000 - handle temsaud.pl running on a Linux/Unix perl
 #1.81000 - Improve report explanation on churning report.
 #        - Add advisory and report on nodelist missing messages
+# 1.82   - github.com commit log for history
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -9628,37 +10011,6 @@ Recovery plan: Correct the SOAP to refelect what the correct
 userid and password is.
 --------------------------------------------------------------
 
-TEMSAUDIT1086W
-Text: SOAP User Login Failure user [error_codes]
-
-Tracing: error
-
-Meaning: When a SOAP Logon validation fails, the failure
-is recorded. Typically it is a bad password but it could
-also be a unknown userid.
-
-Recovery plan: Correct the SOAP to refelect what the correct
-userid and password is.
---------------------------------------------------------------
-
-TEMSAUDIT1087W
-Text: TCP Queue Delays [count] Send-Q [max count] Recv-Q [max count] - see Report TEMSREPORT051
-
-Tracing: netstat.info file captured during pdcollect
-
-Meaning: These TCP queue deleys can severely impact ITM
-processing. The Send-Q values are the more important. This
-condition *can* severely impact ITM processing if
-
-1) The communciation links are ITM related
-2) The Send-Q values are large, like 10,000 bytes or larger
-and persistent.
-
-This advisory code is used if Send-Q max is less than 1024 bytes.
-
-Recovery plan: Work with IBM Support to eliminate the issue.
---------------------------------------------------------------
-
 TEMSAUDIT1087W
 Text: TCP Queue Delays [count] Send-Q [max count] Recv-Q [max count] - see Report TEMSREPORT051
 
@@ -9745,6 +10097,7 @@ Meaning: to be added
 
 Recovery plan: to be added
 --------------------------------------------------------------
+
 TEMSAUDIT1093E
 Text: Excess Initial Heartbeats[count] from Remote TEMS temsnodeid
 
@@ -10146,7 +10499,7 @@ Recovery plan: Eliminate duplicate name agents.
 ----------------------------------------------------------------
 
 TEMSREPORT012
-Text: Invalid Node Name Repor
+Text: Invalid Node Name Report
 
 Trace: error
 
@@ -11024,6 +11377,37 @@ Recovery plan: Investigate possible duplicate agents and eliminate
 to get accurate and complete monitoring.
 ----------------------------------------------------------------
 
+TEMSREPORT049
+Text: SOAP Detail Report
+
+Tracing: error (unit:kshdhtp,Entry="getHeaderValue"  all) (unit:kshreq,Entry="buildSQL" all)(unit:kshstrt.cpp,Entry="default_service" all er)(unit:kshxmlxp.cpp,Entry="addelement" all er)(unit:kshxmlxp.cpp,Entry="setValue" all er)(unit:kshreq.cpp,Entry="Fetch" all er)
+
+Meaning
+
+Local_Time,Duration,IP,Diagnostic_Line_Number,
+,SOAP_Message_Summary,
+,First_Row_Result,
+20171201161040,0,ip.ssl:#9.30.240.127:52381,55960,
+,CT_Export=;filename=a;request=;CT_Get=;userid=sysadmin;password=xxxxxxx;table=O4SRV.UTCTIME;sql=SELECT NODE, AFFINITIES, PRODUCT, VERSION, RESERVED, O4ONLINE FROM O4SRV.INODESTS WHERE (O4ONLINE = 'N' OR O4ONLINE = 'Y');,
+,<TABLE name="O4SRV.UTCTIME"><OBJECT>Universal_Time</OBJECT><DATA><ROW><NODE>54905lp7:KUX</NODE><AFFINITIES>%IBM.STATIC013          000000000P000Jyw0a7</AFFINITIES><PRODUCT>UX</PRODUCT><VERSION>06.23.05</VERSION><RESERVED>A=00:aix526;C=06.23.05.00:aix526;G=06.23.05.00:aix526;</RESERVED><O4ONLINE>N</O4ONLINE></ROW>
+
+Report on available details of SOAP processing.
+
+Line refers to the line number on the diagnostic logs where the
+initial reference was found. If there are more than one diagnostic
+log segment, the line number is cumulative across all the segments.
+
+The "Message Summary" line is the data which the SOAP process has
+extracted from the XML that defines the SOAP request.
+
+The "First Row" line is the data concerning the full row. The results
+can be very long indeed.
+
+Recovery plan: Use this to understand SOAP processing. This can
+be intensive and destabilize the hub TEMS. Reduce excess use or
+make more efficient SOAPs.
+----------------------------------------------------------------
+
 TEMSREPORT050
 Text: TNODESTS Insert Error Summary Report
 
@@ -11099,6 +11483,52 @@ to be added
 
 
 Recovery plan: to be added
+----------------------------------------------------------------
+
+TEMSREPORT053
+Text: PostEvent/ProcessTable Report by time
+
+Sample Report
+TimeSlot,Event_Count,Event_Rate/Sec,Situation_Count,Status_Count,Status_Type,PT_Count,PT_Rate/sec,Duration_total,Duration_max,Duration_Avg,Level_max,Level_total,Level_Avg,
+.....
+20171229153800,1622,27.03,1501,1622,S[1470] Y[91] N[61] ,1890,31.50,966,764,0.51,10,9790,5.18,
+
+TimeSlot         : time slot for communication, default 10 minutes, can be specified by -evslot <number>, should divide into hour
+Event_Count      : count of arriving Situation Event Status History
+Event_Rate/Sec   : rate of arriving Situation Event Status History records in second
+Situation_Count  : number of situations represented
+Status_Count     : Count of statuses
+Status_Type      : S=Start, P=Stop, Y=open, N=close and the count
+PT_Count         : Number of Process Table completions
+PT_Rate/sec      : Rate of process table completions per second
+Duration_total   : Total duration in seconds of all Process Table Completions
+Duration_max     : Maximum individual duration of Process Table Completions in time slot
+Duration_Avg     : Average duration of all Process Table Completions
+Level_max        : Maximum level of pending Process Table functions, blocked by lock
+Level_total      : Number of pending Process Table functions, blocked by lock
+Level_Avg        : Average pending Process Table functions
+
+Meaning:
+It is possible for a hub TEMS to be damaged by too much pending work. This can be
+created by
+
+1) System running hub TEMS needs more compute power, memory etc
+2) The workload running on the hub TEMS needs to be reduced
+3) The environment needs multiple hub TEMSes to satisfy the worload.
+
+In general the average number of pending processes [Level_Avg] should be near zero.
+
+An option -sth can be used to create a detailed report on the data which can be help
+explain the condition. In the critical case which led to this analysis report, the
+root cause was the customer having a tremendous number of active situations [about 9000]
+and many situations having *UNTIL conditions that operated on a tight time schedule like
+30 seconds. Because of that there were floods of Stop and Start status event history. This
+kept the hub TEMS so busy that the TEPS was unable to retrieve critical information in a
+timely fashion [sometimes waiting 40 minutes for a response] and the TEP sessions were
+also unusable.
+
+Recovery plan: Review workload with a view to reducing impact or get a much more powerful
+system to run the hub TEMS.
 ----------------------------------------------------------------
 
 TEMSREPORT054
