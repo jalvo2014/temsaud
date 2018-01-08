@@ -373,6 +373,7 @@ my %advcx = (
               "TEMSAUDIT1086W" => "90",
               "TEMSAUDIT1087W" => "50",
               "TEMSAUDIT1088W" => "99",
+              "TEMSAUDIT1089E" => "100",
             );
 
 my %advtextx = ();
@@ -389,6 +390,8 @@ my $sitrul_state = 0;
 my $sitrul_sitname = 0;
 my $sitrul_pdt = 0;
 my $sitrul_atr = 0;
+
+my %readnextx;
 
 my %node_ignorex = ();
 
@@ -1001,6 +1004,12 @@ my $syncdist_first_time;    # First noted time in log
 my $syncdist_timei = -1;    # count of sync. dist. time counts
 my $syncdist_time = ();     # count of sync. dist.
 
+my $total_sendq = 0;
+my $total_recvq = 0;
+my $max_sendq = 0;
+my $max_recvq = 0;
+
+
 my $soapi = -1;             # count of soap SQLa
 my @soap = ();              # indexed array to SOAP SQLs
 my %soapx = ();             # associative array to SOAP SQLs
@@ -1008,13 +1017,6 @@ my @soapct;                 # count of soap SQLs
 my @soapip;                 # last ip address seen in header
 my $soapip_lag = "";        # last ip address spotted
 my $soapct_tot;             # total count of SQLs
-
-
-my $total_sendq = 0;
-my $total_recvq = 0;
-my $max_sendq = 0;
-my $max_recvq = 0;
-
 
 my $soap_burst_start = 0;   # start of SOAP burst calculation
 my $soap_bursti = -1;       # count of SOAP call minutes
@@ -2746,6 +2748,17 @@ for(;;)
                $rtable_ref->{count} += 1 if $teststr eq "";
                $rtable_ref->{badindex} += 1 if $teststr ne "";
             }
+            next;
+         }
+      }
+      # (5A32F81C.0000-1A:kfastins.c,2604,"GetSitLogRecord") ReadNext Error, status = 5
+      if ($logentry eq "GetSitLogRecord") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # ReadNext Error, status = 5
+         if (substr($rest,1,14) eq "ReadNext Error") {
+            $rest =~ /ReadNext Error, (.*)/;
+            my $readnext_err = $1;
+            $readnextx{$readnext_err} += 1;
             next;
          }
       }
@@ -4965,6 +4978,17 @@ if ($login_ct > 0) {
       $advsit[$advi] = "SOAP";
    }
 }
+
+my $readn_ct = scalar keys %readnextx;
+if ($readn_ct > 0) {
+   foreach $f (keys %readnextx) {
+      $advi++;$advonline[$advi] = "TSITSTSH Read Error $f [$readnextx{$f}]";
+      $advcode[$advi] = "TEMSAUDIT1089E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+}
+
 
 my $change_real = 0;
 if ($changex_ct > 0) {
@@ -9346,6 +9370,60 @@ and persistent.
 This advisory code is used if Send-Q max is less than 1024 bytes.
 
 Recovery plan: Work with IBM Support to eliminate the issue.
+--------------------------------------------------------------
+
+TEMSAUDIT1087W
+Text: TCP Queue Delays [count] Send-Q [max count] Recv-Q [max count] - see Report TEMSREPORT051
+
+Tracing: netstat.info file captured during pdcollect
+
+Meaning: These TCP queue deleys can severely impact ITM
+processing. The Send-Q values are the more important. This
+condition *can* severely impact ITM processing if
+
+1) The communciation links are ITM related
+2) The Send-Q values are large, like 10,000 bytes or larger
+and persistent.
+
+This advisory code is used if Send-Q max is less than 1024 bytes.
+
+Recovery plan: Work with IBM Support to eliminate the issue.
+--------------------------------------------------------------
+
+TEMSAUDIT1088W
+Text: TCP Queue Delays [count] Send-Q [max count] Recv-Q [max count] - see Report TEMSREPORT051
+
+Tracing: netstat.info file captured during pdcollect
+
+Meaning: These TCP queue deleys can severely impact ITM
+processing. The Send-Q values are the more important. This
+condition *can* severely impact ITM processing if
+
+1) The communciation links are ITM related
+2) The Send-Q values are large, like 10,000 bytes or larger
+and persistent.
+
+This advisory code is used if Send-Q max is more than 1023 bytes.
+
+Recovery plan: Work with IBM Support to eliminate the issue.
+--------------------------------------------------------------
+
+TEMSAUDIT1089E
+Text: TSITSTSH Read Error <type> [count]
+
+Tracing: error
+(591C3F9F.0000-A2:kfastins.c,2166,"GetSitLogRecord") ReadNext Error, status = 5
+
+Meaning: The Situation Status History file is damaged and that
+will cause many issues. Happily it can be replaced on any
+TEMS when the TEMS is down and nothing will be lost.
+
+Recovery plan: Work with IBM Support to eliminate the issue.
+Alternatively this document
+
+Sitworld: TEMS Database Repair http://ibm.biz/BdsYzS
+
+contains everything needed to do the repair yourself.
 --------------------------------------------------------------
 
 TEMSREPORT001
