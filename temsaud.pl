@@ -371,6 +371,8 @@ my %advcx = (
               "TEMSAUDIT1084W" => "95",
               "TEMSAUDIT1085W" => "85",
               "TEMSAUDIT1086W" => "90",
+              "TEMSAUDIT1087W" => "50",
+              "TEMSAUDIT1088W" => "99",
             );
 
 my %advtextx = ();
@@ -1006,6 +1008,13 @@ my @soapct;                 # count of soap SQLs
 my @soapip;                 # last ip address seen in header
 my $soapip_lag = "";        # last ip address spotted
 my $soapct_tot;             # total count of SQLs
+
+
+my $total_sendq = 0;
+my $total_recvq = 0;
+my $max_sendq = 0;
+my $max_recvq = 0;
+
 
 my $soap_burst_start = 0;   # start of SOAP burst calculation
 my $soap_bursti = -1;       # count of SOAP call minutes
@@ -6860,8 +6869,184 @@ if ($opt_last == 1) {
    }
 }
 
+# new report of netstat.info if it can be located
+
+my $netstatpath;
+my $netstatfn;
+my $gotnet = 0;
+$netstatpath = $opt_logpath;
+if ( -e $netstatpath . "netstat.info") {
+   $gotnet = 1;
+   $netstatpath = $opt_logpath;
+} elsif ( -e $netstatpath . "../netstat.info") {
+   $gotnet = 1;
+   $netstatpath = $opt_logpath . "../";
+} elsif ( -e $netstatpath . "../../netstat.info") {
+   $gotnet = 1;
+   $netstatpath = $opt_logpath . "../../";
+}
+
+if ($gotnet == 1) {
+   if ($gWin == 1) {
+      $pwd = `cd`;
+      chomp($pwd);
+      $netstatpath = `cd $netstatpath & cd`;
+   } else {
+      $pwd = `pwd`;
+      chomp($pwd);
+      $netstatpath = `(cd $netstatpath && pwd)`;
+   }
+
+   chomp $netstatpath;
+
+   $netstatfn = $netstatpath . "/netstat.info";
+   $netstatfn =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+
+   chomp($netstatfn);
+   chdir $pwd;
+
+   my $active_line = "";
+   my $descr_line = "";
+   my @nzero_line;
+   my %nzero_ports = (
+                        '1918' => 1,
+                        '3660' => 1,
+                        '63358' => 1,
+                        '65100' => 1,
+                     );
+
+   my %inbound;
+   my $inbound_ref;
+
+   #   open( FILE, "< $opt_ini" ) or die "Cannot open ini file $opt_ini : $!";
+   if (defined $netstatfn) {
+      open NETS,"< $netstatfn" or warn " open netstat.info file $netstatfn -  $!";
+      my @nts = <NETS>;
+      close NETS;
+
+      # sample netstat outputs
+
+      # Active Internet connections (including servers)
+      # PCB/ADDR         Proto Recv-Q Send-Q  Local Address      Foreign Address    (state)
+      # f1000e000ca7cbb8 tcp4       0      0  *.*                   *.*                   CLOSED
+      # f1000e0000ac93b8 tcp4       0      0  *.*                   *.*                   CLOSED
+      # f1000e00003303b8 tcp4       0      0  *.*                   *.*                   CLOSED
+      # f1000e00005bcbb8 tcp        0      0  *.*                   *.*                   CLOSED
+      # f1000e00005bdbb8 tcp4       0      0  *.*                   *.*                   CLOSED
+      # f1000e00005b9bb8 tcp6       0      0  *.22                  *.*                   LISTEN
+      # ...
+      # Active UNIX domain sockets
+      # Active Internet connections (servers and established)
+      #
+      # Active Internet connections (servers and established)
+      # Proto Recv-Q Send-Q Local Address               Foreign Address             State       PID/Program name
+      # tcp        0      0 0.0.0.0:1920                0.0.0.0:*                   LISTEN      18382/klzagent
+      # tcp        0      0 0.0.0.0:34272               0.0.0.0:*                   LISTEN      18382/klzagent
+      # tcp        0      0 0.0.0.0:28002               0.0.0.0:*                   LISTEN      5955/avagent.bin
+      # ...
+      # Active UNIX domain sockets (servers and established)
+
+      my $l = 0;
+      my $netstat_state = 0;                 # seaching for "Active Internet connections"
+      my $recvq_pos = -1;
+      my $sendq_pos = -1;
+      foreach my $oneline (@nts) {
+         $l++;
+         chomp($oneline);
+         if ($netstat_state == 0) {           # seaching for "Active Internet connections"
+            next if substr($oneline,0,27) ne "Active Internet connections";
+            $active_line = $oneline;
+            $netstat_state = 1;
+         } elsif ($netstat_state == 1) {           # next line is column descriptor line
+            $recvq_pos = index($oneline,"Recv-Q");
+            $sendq_pos = index($oneline,"Send-Q");
+            $descr_line = $oneline;
+            $netstat_state = 2;
+         } elsif ($netstat_state == 2) {           # collect non-zero send/recv queues
+            last if index($oneline,"Active UNIX domain sockets") != -1;
+            $oneline =~ /(tcp\S*)\s*(\d+)\s*(\d+)\s*(\S+)\s*(\S+)/;
+            my $proto = $1;
+            if (defined $proto) {
+               my $recvq = $2;
+               my $sendq = $3;
+               my $localad = $4;
+               my $foreignad = $5;
+               my $localport = "";
+               my $foreignport = "";
+               my $localsystem = "";
+               my $foreignsystem = "";
+               $localad =~ /(\S+):(\S+)/;
+               $localsystem = $1 if defined $1;
+               $localport = $2 if defined $2;
+               $foreignad =~ /(\S+):(\S+)/;
+               $foreignsystem = $1 if defined $1;
+               $foreignport = $2 if defined $2;
+               if ((defined $nzero_ports{$localport}) or (defined $nzero_ports{$foreignport})) {
+                  if (defined $recvq) {
+                     if (defined $sendq) {
+                        if (($recvq > 0) or ($sendq > 0)) {
+                           next if ($recvq == 0) and ($sendq == 0);
+                           push @nzero_line,$oneline;
+                           $total_sendq += 1;
+                           $total_recvq += 1;
+                           $max_sendq = $sendq if $sendq > $max_sendq;
+                           $max_recvq = $recvq if $recvq > $max_recvq;
+                        }
+                     }
+                  }
+               }
+               if (defined $nzero_ports{$localport}) {
+                  $inbound_ref = $inbound{$localport};
+                  if (!defined $inbound_ref) {
+                     my %inboundref = (
+                                         instances => {},
+                                         count => 0,
+                                      );
+                     $inbound_ref = \%inboundref;
+                     $inbound{$localport} = \%inboundref;
+                  }
+                  $inbound_ref->{count} += 1;
+                  $inbound_ref->{instances}{$foreignsystem} += 1;
+               }
+            }
+         }
+      }
+   }
+
+   if (($total_sendq + $total_recvq) > 0) {
+      $rptkey = "TEMSREPORT051";$advrptx{$rptkey} = 1;         # record report key
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="$rptkey: NETSTAT Send-Q and Recv-Q Report\n";
+      $cnt++;$oline[$cnt]="netstat.info.log\n";
+      $cnt++;$oline[$cnt]="$active_line\n";
+      $cnt++;$oline[$cnt]="$descr_line\n";
+      foreach my $line (@nzero_line) {
+         $cnt++;$oline[$cnt]="$line\n";
+      }
+      $advi++;$advonline[$advi] = "TCP Queue Delays $total_sendq Send-Q [max $max_sendq] Recv-Q [max $max_recvq] - see Report $rptkey";
+      if ($max_sendq > 1024) {
+         $advcode[$advi] = "TEMSAUDIT1088W";
+      } else {
+         $advcode[$advi] = "TEMSAUDIT1087W";
+      }
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TCP";
+   }
 
 
+   # display count of inbound TCP sockets
+   #$cnt++;$oline[$cnt]="\n";
+   #foreach my $f (keys %inbound) {
+   #   my $inbound_ref = $inbound{$f};
+   #   foreach my $g (keys %{$inbound_ref->{instances}}) {
+   #      $outl = $f . ",";
+   #      $outl .= $g . ",";
+   #      $outl .= $inbound_ref->{instances}{$g} . ",";
+   #      $cnt++;$oline[$cnt]="$outl\n";
+   #   }
+   #}
+
+}
 
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
@@ -9132,6 +9317,37 @@ Recovery plan: Correct the SOAP to refelect what the correct
 userid and password is.
 --------------------------------------------------------------
 
+TEMSAUDIT1086W
+Text: SOAP User Login Failure user [error_codes]
+
+Tracing: error
+
+Meaning: When a SOAP Logon validation fails, the failure
+is recorded. Typically it is a bad password but it could
+also be a unknown userid.
+
+Recovery plan: Correct the SOAP to refelect what the correct
+userid and password is.
+--------------------------------------------------------------
+
+TEMSAUDIT1087W
+Text: TCP Queue Delays [count] Send-Q [max count] Recv-Q [max count] - see Report TEMSREPORT051
+
+Tracing: netstat.info file captured during pdcollect
+
+Meaning: These TCP queue deleys can severely impact ITM
+processing. The Send-Q values are the more important. This
+condition *can* severely impact ITM processing if
+
+1) The communciation links are ITM related
+2) The Send-Q values are large, like 10,000 bytes or larger
+and persistent.
+
+This advisory code is used if Send-Q max is less than 1024 bytes.
+
+Recovery plan: Work with IBM Support to eliminate the issue.
+--------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -10365,6 +10581,59 @@ best practice for situations: rare, exceptional and a condition
 which can be corrected by some manual or automated process.
 ----------------------------------------------------------------
 
+TEMSREPORT049
+Text: SOAP Detail Report
+
+Tracing: error (unit:kshdhtp,Entry="getHeaderValue"  all) (unit:kshreq,Entry="buildSQL" all)(unit:kshstrt.cpp,Entry="default_service" all er)(unit:kshxmlxp.cpp,Entry="addelement" all er)(unit:kshxmlxp.cpp,Entry="setValue" all er)(unit:kshreq.cpp,Entry="Fetch" all er)
+
+Meaning
+
+Local_Time,Duration,IP,Diagnostic_Line_Number,
+,SOAP_Message_Summary,
+,First_Row_Result,
+20171201161040,0,ip.ssl:#9.30.240.127:52381,55960,
+,CT_Export=;filename=a;request=;CT_Get=;userid=sysadmin;password=xxxxxxx;table=O4SRV.UTCTIME;sql=SELECT NODE, AFFINITIES, PRODUCT, VERSION, RESERVED, O4ONLINE FROM O4SRV.INODESTS WHERE (O4ONLINE = 'N' OR O4ONLINE = 'Y');,
+,<TABLE name="O4SRV.UTCTIME"><OBJECT>Universal_Time</OBJECT><DATA><ROW><NODE>54905lp7:KUX</NODE><AFFINITIES>%IBM.STATIC013          000000000P000Jyw0a7</AFFINITIES><PRODUCT>UX</PRODUCT><VERSION>06.23.05</VERSION><RESERVED>A=00:aix526;C=06.23.05.00:aix526;G=06.23.05.00:aix526;</RESERVED><O4ONLINE>N</O4ONLINE></ROW>
+
+Report on available details of SOAP processing.
+
+Line refers to the line number on the diagnostic logs where the
+initial reference was found. If there are more than one diagnostic
+log segment, the line number is cumulative across all the segments.
+
+The "Message Summary" line is the data which the SOAP process has
+extracted from the XML that defines the SOAP request.
+
+The "First Row" line is the data concerning the full row. The results
+can be very long indeed.
+
+Recovery plan: Use this to understand SOAP processing. This can
+be intensive and destabilize the hub TEMS. Reduce excess use or
+make more efficient SOAPs.
+----------------------------------------------------------------
+
+TEMSREPORT050
+Text: TNODESTS Insert Error Summary Report
+
+Tracing: error
+(5A2668D0.0004-68:kdsvws1.c,2421,"ManageView") ProcessTable TNODESTS Insert Error status = ( 1551 ).  SRVR01 ip.spipe:#10.64.11.30[3660]
+
+Meaning
+
+TEMSREPORT050: TNODESTS Insert Error Summary Report
+IP_Addr,Count,
+ip.spipe:#10.64.11.30[3660],1551[735] ,
+
+The TEMS was updating a node status on another TEMS. However
+the target TEMS reported the agent no longer was connected to
+that TEMS.
+
+Recovery plan: If these numbers are high, the TEMSes should
+be studied to determine the high rate of agent switching. There
+can be many reasons such as duplicate agent name cases and
+agent, TEMS mal-configuration or communication issues.
+----------------------------------------------------------------
+
 TEMSREPORT048
 Text: Nodelist Error report - possible duplicate node indications
 
@@ -10385,4 +10654,46 @@ that is likely normal behaviour.
 
 Recovery plan: Investigate possible duplicate agents and eliminate
 to get accurate and complete monitoring.
+----------------------------------------------------------------
+
+TEMSREPORT051
+Text: NETSTAT Send-Q and Recv-Q Report
+
+Sample Report
+Active Internet connections (including servers)
+PCB/ADDR         Proto Recv-Q Send-Q  Local Address      Foreign Address    (state)
+f1000e000043ebb8 tcp4       0    168  10.64.11.27.22        172.31.18.29.49630    ESTABLISHED
+
+Meaning:
+
+This report is generated from the netstat.info captured from a pdcollect.
+
+When you check TCP queues using netstat, the receive and send queues
+are usually zero. In unusual cases, the the ITM to ITM communication
+processes that become stuck. In that case the TCP send and receive
+queues can get large and that condition can destablize ITM processing
+severely. You can usually spot ITM cases because the source and/or the
+target reference port 1918 or 3660.
+
+It there are just a few non-zero queue connections or if they are not
+associated with any ITM processses, the condition can be ignored... at
+least as far as ITM is concerned.  Send-Q values are much more important
+than Recv-Q values.
+
+Here are some conditions that have been the underlying cause of the issue.
+
+FTO misconfigured at the RTEMS
+Misconfigured agent
+Duplicate agent
+Agent inactivity
+Unresponsive agent
+
+And probably many more we have not yet diagnosed. This diagnosis is a
+work in progress and we may have more documentation as time goes on.
+
+The usual starting point is to diagnose the Send-Q target
+delays. The Recv-Q conditions are usually a side effect of
+the Send-Q issues.
+
+Recovery plan: Involve IBM Support to eliminate the issue.
 ----------------------------------------------------------------
