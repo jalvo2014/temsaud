@@ -422,6 +422,8 @@ my %readnextx;
 my %node_ignorex = ();
 
 my %sthx = ();
+my $sthl = 0;
+my $ndhl = 0;
 
 my %sitrowx = ();
 my $sitrow_key;
@@ -995,14 +997,6 @@ if ($logfn =~ /.*\.inv$/) {
 if (!defined $logbase) {
    $logbase = $logfn if ! -e $logfn;
 }
-
-if ($opt_sth == 1) {
-   open STH, ">$opt_stfn" or die "Unable to open Status History output file $opt_stfn\n";
-   print STH "Line,LocalTime,Thrunode,Sitname,Node,Atomize,GlobalTime,Status,\n";
-   open NDH, ">$opt_ndfn" or die "Unable to open Node History output file $opt_ndfn\n";
-   print NDH "Line,Time,Node,Thrunode,Reason,O4ONLINE,Product,Version,Reserved,Hostinfo,Hostaddr,Affinity,\n";
-}
-
 
 
 die "-expslot [$opt_expslot] is not numeric" if  $opt_expslot !~ /^\d+$/;
@@ -3640,6 +3634,11 @@ for(;;)
                      my $itime2 = substr($rest,241,16);
                      my $istatus = substr($rest,257,1);
                      if ($opt_sth == 1) {
+                        if ($sthl == 0) {
+                           open STH, ">$opt_stfn" or die "Unable to open Status History output file $opt_stfn\n";
+                           print STH "Line,LocalTime,Thrunode,Sitname,Node,Atomize,GlobalTime,Status,\n";
+                        }
+                        $sthl += 1;
                         my $sthline = $l . ",";
                         $sthline .= $itime1 . ",";
                         $sthline .= $ithrunode . ",";
@@ -3719,6 +3718,11 @@ for(;;)
                      my $ireserved = substr($rest,449,64);
                      $ireserved =~ s/\s+$//;   #trim trailing whitespace
                      if ($opt_sth == 1) {
+                        if ($ndhl == 0) {
+                           open NDH, ">$opt_ndfn" or die "Unable to open Node History output file $opt_ndfn\n";
+                           print NDH "Line,Time,Node,Thrunode,Reason,O4ONLINE,Product,Version,Reserved,Hostinfo,Hostaddr,Affinity,\n";
+                        }
+                        $ndhl += 1;
                         my $ndhline = $l . ",";
                         $ndhline .= $itime1 . ",";
                         $ndhline .= $inode . ",";
@@ -7870,8 +7874,8 @@ if ($opt_sum != 0) {
    close(SUM);
 }
 
-close(STH) if $opt_sth == 1;
-close(NDH) if $opt_sth == 1;
+close(STH) if $sthl > 0;
+close(NDH) if $ndhl > 0;
 
 print STDERR "Wrote $cnt lines\n" if $opt_odir eq "";
 
@@ -8385,6 +8389,7 @@ exit;
 #1.81000 - Improve report explanation on churning report.
 #        - Add advisory and report on nodelist missing messages
 # 1.82   - github.com commit log for history
+# 1.83   - github.com commit log for history
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
