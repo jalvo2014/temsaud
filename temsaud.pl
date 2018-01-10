@@ -400,6 +400,7 @@ my %advcx = (
               "TEMSAUDIT1091I" => "0",
               "TEMSAUDIT1092W" => "50",
               "TEMSAUDIT1093E" => "100",
+              "TEMSAUDIT1094I" => "0",
             );
 
 my %advtextx = ();
@@ -1225,6 +1226,7 @@ my $kcf_count = 0;
 
 
 my $agtoi = -1;                              # Agent online records
+my $pagto;                                   # printable version
 my @agto = ();                               # array of agent onlines
 my %agtox = ();                              # index to agent onlines
 my @agto_ct = ();                            # count of agent onlines
@@ -6378,6 +6380,12 @@ if ($agto_mult > 0) {
    $cnt++;$oline[$cnt]="$agto_dur,$agto_mult_hr,\n";
 }
 
+$pagto = $agtoi + 1;
+$advi++;$advonline[$advi] = "Agents [$pagto] seen as Online or offline";
+$advcode[$advi] = "TEMSAUDIT1094I";
+$advimpact[$advi] = $advcx{$advcode[$advi]};
+$advsit[$advi] = "Onlines";
+
 my $invi = keys %valvx;
 if ($invi > 0) {
    $rptkey = "TEMSREPORT012";$advrptx{$rptkey} = 1;         # record report key
@@ -7868,8 +7876,9 @@ if ($opt_sum != 0) {
    $sumline .= "$opt_level ";
    $sumline .= "$opt_driver ";
    $sumline .= "$trespermin ";
+   $sumline .= "$pagto ";
    my $sumfn = $opt_odir . "temsaud.txt";
-   open SUM, ">$sumfn" or die "Unable to open SOAP Detail output file $sumfn\n";
+   open SUM, ">$sumfn" or die "Unable to open summary output file $sumfn\n";
    print SUM "$sumline\n";
    close(SUM);
 }
@@ -10125,6 +10134,17 @@ prevented the TEMS from communicating.
 We expect there are other cases not yet diagnosed.
 
 Recovery plan: Work with IBM Support to resolve the root cause.
+--------------------------------------------------------------
+
+TEMSAUDIT1094I
+Text: Agents [count] seen as Online or offline
+
+Tracing: error
+
+Meaning: Informational only
+
+Recovery plan: Remote TEMSes should have a maximum of 1500
+agents.
 --------------------------------------------------------------
 
 TEMSREPORT001
