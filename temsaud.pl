@@ -3529,8 +3529,9 @@ for(;;)
                   $ioldthrunode = $1;
                   $rest = $2;
                }
-               $rest =~ /hostAddr\: \<(.*?)\[/;
+               $rest =~ /hostAddr\: \<(.*?)\[(.*?)\]/;
                my $ihostaddr = $1;
+               my $iport = $2;
                $ihostaddr = "" if !defined $1;
                $inode =~ s/\s+$//;   #trim trailing whitespace
                $ithrunode =~ s/\s+$//;   #trim trailing whitespace
@@ -3565,11 +3566,13 @@ for(;;)
                                              hostaddr =>$ihostaddr,
                                              thrunode =>$ithrunode,
                                              oldthrunode =>$ioldthrunode,
+                                             ports => {},
                                   );
                   $change_instance_ref = \%changeinstanceref;
                   $change_node_ref->{instances}{$changekey} = \%changeinstanceref;
                }
                $change_instance_ref->{count} += 1;
+               $change_instance_ref->{ports}{$iport} += 1 if defined $iport;
                next;
             }
          }
@@ -6950,7 +6953,15 @@ if ($change_real > 0) {
             $outl = $f . ",";
             $outl .= $change_node_ref->{count} . "," . $g . ",";
             $outl .= $change_instance_ref->{count} . ",";
-            $outl .= $change_instance_ref->{thrunode} . "," . $change_instance_ref->{hostaddr} . "," . $change_instance_ref->{oldthrunode} . ",";
+            $outl .= $change_instance_ref->{thrunode} . ",";
+            $outl .= $change_instance_ref->{hostaddr} . ",";
+            my $pports = "";
+            foreach my $i (keys %{$change_instance_ref->{ports}}) {
+               $pports .= $i . "[" . $change_instance_ref->{ports}{$i} . "] ";
+            }
+            chop($pports) if $pports ne "";
+            $outl .= $pports . ",";
+            $outl .= $change_instance_ref->{oldthrunode} . ",";
             $cnt++;$oline[$cnt]="$outl\n";
          }
       }
