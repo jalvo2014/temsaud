@@ -421,6 +421,7 @@ my $sitrul_atr = 0;
 my %readnextx;
 
 my %node_ignorex = ();
+my %nodes_ignorex = ();
 
 my %sthx = ();
 my $sthl = 0;
@@ -1057,6 +1058,7 @@ my $insize;                 # calculated
 my $csvdata;
 my @words;
 my $ithrunode;
+my $io4online;
 
 my $mani = -1;              # count of managed systems
 my @man = ();               # managed system name
@@ -3045,7 +3047,7 @@ for(;;)
             my $iexpiryint = $4;
             my $iexpirytime = $5;
             my $online = $6;
-            my $io4online = $7;
+            $io4online = $7;
             my $iproduct = $8;
             my $iversion = $9;
             my $iaffinities = $10;
@@ -3577,6 +3579,35 @@ for(;;)
             }
          }
       }
+      #(5A582B60.0006-3:kfaprpst.c,733,"KFA_UpdateNodestatusAtHub") NODE_SWITCHED returned - ignoring: node <ddb_wa4303:07                   > thrunode <REMOTE_wa3867                   > o4online <N>
+      if ($logentry eq "KFA_UpdateNodestatusAtHub") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       #  NODE_SWITCHED returned - ignoring: node <ddb_wa4303:07                   > thrunode <REMOTE_wa3867                   > o4online <N>
+         if (substr($rest,1,33) eq "NODE_SWITCHED returned - ignoring") {
+            $rest =~ /ignoring: node \<(.*)\> thrunode \<(.*)\> o4online \<(.*)\>/;
+            $inode = $1;
+            $ithrunode = $2;
+            $io4online = $3;
+            $inode =~ s/\s+$//;                    # strip trailing blanks
+            $ithrunode =~ s/\s+$//;                    # strip trailing blanks
+            my $inodes_ref = $nodes_ignorex{$inode};
+            if (! defined $inodes_ref) {
+               my %inodesref = (
+                                  count => 0,
+                                  thrunodes => {},
+                                  status => {},
+                                  time => $logtime,
+                                  l => $l,
+                               );
+               $inodes_ref = \%inodesref;
+               $nodes_ignorex{$inode} = \%inodesref;
+            }
+            $inodes_ref->{count} += 1;
+            $inodes_ref->{thrunodes}{$ithrunode} += 1;
+            $inodes_ref->{status}{$io4online} += 1;
+         }
+         next;
+      }
    }
 
    # (591116EF.0000-EEC:kdspmcat.c,979,"CompilerCatalog") Column ATFSTAT in Table LIMS_SYSS for Application KIP Not Found.
@@ -3708,7 +3739,7 @@ for(;;)
                      $inode =~ s/\s+$//;       #trim trailing whitespace
                      my $ireason = substr(51,2);
                      $ireason =~ s/\s+$//;       #trim trailing whitespace
-                     my $io4online = substr($rest,53,1);
+                     $io4online = substr($rest,53,1);
                      my $iproduct = substr($rest,54,2);
                      $iproduct =~ s/\s+$//;       #trim trailing whitespace
                      my $iversion = substr($rest,56,8);
@@ -7745,6 +7776,38 @@ if ($prob_initial > 0) {
    }
 }
 
+my $nodesignore_total = scalar keys %nodes_ignorex;
+if ($nodesignore_total > 0) {
+   $rptkey = "TEMSREPORT055";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: NODE-SWITCH Ignored report\n";
+   $cnt++;$oline[$cnt]="Local_Time,Line,Node,Status,Thrunode\n";
+   foreach $f ( sort { $nodes_ignorex{$a}->{time} <=> $nodes_ignorex{$b}} keys %nodes_ignorex) {
+      my $nodes_ref = $nodes_ignorex{$f};
+      $outl = sec2ltime($nodes_ref->{time}+$local_diff) . ",";
+      $outl .= $l . ",";
+      $outl .= $f . ",";
+      my $pstatus = "";
+      foreach $g (keys %{$nodes_ref->{status}}) {
+         $pstatus .= $g . "[" . $nodes_ref->{status}{$g} . "] ";
+      }
+      chop($pstatus) if $pstatus ne "";
+      $outl .= $pstatus . ",";
+      my $pthru = "";
+      foreach $g (keys %{$nodes_ref->{thrunodes}}) {
+         $pthru .= $g . "[" . $nodes_ref->{thrunodes}{$g} . "] ";
+      }
+      chop($pthru) if $pstatus ne "";
+      $outl .= $pthru . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+
+#      $advi++;$advonline[$advi] = "Node [$f] thrunode [$node_ignorex{$f}] ignored because attribute unknown";
+#      $advcode[$advi] = "TEMSAUDIT1062W";
+#      $advimpact[$advi] = $advcx{$advcode[$advi]};
+#      $advsit[$advi] = "TEMS";
+   }
+}
+
 
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
@@ -11594,3 +11657,22 @@ This report shows the Remote TEMS involved, the count of Initial Heartbeat
 messages in the operations log, and the operation log time stamps
 
 Recovery plan: Work with IBM Support to resolve the root cause.
+----------------------------------------------------------------
+
+TEMSREPORT055
+Text: NODE-SWITCH Ignored report
+
+Sample Report
+Node,Status,Thrunode
+ddb_Primary:ddb_wa4249:KYNA,N[2],REMOTE_wa3867[2],
+
+Meaning: The TEMS attempted to report node status to the hub TEMS.
+However the hub TEMS denied the change since the agent had
+already switched to another remote TEMS.
+
+This condition suggests instability at the agent, where it is
+switching remote TEMSes frequently. There can be many reasons
+to result in this condition and needs to be studied carefully.
+
+Recovery plan: Work with IBM Support to resolve the root cause.
+----------------------------------------------------------------
