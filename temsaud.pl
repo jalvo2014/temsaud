@@ -107,7 +107,7 @@
 
 ## (5A7AE343.0012-8:ko4rulin.cpp,928,"SitInfo::setHistRule") error: application <KD4> for situation <UADVISOR_KD4_KD43RP> is missing from catalog
 
-my $gVersion = 1.83000;
+my $gVersion = 1.84000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -5292,7 +5292,6 @@ for(;;)
             $rest =~ / for (\S+)\./;
             my $attrib = $1;
             if (defined $attrib) {
-               set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT060",$rest);
                $temsvagentx{$attrib} += 1;
             }
          }
@@ -8240,7 +8239,7 @@ if ($advi != -1) {
       next if substr($f,0,9) ne "TEMSAUDIT";
       print OH "Advisory code: " . $f  . "\n";
       print OH "Impact:" . $advgotx{$f}  . "\n";
-#     print STDERR "$f missing\n" if !defined $advtextx{$f};
+      print STDERR "$f missing\n" if !defined $advtextx{$f};
       print OH $advtextx{$f};
    }
 }
@@ -8706,10 +8705,10 @@ sub sec2slot
    my $slotmin = substr('00' . int($min/$islot)*$islot,-2,2);
    my $slothour = substr('00' . $hour,-2,2);
    my $slotday = substr('00' . $mday,-2,2);
-   my $slotmonth = substr('00' . $mon+1,-2,2);
+   $mon += 1;
+   my $slotmonth = substr('00' . $mon,-2,2);
    my $slotyear = substr('00' . $year+1900,-4,4);
-
-   return sprintf "$slotyear$slotmonth$slotday$slothour$slotmin" . "00";
+   return "$slotyear$slotmonth$slotday$slothour$slotmin" . "00";
 }
 
 
@@ -10683,7 +10682,7 @@ That is an illegal ITM communications configuration and needed
 to be changed so all were anonymous or all were exclusive.
 --------------------------------------------------------------
 
-TEMSAUDIT10976W
+TEMSAUDIT1097W
 Text: TEMS and Agent conflict on attributes [count]
 
 Tracing: error
