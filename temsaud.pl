@@ -59,8 +59,6 @@
 ## (56CF3C07.0011-8:ko4ibstr.cpp,686,"IBStream::op_ls_req") IB Err: 1131
 ## (56CF3C07.0012-8:ko4sit.cpp,870,"Situation::slice") Sit vil_fss_xuxc_mediatn: Unable to lodge - giving up.
 
-## Can't initialize filter plan, PRB1_InitFilterPlan status 58
-
 ## (5970A187.0001-13:kdebeal.c,81,"ssl_provider_open") GSKit error 407: GSK_ERROR_BAD_KEYFILE_LABEL - errno 11
 
 ## kqmsnos.cpp|processARMSNOS::processRecs|367,87084,46%,(597AB870.0001-A:kqmsnos.cpp,367,"processARMSNOS::processRecs") Warning: Invalid timestamp in node status record: <dcn1papx617:KUX> <REMOTE_UKSWI-DLTVPVL01> <ip.pipe:#172.30.166.54[59283]<NM>dcn1papx617</NM>> <V>  <Y> at <1170728050701000> locflag <M> <9> <%IBM.STATIC013          000000000U000pyw0a7> <parent>
@@ -107,7 +105,9 @@
 
 ## (5A3E5FA4.0008-110:ko4bkgnd.cpp,482,"BackgroundController::nodeStatusUpdate") TEMS heartbeat insert failed with status 1542
 
-my $gVersion = 1.81000;
+## (5A7AE343.0012-8:ko4rulin.cpp,928,"SitInfo::setHistRule") error: application <KD4> for situation <UADVISOR_KD4_KD43RP> is missing from catalog
+
+my $gVersion = 1.83000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -203,6 +203,7 @@ my $ccsid1047 =
 '\060\061\062\063\064\065\066\067\070\071\263\333\334\331\332\237' ;
 
 my $opt_z;
+my $opt_zop;
 my $opt_ri;
 my $opt_ri_sec;
 my $opt_expslot;
@@ -254,6 +255,7 @@ my $opt_sth;                                     # produce event history status 
 my $opt_stfn;                                    # event history filename
 my $opt_ndfn;                                    # node history filename
 my $opt_evslot = 1;
+my $opt_tlslot = 5;
 my $start_date = "";
 my $start_time = "";
 my $local_diff = -1;
@@ -265,7 +267,6 @@ my $invpath;
 my $testfn;
 my @invfn;
 my @invdir;
-my $logspath;
 my $logsinv;
 my $endfnp;
 my $invlogtime = 0;
@@ -299,6 +300,7 @@ sub time2sec;
 sub sec2time;
 sub sec2ltime;
 sub getphys;
+sub set_timeline;
 
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
@@ -401,7 +403,14 @@ my %advcx = (
               "TEMSAUDIT1092W" => "50",
               "TEMSAUDIT1093E" => "100",
               "TEMSAUDIT1094I" => "0",
+              "TEMSAUDIT1095W" => "90",
+              "TEMSAUDIT1096W" => "85",
+              "TEMSAUDIT1097W" => "96",
             );
+
+my %planfailx;
+
+my %temsvagentx;
 
 my %advtextx = ();
 my $advkey = "";
@@ -418,10 +427,19 @@ my $sitrul_sitname = 0;
 my $sitrul_pdt = 0;
 my $sitrul_atr = 0;
 
+my $itc_ct = 0;
+
 my %readnextx;
 
 my %node_ignorex = ();
 my %nodes_ignorex = ();
+
+my %timelinex;
+my $tl_ref;
+my $tlkey;
+my %timelineslotx;
+my $tlslot_ref;
+my $tlslotkey;
 
 my %sthx = ();
 my $sthl = 0;
@@ -452,7 +470,8 @@ my %pipex = ();
 
 my %prtx;      # Process table capture
 my %prtrunx;   # Process table run capture by thread
-my %prtdurx;    # Duration
+my %prtdurx;   # Duration
+my %prtlimx;   # Capture long duration ProcessTable completions
 my $prt_current = 0;
 my $prt_max = 0;
 my $prt_max_l = 0;
@@ -496,6 +515,9 @@ my %pcbr;
 my %rbdupx;
 my $rbdup_ref;
 my $grace = 5;   # seconds
+my $rb_stime = 0;
+my $rb_etime = 0;
+my $rb_dur = 0;
 
 my $hublost_total = 0;
 my %gskiterrorx = ();
@@ -611,6 +633,7 @@ my $opt_nominal_loci = 1;                     # Above this percent, record in lo
 my $opt_portscan = 1;                         # portscan report
 my $opt_last = 1;
 my $opt_churnall = 0;                         # when 1, produce 100% churn report
+my $opt_prtlim;
 
 my $arg_start = join(" ",@ARGV);
 $hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
@@ -680,11 +703,28 @@ while (@ARGV) {
       $opt_sth = 1;
       shift(@ARGV);
    } elsif ($ARGV[0] eq "-evslot") {
-      $opt_evslot = 10;
+      $opt_evslot = 1;
       shift(@ARGV);
       if (defined $ARGV[0]) {
          if (substr($ARGV[0],0,1) ne "-") {
             $opt_evslot = $ARGV[0];
+            shift(@ARGV);
+         }
+      }
+   } elsif ($ARGV[0] eq "-tlslot") {
+      $opt_tlslot = 5;
+      shift(@ARGV);
+      if (defined $ARGV[0]) {
+         if (substr($ARGV[0],0,1) ne "-") {
+            $opt_tlslot = $ARGV[0];
+            shift(@ARGV);
+         }
+      }
+   } elsif ($ARGV[0] eq "-ptlim") {
+      shift(@ARGV);
+      if (defined $ARGV[0]) {
+         if (substr($ARGV[0],0,1) ne "-") {
+            $opt_prtlim = $ARGV[0];
             shift(@ARGV);
          }
       }
@@ -717,6 +757,10 @@ while (@ARGV) {
       shift(@ARGV);
       $opt_o = shift(@ARGV);
       die "-o output specified but no path found\n" if !defined $opt_o;
+   } elsif ($ARGV[0] eq "-zop") {
+      shift(@ARGV);
+      $opt_zop = shift(@ARGV);
+      die "-zop output specified but no file found\n" if !defined $opt_zop;
    } elsif ($ARGV[0] eq "-odir") {
       shift(@ARGV);
       $opt_odir = shift(@ARGV);
@@ -745,6 +789,7 @@ die "logpath and -z must not be supplied together\n" if defined $opt_z and defin
 if (!defined $opt_logpath) {$opt_logpath = "";}
 if (!defined $logfn) {$logfn = "";}
 if (!defined $opt_z) {$opt_z = 0;}
+if (!defined $opt_zop) {$opt_zop = ""}
 if (!defined $opt_ri) {$opt_ri = 0;}
 if (!defined $opt_ri_sec) {$opt_ri_sec = 60;}
 if (!defined $opt_b) {$opt_b = 0;}
@@ -765,8 +810,10 @@ if (!defined $opt_rdtop) {$opt_rdtop = 5;}
 if (!defined $opt_eph) {$opt_eph = 0;}
 if (!defined $opt_ephdir) {$opt_ephdir = "";}
 if (!defined $opt_sth) {$opt_sth = 0;}
+if (!defined $opt_prtlim) {$opt_prtlim = 1;}
 $opt_stfn = "eventhist.csv" if $opt_sth == 1;
 $opt_ndfn = "nodehist.csv" if $opt_sth == 1;
+open( ZOP, ">$opt_zop" ) or die "Cannot open zop file $opt_zop : $!" if $opt_zop ne "";
 
 
 if (!$opt_inplace) {
@@ -802,7 +849,7 @@ if ($gWin == 1) {
    if ($opt_logpath eq "") {
       $opt_logpath = $pwd;
    }
-   $opt_logpath = `cd $opt_logpath & cd`;
+   $opt_logpath = `cd \"$opt_logpath\" & cd`;
    chomp($opt_logpath);
    chdir $pwd;
 } else {
@@ -811,7 +858,7 @@ if ($gWin == 1) {
    if ($opt_logpath eq "") {
       $opt_logpath = $pwd;
    } else {
-      $opt_logpath = `(cd $opt_logpath && pwd)`;
+      $opt_logpath = `(cd \"$opt_logpath\" && pwd)`;
       chomp($opt_logpath);
    }
    chdir $pwd;
@@ -1346,6 +1393,7 @@ my $evhist_ref;
 sub sec2slot;
 
 my $lagline;
+my $lagopline;
 my $lagtime;
 my $laglocus;
 
@@ -1362,7 +1410,7 @@ for(;;)
    $l++;
 #print STDERR "workong on $l\n";
 
-#   last if $l > 300000;
+#  last if $l > 10000;
 #print STDERR "Working on $l\n";
 # following two lines are used to debug errors. First you flood the
 # output with the working on log lines, while merging stdout and stderr
@@ -1390,7 +1438,7 @@ for(;;)
    elsif ($state == 1) {                       # state 1 - detect print or disk version of sysout file
       $offset = (substr($inline,0,1) eq "1") || (substr($inline,0,1) eq " ");
       $state = 2;
-      $lagline = "";
+      $lagopline = 0;
       $lagtime = 0;
       $laglocus = "";
       next;
@@ -1445,7 +1493,8 @@ for(;;)
          $state = 3;
          # fall through and process $oneline
       }
-      # case 2 - line too short for a locus
+
+      # case 3 - line too short for a locus
       #          Append data to lagline and move on
       elsif (length($inline) < 35 + $offset) {
          $lagline .= " " . substr($inline,21+$offset);
@@ -1453,12 +1502,18 @@ for(;;)
          next;
       }
 
-      # case 3 - line has an apparent locus, emit laggine line
+      # case 4 - line has an apparent locus, emit laggine line
       #          and continue looking for data to append to this new line
       elsif ((substr($inline,21+$offset,1) eq '(') &&
              (substr($inline,26+$offset,1) eq '-') &&
              (substr($inline,35+$offset,1) eq ':') &&
              (substr($inline,0+$offset,2) eq '20')) {
+         if ($lagopline == 1) {
+            if ($opt_zop ne "") {
+               print ZOP "$lagline\n";
+            }
+            $lagopline = 0;
+         }
          $oneline = $lagline;
          $logtime = $lagtime;
          $yyddd = substr($inline,0+$offset,8);
@@ -1479,19 +1534,23 @@ for(;;)
          # fall through and process $oneline
       }
 
-      # case 4 - Identify and ignore lines which appear to be z/OS operations log entries
+      # case 5 - Identify and ignore lines which appear to be z/OS operations log entries
       else {
-
          $oplogid = substr($inline,21+$offset,7);
          $oplogid =~ s/\s+$//;
-         if (index($oplogid," ") == -1) {
-             if((substr($oplogid,0,1) eq "K") ||
-                (substr($oplogid,0,1) eq "O")) {
-                next;
-             }
+         if ((substr($oplogid,0,3) eq "OM2") or
+             (substr($oplogid,0,1) eq "K") or
+             (substr($oplogid,0,1) eq "O")) {
+            if ($lagopline == 1) {
+               if ($opt_zop ne "") {
+                  print ZOP "$lagline\n";
+               }
+            }
+             $lagopline = 1;
+             $lagline = substr($inline,$offset);
+         } else {
+             $lagline .= substr($inline,21+$offset);
          }
-         next if substr($oplogid,0,3) eq "OM2";
-         $lagline .= substr($inline,21+$offset);
          $state = 3;
          next;
       }
@@ -2010,6 +2069,7 @@ for(;;)
             my $iaddrport = $2;
             my $ierror = $3 . ":" . $4;
             my $addrkey = $1 . ":" . $2;
+            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT019","Connection Lost $addrkey $ierror");
             my $error_ref = $commex{$ierror};
             if (!defined $error_ref) {
                my %errorref = (
@@ -2042,6 +2102,7 @@ for(;;)
          $rest = $2;                       # status=1c010008, "activity not in call", ncs/KDC1_STC_NOT_IN_CALL
          if (substr($rest,1,15) eq "status=1c010008") {
             $anic_total += 1;
+            set_timeline($logtime,$l,$logtimehex,"TEMSAUDIT1042E","activity not in call");
          }
       }
    }
@@ -2065,6 +2126,7 @@ for(;;)
             $icode = $3 if defined $3;
             $ilevel = $4 if defined $4;
             next if $isource eq "";
+            set_timeline($logtime,$l,$logtimehex,"TEMSREPORT004","$itext $isource $icode $ilevel");
             $code_ref = $codex{$icode};
             if (!defined $code_ref) {
                my %coderef = (
@@ -2089,6 +2151,31 @@ for(;;)
          }
       }
    }
+
+   ## (5A89F8BD.0073-8:ko4ib.cpp,10608,"IBInterface::selectHub") Selected TEMS <HUB_t01ht01px> as the HUB
+   if (substr($logunit,0,9) eq "ko4ib.cpp") {
+      if ($logentry eq "IBInterface::selectHub") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         my $mkey = $logtimehex . "|" . $l;
+         $mhmx{$mkey} = $rest;
+         set_timeline($logtime,$l,$logtimehex,"TEMSREPORT044",$rest);
+         next;
+      }
+   }
+
+   ## (5A8A7EA7.0000-8:ko4tsmgr.cpp,243,"TaskManager::process") Hub connection lost, attempting to reconnect
+   if (substr($logunit,0,12) eq "ko4tsmgr.cpp") {
+      if ($logentry eq "TaskManager::process") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         my $mkey = $logtimehex . "|" . $l;
+         $mhmx{$mkey} = $rest;
+         set_timeline($logtime,$l,$logtimehex,"TEMSREPORT044",$rest);
+         next;
+      }
+   }
+
    ## (5995939B.000E-B:kqmmhm.cpp,1348,"mhm::promoteToHub") parent cms <HUB_frmpqam00srb2xm> is now the HUB
    ## (5995939B.000F-B:kqmmhm.cpp,1350,"mhm::promoteToHub") local cms <STANDBY_frmpqam00srb4xm> is now the MIRROR
    if (substr($logunit,0,10) eq "kqmmhm.cpp") {
@@ -2098,6 +2185,7 @@ for(;;)
          if ((substr($rest,1,10) eq "parent cms") or (substr($rest,1,9) eq "local cms")){
             my $mkey = $logtimehex . "|" . $l;
             $mhmx{$mkey} = $rest;
+            set_timeline($logtime,$l,$logtimehex,"TEMSREPORT044",$rest);
             next;
          }
       }
@@ -2112,6 +2200,7 @@ for(;;)
          if ((substr($rest,1,19) eq "Begin FTO Stage-Two") or (substr($rest,1,34) eq "FTO Stage-Two processing completed")){
             my $mkey = $logtimehex . "|" . $l;
             $mhmx{$mkey} = $rest;
+            set_timeline($logtime,$l,$logtimehex,"TEMSREPORT044",$rest);
             next;
          }
       }
@@ -2119,7 +2208,46 @@ for(;;)
 
 
 
+   # General signal for duplicate pipe deletion processing
+   # (5A85E277.0000-10B6:kdeploc.c,46,"KDEP_Localize") Status 1DE0004D=KDE1_STC_INVALIDTRANSPORTCORRELATOR
+   if (substr($logunit,0,9) eq "kdeploc.c") {
+      if ($logentry eq "KDEP_Localize") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Status 1DE0004D=KDE1_STC_INVALIDTRANSPORTCORRELATOR
+         if (substr($rest,1,51) eq "Status 1DE0004D=KDE1_STC_INVALIDTRANSPORTCORRELATOR") {
+            $itc_ct += 1;
+            set_timeline($logtime,$l,$logtimehex,"TEMSAUDIT1096W",$rest);
+            next;
+         }
+      }
+   }
+
    # signal for KDEB_INTERFACELIST conflicts
+   # (58DA4EFE.00B1-174:kdepdpc.c,62,"KDEP_DeletePCB") 10B0C8C6: KDEP_pcb_t deleted
+   if (substr($logunit,0,9) eq "kdepdpc.c") {
+      if ($logentry eq "KDEP_DeletePCB") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # 10B0C8C6: KDEP_pcb_t deleted
+         if (substr($rest,-7) eq "deleted") {
+            $rest =~ / (\S+):/;
+            my $iaddr = "X" . $1;
+            my $iip = $pcbr{$iaddr};
+            if (defined $iip) {
+               my $pcb_ref = $pcbx{$iip};
+               if (defined $pcb_ref) {
+                  if (defined $pcb_ref->{addr}{$iaddr}) {
+                     $pcb_ref->{count} += 1;
+                     $pcb_ref->{deletePCB} += 1;
+                     delete $pcb_ref->{addr}{$iaddr};
+                     delete $pcbr{$iaddr};
+                  }
+               }
+            }
+            next;
+         }
+      }
+   }
+
    # (58DA4EFE.00B1-174:kdepdpc.c,62,"KDEP_DeletePCB") 10B0C8C6: KDEP_pcb_t deleted
    if (substr($logunit,0,9) eq "kdepdpc.c") {
       if ($logentry eq "KDEP_DeletePCB") {
@@ -2167,6 +2295,7 @@ for(;;)
             $rest =~ /GSKit error (\d+): (\S+)/;
             my $errnum = $1;
             my $errtext = $2;
+            set_timeline($logtime,$l,$logtimehex,"TEMSAUDIT1058E","GSKit error $1 $2");
             my $gerror_ref = $gskiterrorx{$errnum};
             if (!defined $gerror_ref) {
                my %gerrorref = (
@@ -2188,6 +2317,7 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # KDSTMDTE: Interval Missed Seconds=1494015924 Nsecs=763544806 Detected at Seconds=1494022731 Nsecs=80363777
          if (substr($rest,1,25) eq "KDSTMDTE: Interval Missed") {
+            set_timeline($logtime,$l,$logtimehex,"EMSAUDIT1053W",$rest);
             $intexp_total += 1;
             next;
          }
@@ -2345,10 +2475,12 @@ for(;;)
          $rest = $2;                       # Unsupported request method "NESSUS"
          my @scantype;
          if (substr($rest,1,26) eq "Unsupported request method") {
+            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT042",$rest);
             $portscan++;
             $portscan_Unsupported++;
             push (@{$portscan_timex{$logtimehex}},"unsupported");
          } elsif (substr($rest,1,21) eq "error in HTTP request") {
+            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT042",$rest);
             $portscan++ if index($rest,"unknown method in request") != -1;
             $portscan_HTTP++;
             push (@{$portscan_timex{$logtimehex}},"http");
@@ -2363,6 +2495,7 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # DATASTREAMINTEGRITYLOST
          if (substr($rest,1,48) eq "Status 1DE00074=KDE1_STC_DATASTREAMINTEGRITYLOST") {
+            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT042",$rest);
             $portscan++;
             $portscan_integrity++;
             push (@{$portscan_timex{$logtimehex}},"integrity");
@@ -2375,6 +2508,7 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # suspending new connections
          if (index($rest,"suspending new connections") != -1) {
+            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT042",$rest);
             $portscan++;
             $portscan_suspend++;
             push (@{$portscan_timex{$logtimehex}},"suspend");
@@ -2387,6 +2521,7 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Status 1DE0000D=KDE1_STC_IOERROR=72: NULL
          if (index($rest,"KDE1_STC_IOERROR=72") != -1) {
+            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT042",$rest);
             $portscan++;
             $portscan_72++;
             push (@{$portscan_timex{$logtimehex}},"error72");
@@ -2401,6 +2536,7 @@ for(;;)
       if ($logentry eq "IBInterface::doStageTwoProcess") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Begin stage 2 processing. Database and IB Cache synchronization with the hub
+         set_timeline($logtime,$l,$logtimehex,"TEMSAUDIT1036W",$rest);
          if (substr($rest,1,13) eq "Begin stage 2") {
             $stage2_ct += 1;
             $stage2 .= "Begin-" . $logtime . ":";
@@ -2506,27 +2642,42 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Filter object too big (39776 + 22968),Table FILEINFO Situation SARM_UX_FileMonitoring2_Warn.
                                            # Filter object too big (47840 + 10888),Table KLZCPU Situation .
-         next if substr($rest,1,21) ne "Filter object too big";
-         $rest =~ /\((.*)\)\,Table (.*) Situation (.*)\./;
-         $ifiltsize = $1;
-         $ifilttbl = $2;
-         $ifiltsit = $3;
-         if ($ifiltsit eq "") {
-            $ifiltsit = $ifilttbl . "-nosituation";
-         }
-         my $n2 = $toobigsitx{$ifiltsit};
-         if (defined $n2) {
+         if (substr($rest,1,21) eq "Filter object too big") {
+            $rest =~ /\((.*)\)\,Table (.*) Situation (.*)\./;
+            $ifiltsize = $1;
+            $ifilttbl = $2;
+            $ifiltsit = $3;
+            $ifiltsit = $ifilttbl . "-nosituation" if $ifiltsit eq "";
+            my $n2 = $toobigsitx{$ifiltsit};
+            if (!defined $n2) {
+               $toobigi++;
+               $tx = $toobigi;
+               $toobigsit[$tx] = $ifiltsit;
+               $toobigsitx{$ifiltsit} = $tx;
+               $toobigsize[$tx] = $ifiltsize;
+               $toobigtbl[$tx] = $ifilttbl;
+               $toobigct[$tx] = 1;
+               $n2 = $toobigi;
+            }
             $toobigct[$n2] += 1;
-            next;
+         } elsif ( substr($rest,1,28) eq "Can't initialize filter plan") {
+            $rest =~ / status (\d+), \[(\S+) /;
+            my $icode = $1;
+            my $itable = $2;
+            my $planfail_ref = $planfailx{$itable};
+            if (!defined $planfail_ref) {
+               my %planfailref = (
+                                    count => 0,
+                                    codes => {},
+                                 );
+               $planfail_ref = \%planfailref;
+               $planfailx{$itable} = \%planfailref;
+            }
+            $planfail_ref->{count} += 1;
+            $planfail_ref->{codes}{$icode} += 1;
          }
-         $toobigi++;
-         $tx = $toobigi;
-         $toobigsit[$tx] = $ifiltsit;
-         $toobigsitx{$ifiltsit} = $tx;
-         $toobigsize[$tx] = $ifiltsize;
-         $toobigtbl[$tx] = $ifilttbl;
-         $toobigct[$tx] = 1;
       }
+
       # (54E64441.0000-12:kpxreqds.cpp,2832,"timeout") Timeout for wlp_chstart_gmqc_std <26221448> *.QMCHANS.
       # (54E7D64D.0000-12:kpxreqds.cpp,2832,"timeout") Timeout for  <1389379034> *.KINAGT.
       if ($logentry eq "timeout") {
@@ -2576,6 +2727,7 @@ for(;;)
          $syncdist += 1;
          $syncdist_timei += 1;
          $syncdist_time[$syncdist_timei] = $logtime - $syncdist_first_time;
+         set_timeline($logtime,$l,$logtimehex,"TEMSAUDIT1027W","remote SQL timeout");
       }
       next;
    }
@@ -3086,6 +3238,7 @@ for(;;)
             if (!defined $inode_ref) {
                my %inoderef = (
                                  count => 0,
+                                 icount => 0,
                                  instances => {},
                                  aff => {},
                                  affct => 0,
@@ -3110,6 +3263,7 @@ for(;;)
                               );
                 $inodei_ref = \%inodeiref;
                 $inode_ref->{instances}{$inodeikey} = \%inodeiref;
+                $inode_ref->{icount} += 1;
             }
             $inodei_ref->{count} += 1;
 
@@ -3229,6 +3383,16 @@ for(;;)
                               );
                $rbdup_ref = \%rbdupref;
                $rbdupx{$inode} = \%rbdupref;
+            }
+            if ($rb_stime == 0) {
+                $rb_stime = $logtime;
+                $rb_etime = $logtime;
+            }
+            if ($logtime < $rb_stime) {
+               $rb_stime = $logtime;
+            }
+            if ($logtime > $rb_etime) {
+               $rb_etime = $logtime;
             }
 
 
@@ -3371,9 +3535,9 @@ for(;;)
             my $iport = "";
             if (index($rest,"hostAddr") != -1) {
                if (index($rest,"[") != -1) {
-                  $rest =~ /hostAddr: \'.*?#(.*?)\[.*?\'/;
+                  $rest =~ /NM>(\S+)</;
                   $isystem = $1 if defined $1;
-                  $rest =~ /hostAddr: \'.*?#(.*?\[\d+\]).*?\'/;
+                  $rest =~ /#(\S+)\[/;
                   $ihostAddr = $1 if defined $1;
                   $rest =~ /hostAddr:.*?\[(\d+)\]/;
                   $iport = $1 if defined $1;
@@ -3411,6 +3575,16 @@ for(;;)
                               );
                $rbdup_ref = \%rbdupref;
                $rbdupx{$inode} = \%rbdupref;
+            }
+            if ($rb_stime == 0) {
+                $rb_stime = $logtime;
+                $rb_etime = $logtime;
+            }
+            if ($logtime < $rb_stime) {
+               $rb_stime = $logtime;
+            }
+            if ($logtime > $rb_etime) {
+               $rb_etime = $logtime;
             }
             $rbdup_ref->{hostaddrs}{$ihostAddr} = 1 if $ihostAddr ne "";
             if ($isystem ne "") {
@@ -3714,12 +3888,13 @@ for(;;)
                                         node => $inode,
                                         count => 0,
                                         status => {},
+                                        atoms => {},
                                      );
                         $pevtx{$key} = \%evtref;
                         $evt_ref      = \%evtref;
                      }
                      $evt_ref->{count} += 1;
-                     $evt_ref->{atoms}->{$iatom} = 1 if $iatom ne "";
+                     $evt_ref->{atoms}->{$iatom} += 1 if $iatom ne "";
                      $evt_ref->{thrunode}->{$ithrunode} = 1;
                      $evt_ref->{status}{$istatus} += 1;
                      if ($pe_stime == 0) {
@@ -4017,6 +4192,7 @@ for(;;)
          } elsif (substr($rest,1,7) eq "Client:") {
             $rest =~ /: (.*):/;
             $soaperror_client = $1 if defined $1;
+            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT027","SOAP error $soaperror_fault from $soaperror_client");
             if ($soaperror_fault ne "") {
                 my $soaperror_ref = $soaperror{$soaperror_fault};
                 if (!defined $soaperror_ref) {
@@ -4118,7 +4294,7 @@ for(;;)
          } elsif (substr($rest,1,5) eq "Exit:") { # Exit: 0x4D
             my $prt_ref = $prtrunx{$logthread};
             if (defined $prt_ref) { # only process known cases from previous threads
-               if ($prt_ref->{status_time} > 0) { # handle a case where a status line never showed
+               if ($prt_ref->{status_time} > 0) { # handle a case where a status line showed
                   $rest =~ /Exit: (\S*)/;
                   $prt_ref->{exit_code} = $1;
                   $prt_ref->{exit_time} = $logtime;
@@ -4172,7 +4348,7 @@ for(;;)
 
                   # calculate ProcessTable at same time.
                   my $ipt_dur = $prt_ref->{exit_time} - $prt_ref->{entry_time};
-                  if ($ipt_dur > 1) {
+                  if ($ipt_dur > 0) {
                      my $key = $prt_ref->{entry_time} . "|" . $prt_ref->{l};
                      my $dur_ref = $prtdurx{$key};
                      if (!defined $dur_ref) {
@@ -4189,6 +4365,38 @@ for(;;)
                      }
 
                   }
+                  if ($ipt_dur >= $opt_prtlim) {
+                     my $key = $prt_ref->{entry_time} . "|" . $prt_ref->{l};
+                     my $lim_ref = $prtlimx{$key};
+                     if (!defined $lim_ref) {
+                        my %limref = (
+                                        entry_time => $prt_ref->{entry_time},
+                                        epoch => $prt_ref->{epoch},
+                                        sl => $prt_ref->{l},
+                                        el => $l,
+                                        dur => $ipt_dur,
+                                        table => $prt_ref->{table},
+                                        rows => $prt_ref->{rows},
+                                        max => $prt_max,
+                                      );
+                        $lim_ref = \%limref;
+                        $prtlimx{$key} = \%limref;
+                     }
+                  }
+               my %prtref = (
+                               entry_time => $logtime,
+                               epoch => $logtimehex,
+                               status_time => 0,
+                               exit_time => 0,
+                               exit_code => "",
+                               status => "",
+                               rows => 0,
+                               table => "",
+                               type => "",
+                               path => "",
+                               count => 0,
+                               l => $l,
+                            );
                   my $key = sec2slot($prt_ref->{entry_time});
                   my $evhist_ref = $evhist{$key};
                   if (!defined $evhist_ref) {
@@ -4853,229 +5061,244 @@ for(;;)
          }
       }
    }
-   next if substr($logunit,0,12) ne "kpxrpcrq.cpp";
-   next if $logentry ne "IRA_NCS_Sample";
-   $oneline =~ /^\((\S+)\)(.+)$/;
-   $rest = $2;
-      # Sample <665885373,2278557540> arrived with no matching request.
-   if (substr($rest,1,6) eq "Sample") {
-      if (index($rest,"arrived with no matching request.") != -1) {
-         $nmr_total += 1;
+   if (substr($logunit,0,12) eq "kpxrpcrq.cpp") {
+      if ($logentry eq "IRA_NCS_Sample") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,6) eq "Sample") { # Sample <665885373,2278557540> arrived with no matching request.
+            if (index($rest,"arrived with no matching request.") != -1) {
+               $nmr_total += 1;
+            }
+            next;
+         }
+           # Rcvd 1 rows sz 816 tbl *.UNIXOS req  <418500981,1490027440> node <evoapcprd:KUX>
+         if (substr($rest,1,4) eq 'Rcvd') {
+            $rest =~ /(\S+) (\d+) rows sz (\d+) tbl (\S+) req (.*)/;
+            next if $1 ne "Rcvd";
+            $irows = $2;
+            $isize = $3;
+            $itbl = $4;
+            $rest = $5;
+            if (substr($rest,0,2) eq " <") {
+               $isit = "(NULL)" . "-" . $itbl;
+            }
+            else {
+               $rest =~ /(\S+) <(.*)/;
+               $isit = $1;
+               $rest = $2;
+            }
+            $rest =~ /node <(\S+)>/;
+            $inode = $1;
+            $insize = $isize*$irows;
+            if ($sitstime == 0) {
+               $sitstime = $logtime;
+               $sitetime = $logtime;
+            }
+            if ($logtime < $sitstime) {
+               $sitstime = $logtime;
+            }
+            if ($logtime > $sitetime) {
+               $sitetime = $logtime;
+            }
+            if (!defined $sitx{$isit}) {      # if newly observed situation, set up initial values and associative array
+               $siti++;
+               $sit[$siti] = $isit;
+               $sitx{$isit} = $siti;
+               $sx = $siti;
+               $sittbl[$sx] = $itbl;
+               $sitct[$sx] = 0;
+               $sitrows[$sx] = 0;
+               $sitres[$sx] = 0;
+               $sitrmin[$sx] = $insize;
+               $sitrmax[$sx] = $insize;
+               $sitrmaxnode[$sx] = $inode;
+               $sitnoded[$sx] = {};
+            }
+            else {
+               $sx = $sitx{$isit};
+            }
+            $sitct[$sx] += 1;
+            $sitct_tot  += 1;
+            $sitrows[$sx] += $irows;
+            $sitrows_tot += $irows;
+            if ($insize != 0) {
+               if ($insize < $sitrmin[$sx]) {
+                  $sitrmin[$sx] = $insize;
+               }
+            }
+            if ($insize > $sitrmax[$sx]) {
+                  $sitrmax[$sx] = $insize;
+                  $sitrmaxnode[$sx] = $inode;
+               }
+            $sitres[$sx] += $insize;
+            $sitres_tot  += $insize;
+            $uadvisor_bytes += $insize if substr($isit,0,8) eq "UADVISOR";
+            if ($opt_ri == 1) {
+               my $res_stamp = $res_stampx{$logtime};
+               my $logstime;
+               if (!defined $res_stamp) {
+                  $logstime = int($logtime/$opt_ri_sec)*$opt_ri_sec;
+                  my $res_sec = (localtime($logstime))[0];
+                  $res_sec = '00' . $res_sec;
+                  my $res_min = (localtime($logstime))[1];
+                  $res_min = '00' . $res_min;
+                  my $res_hour = '00' . (localtime($logstime))[2];
+                  my $res_day  = '00' . (localtime($logstime))[3];
+                  my $res_month = (localtime($logstime))[4] + 1;
+                  $res_month = '00' . $res_month;
+                  my $res_year =  (localtime($logstime))[5] + 1900;
+                  $res_stamp = substr($res_year,-2,2) . substr($res_month,-2,2) . substr($res_day,-2,2) .  substr($res_hour,-2,2) .  substr($res_min,-2,2) .  substr($res_sec,-2,2);
+                  $res_stampx{$logtime} = $res_stamp;
+               }
+               my $res_ref = $resx{$res_stamp};
+               if (!defined $res_ref) {
+                  my %resref = (
+                                  stime => $logstime,
+                                  count => 0,
+                                  rows  => 0,
+                                  bytes => 0,
+                                  sitx => {},
+                               );
+                  $resx{$res_stamp} = \%resref;
+                  $res_ref = \%resref;
+               }
+               $res_ref->{count} += 1;
+               $res_ref->{rows} += $irows;
+               $res_ref->{bytes} += $insize;
+               ${$res_ref->{sitx}}{$isit} = 0 if !defined ${$res_ref->{sitx}}{$isit};
+               ${$res_ref->{sitx}}{$isit} += 1;
+            }
+            if ($opt_rd == 1) {
+               # calculate the slotted time stamp. This reuses some variables/logic in historical export slotting logic.
+               $hist_min = (localtime($logtime))[1];
+               $hist_min = int($hist_min/$opt_rdslot) * $opt_rdslot;
+               $hist_min = '00' . $hist_min;
+               $hist_hour = '00' . (localtime($logtime))[2];
+               $hist_day  = '00' . (localtime($logtime))[3];
+               $hist_month = (localtime($logtime))[4] + 1;
+               $hist_month = '00' . $hist_month;
+               $hist_year =  (localtime($logtime))[5] + 1900;
+               $hist_stamp = $hist_year . substr($hist_month,-2,2) . substr($hist_day,-2,2) .  substr($hist_hour,-2,2) .  substr($hist_min,-2,2);
+               $rd_ref = $rdx{$hist_stamp};
+               if (!defined $rd_ref) {
+                  my %rdref = (
+                                 count => 0,
+                                 rows => 0,
+                                 bytes => 0,
+                                 sitx => {},
+                              );
+                 $rd_ref = \%rdref;
+                 $rdx{$hist_stamp} = \%rdref;
+               }
+               $rd_ref->{count} += 1;
+               $rd_ref->{rows} += $irows;
+               $rd_ref->{bytes} += $insize;
+               my $sit_ref = $rd_ref->{sitx}{$isit};
+               if (!defined $sit_ref) {
+                  my %sitref = (
+                                  count => 0,
+                                  rows => 0,
+                                  bytes => 0,
+                               );
+                 $sit_ref = \%sitref;
+                 $rd_ref->{sitx}{$isit} = \%sitref;
+               }
+               $sit_ref->{count} += 1;
+               $sit_ref->{rows} += $irows;
+               $sit_ref->{bytes} += $insize;
+            }
+            $sitrow_key = $isit . "|" . $inode;
+            $sitrow_ref = $sitrowx{$sitrow_key};
+            if (!defined $sitrow_ref) {
+               my %sitrowref = (
+                                  sit => $isit,
+                                  node => $inode,
+                                  ip => "",
+                                  tems => $opt_nodeid,
+                                  count => 0,
+                                  norows => 0,
+                                  rowfraction => 0,
+                                  start => 0,
+                                  end => 0,
+                               );
+               $sitrow_ref = \%sitrowref;
+               $sitrowx{$sitrow_key} = \%sitrowref;
+            }
+            $sitrow_ref->{count} += 1;
+            $sitrow_ref->{norows} += 1 if $irows == 0;
+            if ($sitrow_ref->{start} == 0) {
+               $sitrow_ref->{start} = $logtime;
+               $sitrow_ref->{end} = $logtime;
+            }
+            $sitrow_ref->{start} = $logtime if $logtime < $sitrow_ref->{start};
+            $sitrow_ref->{end} = $logtime if $logtime > $sitrow_ref->{end};
+
+            if ($opt_b == 0) {next if $isit eq "HEARTBEAT";}
+
+            $mx = $manx{$inode};
+            if (!defined $mx) {       # if newly observed node, set up initial values and associative array
+               $mani++;
+               $man[$mani] = $inode;
+               $manx{$inode} = $mani;
+               $mx = $mani;
+               $mantbl[$mx] = $itbl;
+               $manct[$mx] = 0;
+               $manrows[$mx] = 0;
+               $manres[$mx] = 0;
+               $manrmin[$mx] = $insize;
+               $manrmax[$mx] = $insize;
+               $manrmaxsit[$mx] = $isit;
+            }
+            $manct[$mx] += 1;
+            $manrows[$mx] += $irows;
+            if ($insize != 0) {
+               if ($insize < $manrmin[$mx]) {
+                  $manrmin[$mx] = $insize;
+               }
+               if ($insize > $manrmax[$mx]) {
+                  $manrmax[$mx] = $insize;
+                  $manrmaxsit[$mx] = $isit;
+               }
+            }
+            $manres[$mx] += $insize;
+            # Following tracks inter-arrival time of results from agents concerning situations
+            # don't have good use case yet or exactly how to display data
+            # todo: ignore non-situations
+            #       ignore pure situations??
+            if ($opt_noded == 1) {
+               my $node_ref = $sitnoded[$sx]{$inode};
+               if (!defined $node_ref) {
+                  my %noderef = (
+                                   rarrive => $logtime,
+                                   rcount => 0,
+                                   inter_arrive => [],
+                  );
+                  $sitnoded[$sx]{$inode} = \%noderef;
+                  $node_ref = \%noderef;
+               } else {
+                  my $iarrive = $logtime - $node_ref->{rarrive};
+                  $node_ref->{rarrive} = $logtime;
+                  $node_ref->{rcount} += 1;
+                  push(@{$node_ref->{inter_arrive}},$iarrive);
+               }
+            }
+         }
+
+      # (5A8B6BE8.002D-152:kpxrpcrq.cpp,691,"IRA_NCS_TranslateSample") Insufficient remote data for .SRVRADDN. Possible inconsistent definiton between agent and tems.
+      } elsif ($logentry eq "IRA_NCS_TranslateSample") { # Insufficient remote data for .SRVRADDN. Possible inconsistent definiton between agent and tems.
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,24) eq "Insufficient remote data") {
+            $rest =~ / for (\S+)\./;
+            my $attrib = $1;
+            if (defined $attrib) {
+               set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT060",$rest);
+               $temsvagentx{$attrib} += 1;
+            }
+         }
       }
       next;
    }
-     # Rcvd 1 rows sz 816 tbl *.UNIXOS req  <418500981,1490027440> node <evoapcprd:KUX>
-   next if substr($rest,1,4) ne 'Rcvd';
-   $rest =~ /(\S+) (\d+) rows sz (\d+) tbl (\S+) req (.*)/;
-   next if $1 ne "Rcvd";
-   $irows = $2;
-   $isize = $3;
-   $itbl = $4;
-   $rest = $5;
-   if (substr($rest,0,2) eq " <") {
-      $isit = "(NULL)" . "-" . $itbl;
-   }
-   else {
-      $rest =~ /(\S+) <(.*)/;
-      $isit = $1;
-      $rest = $2;
-   }
-   $rest =~ /node <(\S+)>/;
-   $inode = $1;
-   $insize = $isize*$irows;
-   if ($sitstime == 0) {
-      $sitstime = $logtime;
-      $sitetime = $logtime;
-   }
-   if ($logtime < $sitstime) {
-      $sitstime = $logtime;
-   }
-   if ($logtime > $sitetime) {
-      $sitetime = $logtime;
-   }
-   if (!defined $sitx{$isit}) {      # if newly observed situation, set up initial values and associative array
-      $siti++;
-      $sit[$siti] = $isit;
-      $sitx{$isit} = $siti;
-      $sx = $siti;
-      $sittbl[$sx] = $itbl;
-      $sitct[$sx] = 0;
-      $sitrows[$sx] = 0;
-      $sitres[$sx] = 0;
-      $sitrmin[$sx] = $insize;
-      $sitrmax[$sx] = $insize;
-      $sitrmaxnode[$sx] = $inode;
-      $sitnoded[$sx] = {};
-   }
-   else {
-      $sx = $sitx{$isit};
-   }
-   $sitct[$sx] += 1;
-   $sitct_tot  += 1;
-   $sitrows[$sx] += $irows;
-   $sitrows_tot += $irows;
-   if ($insize != 0) {
-      if ($insize < $sitrmin[$sx]) {
-         $sitrmin[$sx] = $insize;
-      }
-   }
-   if ($insize > $sitrmax[$sx]) {
-         $sitrmax[$sx] = $insize;
-         $sitrmaxnode[$sx] = $inode;
-      }
-   $sitres[$sx] += $insize;
-   $sitres_tot  += $insize;
-   $uadvisor_bytes += $insize if substr($isit,0,8) eq "UADVISOR";
-   if ($opt_ri == 1) {
-      my $res_stamp = $res_stampx{$logtime};
-      my $logstime;
-      if (!defined $res_stamp) {
-         $logstime = int($logtime/$opt_ri_sec)*$opt_ri_sec;
-         my $res_sec = (localtime($logstime))[0];
-         $res_sec = '00' . $res_sec;
-         my $res_min = (localtime($logstime))[1];
-         $res_min = '00' . $res_min;
-         my $res_hour = '00' . (localtime($logstime))[2];
-         my $res_day  = '00' . (localtime($logstime))[3];
-         my $res_month = (localtime($logstime))[4] + 1;
-         $res_month = '00' . $res_month;
-         my $res_year =  (localtime($logstime))[5] + 1900;
-         $res_stamp = substr($res_year,-2,2) . substr($res_month,-2,2) . substr($res_day,-2,2) .  substr($res_hour,-2,2) .  substr($res_min,-2,2) .  substr($res_sec,-2,2);
-         $res_stampx{$logtime} = $res_stamp;
-      }
-      my $res_ref = $resx{$res_stamp};
-      if (!defined $res_ref) {
-         my %resref = (
-                         stime => $logstime,
-                         count => 0,
-                         rows  => 0,
-                         bytes => 0,
-                         sitx => {},
-                      );
-         $resx{$res_stamp} = \%resref;
-         $res_ref = \%resref;
-      }
-      $res_ref->{count} += 1;
-      $res_ref->{rows} += $irows;
-      $res_ref->{bytes} += $insize;
-      ${$res_ref->{sitx}}{$isit} = 0 if !defined ${$res_ref->{sitx}}{$isit};
-      ${$res_ref->{sitx}}{$isit} += 1;
-   }
-   if ($opt_rd == 1) {
-      # calculate the slotted time stamp. This reuses some variables/logic in historical export slotting logic.
-      $hist_min = (localtime($logtime))[1];
-      $hist_min = int($hist_min/$opt_rdslot) * $opt_rdslot;
-      $hist_min = '00' . $hist_min;
-      $hist_hour = '00' . (localtime($logtime))[2];
-      $hist_day  = '00' . (localtime($logtime))[3];
-      $hist_month = (localtime($logtime))[4] + 1;
-      $hist_month = '00' . $hist_month;
-      $hist_year =  (localtime($logtime))[5] + 1900;
-      $hist_stamp = $hist_year . substr($hist_month,-2,2) . substr($hist_day,-2,2) .  substr($hist_hour,-2,2) .  substr($hist_min,-2,2);
-      $rd_ref = $rdx{$hist_stamp};
-      if (!defined $rd_ref) {
-         my %rdref = (
-                        count => 0,
-                        rows => 0,
-                        bytes => 0,
-                        sitx => {},
-                     );
-        $rd_ref = \%rdref;
-        $rdx{$hist_stamp} = \%rdref;
-      }
-      $rd_ref->{count} += 1;
-      $rd_ref->{rows} += $irows;
-      $rd_ref->{bytes} += $insize;
-      my $sit_ref = $rd_ref->{sitx}{$isit};
-      if (!defined $sit_ref) {
-         my %sitref = (
-                         count => 0,
-                         rows => 0,
-                         bytes => 0,
-                      );
-        $sit_ref = \%sitref;
-        $rd_ref->{sitx}{$isit} = \%sitref;
-      }
-      $sit_ref->{count} += 1;
-      $sit_ref->{rows} += $irows;
-      $sit_ref->{bytes} += $insize;
-   }
-   $sitrow_key = $isit . "|" . $inode;
-   $sitrow_ref = $sitrowx{$sitrow_key};
-   if (!defined $sitrow_ref) {
-      my %sitrowref = (
-                         sit => $isit,
-                         node => $inode,
-                         ip => "",
-                         tems => $opt_nodeid,
-                         count => 0,
-                         norows => 0,
-                         rowfraction => 0,
-                         start => 0,
-                         end => 0,
-                      );
-      $sitrow_ref = \%sitrowref;
-      $sitrowx{$sitrow_key} = \%sitrowref;
-   }
-   $sitrow_ref->{count} += 1;
-   $sitrow_ref->{norows} += 1 if $irows == 0;
-   if ($sitrow_ref->{start} == 0) {
-      $sitrow_ref->{start} = $logtime;
-      $sitrow_ref->{end} = $logtime;
-   }
-   $sitrow_ref->{start} = $logtime if $logtime < $sitrow_ref->{start};
-   $sitrow_ref->{end} = $logtime if $logtime > $sitrow_ref->{end};
-
-   if ($opt_b == 0) {next if $isit eq "HEARTBEAT";}
-
-   $mx = $manx{$inode};
-   if (!defined $mx) {       # if newly observed node, set up initial values and associative array
-      $mani++;
-      $man[$mani] = $inode;
-      $manx{$inode} = $mani;
-      $mx = $mani;
-      $mantbl[$mx] = $itbl;
-      $manct[$mx] = 0;
-      $manrows[$mx] = 0;
-      $manres[$mx] = 0;
-      $manrmin[$mx] = $insize;
-      $manrmax[$mx] = $insize;
-      $manrmaxsit[$mx] = $isit;
-   }
-   $manct[$mx] += 1;
-   $manrows[$mx] += $irows;
-   if ($insize != 0) {
-      if ($insize < $manrmin[$mx]) {
-         $manrmin[$mx] = $insize;
-      }
-      if ($insize > $manrmax[$mx]) {
-         $manrmax[$mx] = $insize;
-         $manrmaxsit[$mx] = $isit;
-      }
-   }
-   $manres[$mx] += $insize;
-   # Following tracks inter-arrival time of results from agents concerning situations
-   # don't have good use case yet or exactly how to display data
-   # todo: ignore non-situations
-   #       ignore pure situations??
-   if ($opt_noded == 1) {
-      my $node_ref = $sitnoded[$sx]{$inode};
-      if (!defined $node_ref) {
-         my %noderef = (
-                          rarrive => $logtime,
-                          rcount => 0,
-                          inter_arrive => [],
-         );
-         $sitnoded[$sx]{$inode} = \%noderef;
-         $node_ref = \%noderef;
-      } else {
-         my $iarrive = $logtime - $node_ref->{rarrive};
-         $node_ref->{rarrive} = $logtime;
-         $node_ref->{rcount} += 1;
-         push(@{$node_ref->{inter_arrive}},$iarrive);
-      }
-   }
-
 }
    $dur = $sitetime - $sitstime;
    $tdur = $trcetime - $trcstime;
@@ -5133,13 +5356,20 @@ if ($hist_corrupted_ct > 0) {
    }
 }
 
+if ($itc_ct > 0) {
+   $advi++;$advonline[$advi] = "$itc_ct KDE1_STC_INVALIDTRANSPORTCORRELATOR communication errors";
+   $advcode[$advi] = "TEMSAUDIT1096W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Comm";
+}
+
 if ($toobigi > -1) {
       my $ptoobigi = $toobigi + 1;
       $advi++;$advonline[$advi] = "$ptoobigi Filter object(s) too big situations and/or reports - See Report $rptkey";
       $advcode[$advi] = "TEMSAUDIT1001W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TooBig";
-   }
+}
 
 my $mhm_ct = scalar keys %mhmx;
 if ($mhm_ct > 0) {
@@ -6097,7 +6327,7 @@ if ($sqli != -1) {
       $rptkey = "TEMSREPORT007";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="$rptkey: SQL Detail Report\n";
-      $cnt++;$oline[$cnt]="Type,Count,Duration,Rate/Min,Source,Table,SQL\n";
+      $cnt++;$oline[$cnt]="Type,Count,Duration,Rate/Min,Source,Table,SQL,Line\n";
       $outl = "total" . ",";
       $outl .= $sql_ct_total . ",";
       $outl .= $sql_duration . ",";
@@ -6233,6 +6463,24 @@ if ($prt_ct > 0) {
       $outl .= $prtdur_ref->{max} . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
+
+   $rptkey = "TEMSREPORT057";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Process Table Duration past $opt_prtlim\n";
+   $cnt++;$oline[$cnt]="LocalTime,Epoch,Duration,Max,Start_Line,End_Line,Table,Rows,\n";
+   foreach $f ( sort { $prtlimx{$a}->{entry_time} <=> $prtlimx{$b}->{entry_time} } keys %prtlimx) {
+      my $prtlim_ref = $prtlimx{$f};
+      my $ltime = sec2ltime($prtlim_ref->{entry_time}+$local_diff);
+      $outl = $ltime . ",";
+      $outl .= $prtlim_ref->{epoch} . ",";
+      $outl .= $prtlim_ref->{dur} . ",";
+      $outl .= $prtlim_ref->{max} . ",";
+      $outl .= $prtlim_ref->{sl} . ",";
+      $outl .= $prtlim_ref->{el} . ",";
+      $outl .= $prtlim_ref->{table} . ",";
+      $outl .= $prtlim_ref->{rows} . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
 }
 my $total_evt = 0;
 my %total_status = ();
@@ -6243,7 +6491,7 @@ if ($pevt_size > 0) {
    $rptkey = "TEMSREPORT010";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: PostEvent Report\n";
-   $cnt++;$oline[$cnt]="Situation,Node,Count,AtomCount,Thrunodes,Status,\n";
+   $cnt++;$oline[$cnt]="Situation,Node,Count,AtomCount,Thrunodes,Status,Atomize,\n";
    my %pesumx;
    my $pesum_ref;
    foreach $f ( sort { $pevtx{$b}->{count} <=> $pevtx{$a}->{count} } keys %pevtx) {
@@ -6260,6 +6508,11 @@ if ($pevt_size > 0) {
          $pstatus .= $g . "[" . $pevtx{$f}->{status}{$g} . "] ";
       }
       $outl .= $pstatus . ",";
+      my $patom = "";
+      foreach $g (keys %{$pevtx{$f}->{atoms}}) {
+         $patom .= $g . "[" . $pevtx{$f}->{atoms}{$g} . "] ";
+      }
+      $outl .= $patom . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
       $pesum_ref = $pesumx{$pevtx{$f}->{sitname}};
       if (!defined $pesum_ref) {
@@ -6366,6 +6619,8 @@ if ($nodest_size > 0) {
    foreach $f ( sort { $nodestx{$b}->{count} <=> $nodestx{$a}->{count} } keys %nodestx) {
       my $nodest_ref = $nodestx{$f};
       last if $nodest_ref->{count} == 1;
+      next if !defined $nodest_ref->{status}{"N"};
+      next if !defined $nodest_ref->{status}{"Y"};
       if ($nodest_ref->{count} == 2) { # do not report on simple case if agent switching
          if (($nodest_ref->{status}{"Y"} == 1) and ($nodest_ref->{status}{"N"} == 1)) {
             next;
@@ -6598,7 +6853,7 @@ if ($inodex_ct > 0) {
    my $agent_ct = 0;
    foreach $f ( sort { $a cmp $b } keys %inodex) {
       my $inode_ref = $inodex{$f};
-      next if $inode_ref->{count} == 1;
+      next if $inode_ref->{icount} == 1;
       $agent_ct += 1;
       my $tnodea_ct = scalar keys %{$inode_ref->{aff}};
       $inodea_ct += 1 if $tnodea_ct > 1;
@@ -7138,19 +7393,21 @@ if ($ct_rbdup > 0 ) {
             $physid =~ /(.*)\:(.*)/;
             my $isystem = $1;
             my $iport = $2;
-            my $phys_ref = $physicalx{$isystem};
-            if (!defined $phys_ref) {
-               my %physref = (
-                                count => 0,
-                                pipes => {},
-                                thrunode => $ithrunode,
-                                ports => {},
-                             );
-               $phys_ref = \%physref;
-               $physicalx{$isystem} = \%physref;
+            if (defined $isystem) {
+               my $phys_ref = $physicalx{$isystem};
+               if (!defined $phys_ref) {
+                  my %physref = (
+                                   count => 0,
+                                   pipes => {},
+                                   thrunode => $ithrunode,
+                                   ports => {},
+                                );
+                  $phys_ref = \%physref;
+                  $physicalx{$isystem} = \%physref;
+               }
+               $phys_ref->{count} += 1;
+               $phys_ref->{ports}{$iport} = 1;
             }
-            $phys_ref->{count} += 1;
-            $phys_ref->{ports}{$iport} = 1;
          }
       }
    }
@@ -7158,14 +7415,18 @@ if ($ct_rbdup > 0 ) {
 
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="RB Node Status Unusual Behavior Reports\n";
+   $rb_dur = $rb_etime - $rb_stime;
    if ($ct_rbdup_dupflag > 0) {
       $rptkey = "TEMSREPORT030";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="$rptkey: RB Duplicate Node Evidence Report\n";
       $cnt++;$oline[$cnt]="Node,HostAddr,Interval,Dup_count,Reason(s),\n";
+      my $agentbeats;
       foreach $f ( sort { $rbdupx{$b}->{dupflag} <=> $rbdupx{$a}->{dupflag}
                           || $a cmp $b } keys %rbdupx) {
+         $agentbeats = 0;
          $rbdup_ref = $rbdupx{$f};
+         my $agentbeat = $rbdup_ref->{interval};
          last if $rbdup_ref->{dupflag} < 2;
          my $hostaddr1 = "";   # calculate a hostaddr - system where the agent self reports
          foreach $g ( sort { $a cmp $b } keys %{$rbdup_ref->{hostaddrs}}) {
@@ -7187,6 +7448,7 @@ if ($ct_rbdup > 0 ) {
                  shift @{$rbdup_ref->{$g}};
                  last if !defined $isecs;
                  $fcount{$isecs} += 1;
+                 $agentbeats += 1;
                }
                my $istring = "";
                foreach $h  ( sort { $a <=> $b } keys %fcount) {
@@ -7194,6 +7456,25 @@ if ($ct_rbdup > 0 ) {
                }
                $cnt++;$oline[$cnt]= $f . "," . $hostaddr1 . "," . $rbdup_ref->{interval} . ",frequencies," . $istring . ",\n";
             }
+         }
+         my $agentint = $rbdup_ref->{interval};
+         $agentint = 600 if $rbdup_ref->{interval} == 0;
+         my $beatlimit = $rb_dur+(1.5*$agentint);
+         $beatlimit = int($beatlimit/$agentint);
+         if ($agentbeats > $beatlimit) {
+            my $phostaddr = "";
+            my $inode_ref = $inodex{$f};
+            if (defined $inode_ref) {
+               foreach $g (keys %{$inode_ref->{instances}}) {
+                  my $inodei_ref = $inode_ref->{instances}{$g};
+                  $phostaddr .= "|" if $phostaddr ne "";
+                  $phostaddr .= $inodei_ref->{hostaddr};
+               }
+            }
+            $advi++;$advonline[$advi] = "Agent heartbeat[$rbdup_ref->{interval} seconds] and found [$agentbeats] beats when only $beatlimit expected in $rb_dur seconds hostaddr[$phostaddr] - possible duplicate agents";
+            $advcode[$advi] = "TEMSAUDIT1095W";
+            $advimpact[$advi] = $advcx{$advcode[$advi]};
+            $advsit[$advi] = "$f";
          }
       }
       $advi++;$advonline[$advi] = "Duplicate Agent Evidence in $ct_rbdup_dupflag agents - See $rptkey report";
@@ -7553,6 +7834,7 @@ if ( -e $netstatpath . "netstat.info") {
    $gotnet = 1;
    $netstatpath = $opt_logpath . "../../";
 }
+$netstatpath = '"' . $netstatpath . '"';
 
 if ($gotnet == 1) {
    if ($gWin == 1) {
@@ -7643,10 +7925,10 @@ if ($gotnet == 1) {
                my $foreignport = "";
                my $localsystem = "";
                my $foreignsystem = "";
-               $localad =~ /(\S+):(\S+)/;
+               $localad =~ /(\S+)[:\.](\S+)/;
                $localsystem = $1 if defined $1;
                $localport = $2 if defined $2;
-               $foreignad =~ /(\S+):(\S+)/;
+               $foreignad =~ /(\S+)[:\.](\S+)/;
                $foreignsystem = $1 if defined $1;
                $foreignport = $2 if defined $2;
                if ((defined $nzero_ports{$localport}) or (defined $nzero_ports{$foreignport})) {
@@ -7761,6 +8043,20 @@ foreach my $f (keys %iheartx) {
    $advsit[$advi] = "TEMS";
 }
 
+my %months = (
+                "Jan" => 0,
+                "Feb" => 1,
+                "Mar" => 2,
+                "Apr" => 3,
+                "May" => 4,
+                "Jun" => 5,
+                "Jul" => 6,
+                "Aug" => 7,
+                "Sep" => 8,
+                "Oct" => 9,
+                "Nov" => 10,
+                "Dec" => 11,
+             );
 if ($prob_initial > 0) {
    $rptkey = "TEMSREPORT054";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
@@ -7773,8 +8069,25 @@ if ($prob_initial > 0) {
       $outl .= $iheart_ref->{count} . ",";
       $outl .= join("|",@{$iheart_ref->{stamps}}) . ",";
       $cnt++;$oline[$cnt]="$outl\n";
+      foreach my $g  (@{$iheart_ref->{stamps}}) {
+         # Thu Feb 15 22:45:49 2018
+         $g =~ /\S+ (\S+) (\d+) (\d+):(\d+):(\d+) (\d+)/;
+         my $imon = $1;
+         my $iday = $2;
+         my $ihh = $3;
+         my $imm = $4;
+         my $iss = $5;
+         my $iyy = $6;
+         $iyy -= 1900;
+         $imon = $months{$imon};
+         die "months table wrong" if !defined $imon;
+         my $itime = timelocal( $iss, $imm, $ihh, $iday, $imon, $iyy );
+         $itime -= $local_diff;
+         set_timeline($itime,0,"","TEMSAREPORT054","remote TEMS $f initial heartbeat");
+      }
    }
 }
+
 
 my $nodesignore_total = scalar keys %nodes_ignorex;
 if ($nodesignore_total > 0) {
@@ -7782,10 +8095,10 @@ if ($nodesignore_total > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: NODE-SWITCH Ignored report\n";
    $cnt++;$oline[$cnt]="Local_Time,Line,Node,Status,Thrunode\n";
-   foreach $f ( sort { $nodes_ignorex{$a}->{time} <=> $nodes_ignorex{$b}} keys %nodes_ignorex) {
+   foreach $f ( sort { $nodes_ignorex{$a}->{l} <=> $nodes_ignorex{$b}->{l}} keys %nodes_ignorex) {
       my $nodes_ref = $nodes_ignorex{$f};
       $outl = sec2ltime($nodes_ref->{time}+$local_diff) . ",";
-      $outl .= $l . ",";
+      $outl .= $nodes_ref->{l} . ",";
       $outl .= $f . ",";
       my $pstatus = "";
       foreach $g (keys %{$nodes_ref->{status}}) {
@@ -7808,6 +8121,75 @@ if ($nodesignore_total > 0) {
    }
 }
 
+my $planfail_ct = scalar keys %planfailx;
+if ($planfail_ct > 0) {
+   $rptkey = "TEMSREPORT056";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Filter plan Failure Report\n";
+   $cnt++;$oline[$cnt]="Table,Count,Codes,\n";
+   foreach $f ( sort { $a cmp $b} keys %planfailx) {
+      my $planfail_ref = $planfailx{$f};
+      $outl = $f . ",";
+      $outl .= $planfail_ref->{count} . ",";
+      my $pcodes = "";
+      foreach $g (keys %{$planfail_ref->{codes}}) {
+         $pcodes .= $g . "[" . $planfail_ref->{codes}{$g} . "] ";
+      }
+      chop($pcodes) if $pcodes ne "";
+      $outl .= $pcodes . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+}
+
+my $timeline_ct = scalar keys %timelinex;
+if ($timeline_ct > 0) {
+   $rptkey = "TEMSREPORT058";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Timeline of interesting Advisories and Reports\n";
+   $cnt++;$oline[$cnt]="LocalTime,Hextime,Line,Advisory/Report,Notes,\n";
+   foreach $f ( sort { $a cmp $b} keys %timelinex) {
+      my $tl_ref = $timelinex{$f};
+      $outl = sec2ltime($tl_ref->{time}+$local_diff) . ",";
+      $outl .= $tl_ref->{hextime} . ",";
+      $outl .= $tl_ref->{l} . ",";
+      $outl .= $tl_ref->{advisory} . ",";
+      $outl .= $tl_ref->{notes} . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+
+   $rptkey = "TEMSREPORT059";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Timeline of interesting Advisories and Reports by timeslot\n";
+   $cnt++;$oline[$cnt]="LocalTime_slot,References,\n";
+   foreach $f ( sort { $a <=> $b} keys %timelineslotx) {
+      $tlslot_ref = $timelineslotx{$f};
+      $outl = $f . ",";
+      my $pstatus = "";
+      foreach $g (sort {$a cmp $b} keys %{$tlslot_ref->{source}}) {
+         $pstatus .= $g . "[" . $tlslot_ref->{source}{$g} . "] ";
+      }
+      $outl .= $pstatus . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+}
+
+
+my $temsvagent_ct = scalar keys %temsvagentx;
+if ($temsvagent_ct > 0) {
+   $rptkey = "TEMSREPORT060";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: TEMS versus Agent attribute conflict\n";
+   $cnt++;$oline[$cnt]="Attribute,Count,\n";
+   foreach $f ( sort { $a cmp $b} keys %temsvagentx) {
+      $outl = $f . ",";
+      $outl .= $temsvagentx{$f} . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   $advi++;$advonline[$advi] = "TEMS and Agent conflict on attributes [$temsvagent_ct] - See TEMSREPORT060 report";
+   $advcode[$advi] = "TEMSAUDIT1097W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
 
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
@@ -7960,6 +8342,8 @@ if ($opt_sum != 0) {
 close(STH) if $sthl > 0;
 close(NDH) if $ndhl > 0;
 
+close(ZOP) if $opt_zop ne "";
+
 print STDERR "Wrote $cnt lines\n" if $opt_odir eq "";
 
 # all done
@@ -7970,6 +8354,32 @@ $rc = 1 if $max_impact >= $opt_nominal_max_impact;
 #print STDERR "exit code 1 $max_impact $opt_max_impact\n" if $rc == 1;
 
 exit $rc;
+
+sub set_timeline {
+   my ($ilogtime,$il,$ilogtimehex,$iadvisory,$inotes) = @_;
+   $tlkey = $ilogtime . "|" . $il;
+   $tl_ref = $timelinex{$tlkey};
+   if (!defined $tl_ref) {
+      my %tlref = (
+                     time => $ilogtime,
+                     l => $il,
+                     hextime => $ilogtimehex,
+                     advisory => $iadvisory,
+                     notes => $inotes,
+                  );
+      $timelinex{$tlkey} = \%tlref;
+   }
+   $tlslotkey = sec2slot($ilogtime,$opt_tlslot);
+   $tlslot_ref = $timelineslotx{$tlslotkey};
+   if (!defined $tlslot_ref) {
+      my %tlslotref = (
+                         source => {},
+                      );
+      $tlslot_ref = \%tlslotref;
+      $timelineslotx{$tlslotkey} = \%tlslotref;
+   }
+   $tlslot_ref->{source}{$iadvisory} += 1;
+}
 
 
 # given an address like 10.180.211.21[3660] return a describing string that specifies the physical address and
@@ -8290,9 +8700,10 @@ sub sec2ltime
 
 sub sec2slot
 {
-   my ($itime) = @_;
+   my ($itime,$islot) = @_;
+   $islot = $opt_evslot if !defined $islot;
    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=localtime($itime+$local_diff);
-   my $slotmin = substr('00' . int($min/$opt_evslot)*$opt_evslot,-2,2);
+   my $slotmin = substr('00' . int($min/$islot)*$islot,-2,2);
    my $slothour = substr('00' . $hour,-2,2);
    my $slotday = substr('00' . $mday,-2,2);
    my $slotmonth = substr('00' . $mon+1,-2,2);
@@ -10221,6 +10632,94 @@ Recovery plan: Remote TEMSes should have a maximum of 1500
 agents.
 --------------------------------------------------------------
 
+TEMSAUDIT1095W
+Text: Agent heartbeat[count seconds] and found [count] beats when only count expected in count seconds - possible duplicate agents
+
+Tracing: error (UNIT:kfaprpst ER ST)
+(5601ACBE.0001-2E:kfaprpst.c,382,"HandleSimpleHeartbeat") Simple heartbeat from node <wjb2ksc27:UA                    > thrunode, <REMOTE_adm2ksc8                 >
+
+Meaning: Agents will send a heartbeat by default every 600 seconds,
+although that can be configured differently. For example in an hour
+you would see 6 heartbeats. In this case a lot more heartbeats were
+observed. That is commonly seen when duplicate agents exist on a
+several [or even sometimes just one] system.
+
+This causes significant TEMS instability. ITM depends on each
+agent having a unique name and that should not be violated.
+
+Recovery plan: Configure agents to have unique names. If more than
+one instance of an agent is running on the same system, correct that
+my stopping and/or killing all agents and then restarting the agents.
+--------------------------------------------------------------
+
+TEMSAUDIT1096W
+Text: count KDE1_STC_INVALIDTRANSPORTCORRELATOR communication errors
+
+Tracing: error
+
+(5A85E277.0000-10B6:kdeploc.c,46,"KDEP_Localize") Status 1DE0004D=KDE1_STC_INVALIDTRANSPORTCORRELATOR
+
+Meaning: ITM communications works internally through "pipes". The above
+message has been seen when the communication partner has detected
+duplicate pipes and deleted one. On this ITM process, the attempt
+to continue detects a conflict and the error results.
+
+This usually results in a broken communication.
+
+Recommended added trace controls are
+
+RES1_DEBUG=KDEP_pcb_t
+KDC_DEBUG=Y
+KDE_DEBUG=Y
+
+This will produce a substantial volume of diagnostic trace messages
+and so should be run for a limited amount of time.
+
+Recovery plan: Work with IBM Support to diagnose and correct the
+condition. One case was seen where on a system where agents were
+running, some agents were running with KDEB_INTERFACE=!xxx for
+exclusive bind and other agents were running with anonymous bind.
+That is an illegal ITM communications configuration and needed
+to be changed so all were anonymous or all were exclusive.
+--------------------------------------------------------------
+
+TEMSAUDIT10976W
+Text: TEMS and Agent conflict on attributes [count]
+
+Tracing: error
+(5A8B6BE8.002D-152:kpxrpcrq.cpp,691,"IRA_NCS_TranslateSample") Insufficient remote data for .SRVRADDN. Possible inconsistent definiton between agent and tems.
+
+Meaning: The agent and the TEMS have different levels of application
+support and the TEMS cannot interpret the incoming result data. This
+results in lost results and usually missing events. Usually this
+means the TEMS has backlevel application support installed.
+
+Add the following tracing to the TEMS
+
+error (unit:kpxrpcrq,Entry="IRA_NCS_Sample" state er)
+
+and the diagnostic trace context will show what agent(s) are
+triggering the report. That will tell you which application
+support to check.
+
+You can check many such cases globally. Use the Portal Client
+to evaluate all the catalogs in the TEMSes. From an TEP session
+Enterprise navigation node
+
+1) right click on Enterprise navigation node
+2) select Managed Tivoli Enterprise Management Systems
+3) In bottom left view, right click on workspace link
+   [before hub TEMS entry] and select Installed Catalogs
+4) In the new display on right, right click in table, select
+   Properties, click Return all rows and OK out
+5) Resolve any missing or out of data application data.
+   You can right-click export... the data to a local CSV file
+   for easier tracking.
+
+Recovery plan: Make sure application support is consistent across
+all hub TEMS and between the agents and the TEMS.
+--------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -11675,4 +12174,74 @@ switching remote TEMSes frequently. There can be many reasons
 to result in this condition and needs to be studied carefully.
 
 Recovery plan: Work with IBM Support to resolve the root cause.
+----------------------------------------------------------------
+
+TEMSREPORT056
+Text: Filter plan Failure Report
+
+Sample Report
+Table,Count,Codes,
+KLZCPU,11062,58[11062],
+KLZSYS,11062,58[11062],
+
+Meaning: This results when a situation or real time data request
+has a where clause that is too large, too complex to be
+constructed and sent to the agent. That can mean a lot of
+mixed *ANDs and *ORs. The impact is that the situation or
+data request is not run.
+
+Recovery plan: Work with IBM Support to resolve the root cause.
+----------------------------------------------------------------
+
+TEMSREPORT057
+Text: Process Table Duration past [limit]
+
+Sample Report
+to be added
+
+Meaning: This results when a situation or real time data request
+has a where clause that is too large, too complex to be
+constructed and sent to the agent. That can mean a lot of
+mixed *ANDs and *ORs. The impact is that the situation or
+data request is not run.
+
+Recovery plan: Work with IBM Support to resolve the root cause.
+----------------------------------------------------------------
+
+TEMSREPORT058
+Text: Timeline of interesting Advisories and Reports
+
+Sample Report
+to be added
+
+Meaning: This collects interesting advisories and report
+details and shows them by time sequence.
+
+Recovery plan: Work with IBM Support to resolve issues.
+----------------------------------------------------------------
+
+TEMSREPORT059
+Text: Timeline of interesting Advisories and Reports Reports by timeslot
+
+Sample Report
+to be added
+
+Meaning: This shows the reports and how often they occured during
+time slots. Default slot is 5 minutes but can be changed using the
+-tlslot control. Value should be an integer that divides evenly
+into 60.
+
+Recovery plan: Work with IBM Support to resolve issues.
+----------------------------------------------------------------
+
+TEMSREPORT060
+Text: TEMS versus Agent attribute conflict
+
+Sample Report
+to be added
+
+Meaning: An agent are not delivering attributes according to the
+TEMS application support files
+
+Recovery plan: Work with IBM Support to resolve issues.
 ----------------------------------------------------------------
