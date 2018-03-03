@@ -107,6 +107,9 @@
 
 ## (5A7AE343.0012-8:ko4rulin.cpp,928,"SitInfo::setHistRule") error: application <KD4> for situation <UADVISOR_KD4_KD43RP> is missing from catalog
 
+## (5A901CB0.0000-10:kpxrwhpx.cpp,597,"LookupWarehouse") Using TEMS node id RTEMS_HOP12 for warehouse proxy registration.
+## (5A901CB0.0001-10:kpxrwhpx.cpp,648,"LookupWarehouse") Default registration Candle_Warehouse_Proxy was NOT found in the location broker.
+
 my $gVersion = 1.84000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
@@ -3099,12 +3102,14 @@ for(;;)
    }
 
    # (5927EF95.0000-7:ko4stg3u.cpp,569,"IBInterface::handleNodelistRecord") Error: <1136> failed to download node list record
+   # (59FA17DC.0001-8:ko4stg3u.cpp,754,"IBInterface::updateIB") Error: Failed to resolve object name for EIB notification 1 of 1:
    # (5927EF95.0001-7:ko4eibr.cpp,142,"EibRecord::dump") operation <I> id <5529> obj name <CTXAPP0054VB:51>
    # (5927EF95.0002-7:ko4eibr.cpp,143,"EibRecord::dump") send id <> origin <>
    # (5927EF95.0003-7:ko4eibr.cpp,144,"EibRecord::dump") timestamp <1170526040407000> user <_FAGEN>
    # (5927EF95.0004-7:ko4eibr.cpp,145,"EibRecord::dump") raw obj <CTXAPP0054VB:51                 REMOTE_USDAD-METVPVL01>
    if (substr($logunit,0,12) eq "ko4stg3u.cpp") {
-      if ($logentry eq "IBInterface::handleNodelistRecord") {
+      if (($logentry eq "IBInterface::handleNodelistRecord") or
+          ($logentry eq "IBInterface::updateIB")) {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Error: <1136> failed to download node list record
          next if substr($rest,1,6) ne "Error:";
@@ -3863,6 +3868,7 @@ for(;;)
                      $evhist_ref = $evhist{$key};
                      if (!defined $evhist_ref) {
                         my %evhistref = (
+                                           logtimehex => $logtimehex,
                                            status => {},
                                            situation => {},
                                            ptexit_ct => 0,
@@ -3873,6 +3879,7 @@ for(;;)
                                            ptlevel_max => 0,
                                            ptlevel_tot => 0,
                                            count => 0,
+                                           tables => {},
                                         );
                         $evhist_ref = \%evhistref;
                         $evhist{$key} = \%evhistref;
@@ -4383,24 +4390,25 @@ for(;;)
                         $prtlimx{$key} = \%limref;
                      }
                   }
-               my %prtref = (
-                               entry_time => $logtime,
-                               epoch => $logtimehex,
-                               status_time => 0,
-                               exit_time => 0,
-                               exit_code => "",
-                               status => "",
-                               rows => 0,
-                               table => "",
-                               type => "",
-                               path => "",
-                               count => 0,
-                               l => $l,
-                            );
+#              my %prtref = (
+#                              entry_time => $logtime,
+#                              epoch => $logtimehex,
+#                              status_time => 0,
+#                              exit_time => 0,
+#                              exit_code => "",
+#                              status => "",
+#                              rows => 0,
+#                              table => "",
+#                              type => "",
+#                              path => "",
+#                              count => 0,
+#                              l => $l,
+#                           );
                   my $key = sec2slot($prt_ref->{entry_time});
                   my $evhist_ref = $evhist{$key};
                   if (!defined $evhist_ref) {
                         my %evhistref = (
+                                           logtimehex => $logtimehex,
                                            status => {},
                                            situation => {},
                                            ptexit_ct => 0,
@@ -4411,10 +4419,12 @@ for(;;)
                                            ptlevel_max => 0,
                                            ptlevel_tot => 0,
                                            count => 0,
+                                           tables => {},
                                         );
                         $evhist_ref = \%evhistref;
                         $evhist{$key} = \%evhistref;
                      }
+                  $evhist_ref->{tables}{$prt_ref->{table}} += 1;
                   $evhist_ref->{ptexit_ct} += 1;
                   $evhist_ref->{ptdur_tot} += $logtime - $prt_ref->{entry_time};
                   $evhist_ref->{ptlevel_tot} += $prt_current;
@@ -6569,13 +6579,14 @@ if ($evhist_size > 0) {
    $rptkey = "TEMSREPORT053";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: PostEvent/ProcessTable Report by time\n";
-   $cnt++;$oline[$cnt]="TimeSlot,Event_Count,Event_Rate/Sec,Situation_Count,Status_Count,Status_Type,PT_Count,PT_Rate/sec,Duration_total,Duration_max,Duration_Avg,Level_max,Level_min,Level_total,Level_Avg,\n";
+   $cnt++;$oline[$cnt]="TimeSlot,Hextime,Event_Count,Event_Rate/Sec,Situation_Count,Status_Count,Status_Type,PT_Count,PT_Rate/sec,Duration_total,Duration_max,Duration_Avg,Level_max,Level_min,Level_total,Level_Avg,\n";
    my $rate;
    my $ppc;
    foreach $f ( sort { $a <=> $b } keys %evhist) {
       my $evhist_ref = $evhist{$f};
 
       $outl = $f . ",";
+      $outl .= $evhist_ref->{logtimehex} . ",";
       $outl .= $evhist_ref->{count} . ",";
       $rate = ($evhist_ref->{count} ) / ($opt_evslot*60);
       $ppc = sprintf '%.2f', $rate;
@@ -6604,6 +6615,12 @@ if ($evhist_size > 0) {
       $rate = $evhist_ref->{ptlevel_tot} / $evhist_ref->{ptexit_ct} if $evhist_ref->{ptexit_ct} > 0;
       my $ppc = sprintf '%.2f', $rate;
       $outl .= $ppc . ",";
+      my $pdiff = "";
+      foreach my $r ( sort {$evhist_ref->{tables}{$b} <=> $evhist_ref->{tables}{$a}} keys %{$evhist_ref->{tables}}) {
+         $pdiff .= $r . "[" . $evhist_ref->{tables}{$r} . "] ";
+      }
+      chomp($pdiff) if $pdiff ne "";
+      $outl .= $pdiff . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
 }
@@ -8070,7 +8087,7 @@ if ($prob_initial > 0) {
       $cnt++;$oline[$cnt]="$outl\n";
       foreach my $g  (@{$iheart_ref->{stamps}}) {
          # Thu Feb 15 22:45:49 2018
-         $g =~ /\S+ (\S+) (\d+) (\d+):(\d+):(\d+) (\d+)/;
+         $g =~ /\S+ (\S+)\s+(\d+) (\d+):(\d+):(\d+) (\d+)/;
          my $imon = $1;
          my $iday = $2;
          my $ihh = $3;
