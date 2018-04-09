@@ -110,7 +110,12 @@
 ## (5A901CB0.0000-10:kpxrwhpx.cpp,597,"LookupWarehouse") Using TEMS node id RTEMS_HOP12 for warehouse proxy registration.
 ## (5A901CB0.0001-10:kpxrwhpx.cpp,648,"LookupWarehouse") Default registration Candle_Warehouse_Proxy was NOT found in the location broker.
 
-my $gVersion = 1.84000;
+## (2018/03/09,06:22:34.0000-33B:kdepenq.c,124,"KDEP_Enqueue") (11856:3660) receive limit (8192) reached: 138.103.84.146
+
+## (53FE6331.0001-2438:kpxrpcrq.cpp,873,"IRA_NCS_Sample") RPC socket change detected, initiate reconnect, node Primary:LTRSPPDB:NT!
+
+
+my $gVersion = 1.85000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -409,11 +414,184 @@ my %advcx = (
               "TEMSAUDIT1095W" => "90",
               "TEMSAUDIT1096W" => "85",
               "TEMSAUDIT1097W" => "96",
+              "TEMSAUDIT1098E" => "95",
+              "TEMSAUDIT1099E" => "100",
+              "TEMSAUDIT1100E" => "100",
             );
+
+
+#collect and report on new attribute group table sizes
+my %newtabx;
+my %knowntabx = (
+                   'AGGREGATS'     => '3376',
+                   'AIXPAGMEM'     => '208',
+                   'FILEINFO'      => '4184',
+                   'KHDDBINFO'     => '1284',
+                   'KHDLASTERR'    => '1584',
+                   'KHDLOADST'     => '84',
+                   'KHDWORKQ'      => '96',
+                   'KHTAWEBSR'     => '1028',
+                   'KHTAWEBST'     => '956',
+                   'KHTWSRS'       => '1000',
+                   'KISHSTATS'     => '372',
+                   'KISMSTATS'     => '448',
+                   'KISSISTATS'    => '984',
+                   'KLOLOGFRX'     => '772',
+                   'KLOPOBJST'     => '324',
+                   'KLOPROPOS'     => '324',
+                   'KLZCPU'        => '136',
+                   'KLZDISK'       => '692',
+                   'KLZNET'        => '360',
+                   'KLZPASMGMT'    => '528',
+                   'KLZPROC'       => '1540',
+                   'KLZPUSR'       => '1572',
+                   'KLZSYS'        => '236',
+                   'KLZVM'         => '228',
+                   'KRZAGINF'      => '828',
+                   'KRZDBINF'      => '258',
+                   'KRZRDBDKSP'    => '768',
+                   'KSYCONNECT'    => '1184',
+                   'KUDDBASE00'    => '1852',
+                   'KUDDBASE01'    => '1648',
+                   'KUDSQLSTAT'    => '420',
+                   'KUDSYSINFO'    => '1716',
+                   'KUXDEVIC'      => '660',
+                   'KUXPASALRT'    => '484',
+                   'KUXPASMGMT'    => '512',
+                   'KVMDSTORES'    => '1276',
+                   'KVMVCENTER'    => '416',
+                   'KYNAPHLTH'     => '1124',
+                   'KYNAPMONCF'    => '1748',
+                   'KYNAPSRV'      => '1560',
+                   'KYNAPSST'      => '1692',
+                   'KYNDBCONP'     => '1096',
+                   'KYNGCACT'      => '720',
+                   'KYNGCAF'       => '592',
+                   'KYNGCCYC'      => '632',
+                   'KYNLPORT'      => '1444',
+                   'LNXDISK'       => '488',
+                   'LNXFILE'       => '3580',
+                   'LNXMACHIN'     => '828',
+                   'LNXNET'        => '320',
+                   'LNXPROC'       => '1144',
+                   'LNXSYS'        => '204',
+                   'LNXVM'         => '192',
+                   'LOCALTIME'     => '112',
+                   'LTCCPUUTIL'    => '152',
+                   'LTCCRT'        => '748',
+                   'LTCDB2DB'      => '168',
+                   'LTCDB2INST'    => '156',
+                   'LTCDB2PAGE'    => '200',
+                   'LTCDSKUTIL'    => '184',
+                   'LTCMEMUTIL'    => '152',
+                   'LTCNETTIN'     => '216',
+                   'LTCNETTOUT'    => '216',
+                   'LTCRRT'        => '748',
+                   'LTCWRT'        => '748',
+                   'NLTSCPUTIL'    => '316',
+                   'NLTSDSKUTL'    => '284',
+                   'NLTSMEMUTL'    => '252',
+                   'NLTSNETTIN'    => '316',
+                   'NLTSNETTOU'    => '316',
+                   'NTEVTLOG'      => '3132',
+                   'NTLOGINFO'     => '1256',
+                   'NTMEMORY'      => '348',
+                   'NTNETWRKIN'    => '604',
+                   'NTPAGEFILE'    => '552',
+                   'NTPROCESS'     => '960',
+                   'NTPROCSSR'     => '192',
+                   'NTSERVICE'     => '1468',
+                   'RNODESTS'      => '220',
+                   'SYSHEALTH'     => '132',
+                   'T5SSLALRCS'    => '616',
+                   'T5TXCS'        => '868',
+                   'T6EVENT'       => '3776',
+                   'T6PBSTAT'      => '916',
+                   'T6REALMS'      => '432',
+                   'T6TXCS'        => '752',
+                   'TOINTSIT'      => '1508',
+                   'ULLOGENT'      => '2864',
+                   'ULMONLOG'      => '1988',
+                   'UNIXCPU'       => '348',
+                   'UNIXDCSTAT'    => '184',
+                   'UNIXDEVIC'     => '560',
+                   'UNIXDISK'      => '1316',
+                   'UNIXDPERF'     => '724',
+                   'UNIXDUSERS'    => '1668',
+                   'UNIXLPAR'      => '1448',
+                   'UNIXMACHIN'    => '508',
+                   'UNIXMEM'       => '368',
+                   'UNIXNET'       => '1540',
+                   'UNIXOS'        => '976',
+                   'UNIXPS'        => '2736',
+                   'UNIXUSER'      => '540',
+                   'UNIXWPARCP'    => '408',
+                   'UNIXWPARIN'    => '5504',
+                   'UNIXWPARPM'    => '400',
+                   'WTLOGCLDSK'    => '648',
+                   'WTPHYSDSK'     => '284',
+                   'WTPROCESS'     => '1028',
+                   'WTREGISTRY'    => '1616',
+                   'WTSYSTEM'      => '900',
+                   'KLZSOCKD' => '296',
+                   'KRZTSOVEW' => '428',
+                   'KVMSERVERG' => '2284',
+                   'KVMSERVRDS' => '720',
+                   'NTFLTREND' => '1584',
+                   'QMANAGER' => '796',
+                   'QMQUEUES' => '844',
+                   'QMQ_QU_ST' => '364',
+                   'UNIXTOPCPU' => '1832',
+                   'UNIXTOPMEM' => '1840',
+                   'KOQDBD' => '2708',
+                   'KOQDBMIR' => '672',
+                   'KOQDBS' => '240',
+                   'KOQJOBD' => '1900',
+                   'KOQLSDBD' => '1768',
+                   'KOQSRVR' => '256',
+                   'KOQSRVRE' => '1604',
+                   'KRZRDBLOGD' => '364',
+                   'KRZRDBRFD' => '224',
+                   'KRZRDBUTS' => '332',
+                   'KRZSEGALOC' => '524',
+                   'KUD3437600' => '1660',
+                   'K5IDBCACHE' => '2304',
+                   'KLZIOEXT' => '260',
+                   'KPX13PAGIN' => '76',
+                   'KPX26DISKS' => '432',
+                   'KPX34NETWO' => '996',
+                   'KRZAGTLSNR' => '1292',
+                   'KRZDAFCOUT' => '172',
+                   'KRZDAFOVEW' => '840',
+                   'KRZRDBPROS' => '252',
+                   'KRZTSNLUE' => '292',
+                   'KRZTSTPUE' => '244',
+                   'KSABUFFER' => '644',
+                   'KSACTS' => '864',
+                   'KSADMPCNT' => '472',
+                   'KSAJOBS' => '944',
+                   'KSAPROCESS' => '1052',
+                   'KSASERINFO' => '340',
+                   'KSASPOOL' => '760',
+                   'KSASYS' => '1444',
+                   'KSAUPDATES' => '1288',
+                   'LNXCPU' => '156',
+                   'LNXOSCON' => '440',
+                   'LNXPING' => '216',
+                   'NTBIOSINFO' => '656',
+                   'UNIXPING' => '856',
+                   'K1AWADPERF' => '360',
+                   'K2SQUERYRE' => '212',
+                   'T3FILEDPT' => '3704',
+                   'T3FILEXFER' => '5200',
+                   'T6DEPOTSTS' => '64',
+               );
 
 my %planfailx;
 
 my %temsvagentx;
+
+my %missappx;
 
 my %advtextx = ();
 my $advkey = "";
@@ -942,6 +1120,8 @@ my %derrorx = ();
 my $derror;
 my %rtablex = ();
 my $rtable;
+my %stablex = ();
+my $stable;
 my %rdtablex = ();
 my $rdtable;
 my %rdtime;
@@ -1017,6 +1197,7 @@ if ($logfn eq "") {
          next if ! -s $test_logfn;
          next if !open( LOG, "< $test_logfn" );
          $inline = <LOG>;
+         $inline = <LOG> if substr($inline,0,1) ne "(";   # sometimes first line is a continuation from prior segment
          close(LOG);
          chomp $inline;
          my $testime;
@@ -2406,6 +2587,21 @@ for(;;)
       }
    }
 
+   # (5ABB50B5.0000-8:ko4rulin.cpp,928,"SitInfo::setHistRule") error: application <KVA> for situation <UADVISOR_KVA_KVA17CPUDE> is missing from catalog
+   if (substr($logunit,0,12) eq "ko4rulin.cpp") {
+      if ($logentry eq "SitInfo::setHistRule") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # error: application <KVA> for situation <UADVISOR_KVA_KVA17CPUDE> is missing from catalog
+         if (substr($rest,-20,20) eq "missing from catalog") {
+            $rest=~ /application \<(\S+)\> for situation \<(\S+)\>/;
+            my $iapp = $1;
+            my $isitname = $2;
+            $missappx{$isitname} = $iapp;
+            next;
+         }
+      }
+   }
+
    if (substr($logunit,0,12) eq "ko4rulex.cpp") {
       if ($logentry eq "PredParser::build") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -2897,6 +3093,47 @@ for(;;)
             next;
          }
       }
+      if ($logentry eq "kglky1rs") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # isam error. errno = 7.file = QA1CSITF, index = PrimaryIndex,
+         if (substr($rest,1,11) eq "isam error.") {
+            $rest =~ /file \= (\S+),/;
+            $etable = $1;
+            next if !defined $etable;
+            my $etable_ref = $etablex{$etable};
+            if (!defined $etable_ref) {
+               my %etableref = (
+                                  count => 0,
+                               );
+               $etablex{$etable} = \%etableref;
+               $etable_ref = \%etableref;
+            }
+            $etable_ref->{count} += 1;
+            next;
+         }
+      }
+   }
+   #(5ACBD347.0002-4:kfastslg.c,316,"KO4ST_SetupLog") RelRec mismatch: logfile = 'QA1CSTSH', count = 2280
+   if (substr($logunit,0,10) eq "kfastslg.c") {
+      if ($logentry eq "KO4ST_SetupLog") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # RelRec mismatch: logfile = 'QA1CSTSH', count = 2280
+         if (substr($rest,1,15) eq "RelRec mismatch") {
+            $rest =~ /logfile = \'(\S+)\'/;
+            $stable = $1;
+            next if !defined $stable;
+            my $stable_ref = $stablex{$stable};
+            if (!defined $stable_ref) {
+               my %stableref = (
+                                  count => 0,
+                               );
+               $stablex{$stable} = \%stableref;
+               $stable_ref = \%stableref;
+            }
+            $stable_ref->{count} += 1;
+            next;
+         }
+      }
    }
 
    #(568A71C2.0000-C5:kglisadd.c,219,"iaddrec2") Duplicate key for index PrimaryIndex,U in QA1CSITF.IDX
@@ -3188,6 +3425,19 @@ for(;;)
             $pcbr{$iaddr} = $iip;
             next;
          }
+      }
+   }
+
+   #(5ACBD347.0003-4:kfastini.c,232,"KFA_InitiateShutdown") Issuing shutdown command due to previous error
+   if (substr($logunit,0,10) eq "kfastini.c") {
+      if ($logentry eq "KFA_InitiateShutdown") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         $advi++;$advonline[$advi] = "TEMS initiated shutdown [" . substr($rest,1) . "]";
+         $advcode[$advi] = "TEMSAUDIT1099E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TEMS";
+         next;
       }
    }
 
@@ -5089,6 +5339,14 @@ for(;;)
             $isize = $3;
             $itbl = $4;
             $rest = $5;
+            if (defined $itbl) {
+               my $itable = substr($itbl,2);
+               if (!defined $knowntabx{$itable}) {
+                  if (!defined $newtabx{$itable}) {
+                     $newtabx{$itable} = $isize;
+                  }
+               }
+            }
             if (substr($rest,0,2) eq " <") {
                $isit = "(NULL)" . "-" . $itbl;
             }
@@ -5935,6 +6193,19 @@ if ($et > 0) {
       if ($keyct > 0) {
          $advi++;$advonline[$advi] = "TEMS database table $f with $keyct Relative Record Number index errors";
          $advcode[$advi] = "TEMSAUDIT1031E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = $f;
+      }
+   }
+}
+
+my $st = scalar keys %stablex;
+if ($st > 0) {
+   foreach $f (keys %stablex) {
+      my $stct = $stablex{$f}->{count};
+      if ($stct > 0) {
+         $advi++;$advonline[$advi] = "TEMS database table $f with $stct RelRec errors";
+         $advcode[$advi] = "TEMSAUDIT1100E";
          $advimpact[$advi] = $advcx{$advcode[$advi]};
          $advsit[$advi] = $f;
       }
@@ -7229,7 +7500,7 @@ if ($pti_ct > 0) {
    foreach $f ( sort { $a cmp $b } keys %ptix) {
       $pti_ref = $ptix{$f};
       my $pmsg;
-      foreach $g ( sort { $a <=> $b } keys %{$pti_ref->{codes}}) {
+      foreach $g ( sort { $a cmp $b } keys %{$pti_ref->{codes}}) {
          $pmsg .= $g . "[" . $pti_ref->{codes}{$g} . "] ";
       }
       $outl = "$f" . "," . $pmsg . ",";
@@ -8157,6 +8428,23 @@ if ($planfail_ct > 0) {
    }
 }
 
+my $missapp_ct = scalar keys %missappx;
+if ($missapp_ct > 0) {
+   $rptkey = "TEMSREPORT062";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Situations with Application missing in Catalog\n";
+   $cnt++;$oline[$cnt]="Situation,App,\n";
+   foreach $f ( sort { $a cmp $b} keys %missappx) {
+      $outl = $f . ",";
+      $outl .= $missappx{$f} . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   $advi++;$advonline[$advi] = "Situations [$missapp_ct] with Application missing from catalog - See $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1098E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
 my $timeline_ct = scalar keys %timelinex;
 if ($timeline_ct > 0) {
    $rptkey = "TEMSREPORT058";$advrptx{$rptkey} = 1;         # record report key
@@ -8205,6 +8493,19 @@ if ($temsvagent_ct > 0) {
    $advcode[$advi] = "TEMSAUDIT1097W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
+}
+
+my $newtabct = scalar keys %newtabx;
+if ($newtabct > 0) {
+   $rptkey = "TEMSREPORT061";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: New table size data\n";
+   $cnt++;$oline[$cnt]="Table,Size,\n";
+   foreach $f ( sort { $a cmp $b} keys %newtabx) {
+      $outl = "   \"" . $f . "\" => \"";
+      $outl .= $newtabx{$f} . "\",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
 }
 
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
@@ -8900,6 +9201,8 @@ exit;
 #        - Add advisory and report on nodelist missing messages
 # 1.82   - github.com commit log for history
 # 1.83   - github.com commit log for history
+# 1.84   - github.com commit log for history
+# 1.85   - github.com commit log for history
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -10736,6 +11039,71 @@ Recovery plan: Make sure application support is consistent across
 all hub TEMS and between the agents and the TEMS.
 --------------------------------------------------------------
 
+TEMSAUDIT1099E
+Text: TEMS initiated shutdown [text]
+
+Tracing: error
+(5ACBD347.0003-4:kfastini.c,232,"KFA_InitiateShutdown") Issuing shutdown command due to previous error
+
+Meaning: TEMS run as a series of ITM tasks which are defined
+by the KDS_RUN environment variable. If one of these tasks
+fails, TEMS itself will shutdown. This is the concluding message
+after such an event. The prior messages may give context
+to such as case.
+
+Recovery plan: Work with IBM Support to resolve the issue.
+--------------------------------------------------------------
+
+TEMSAUDIT1100E
+Text: TEMS database table [name] with [count] RelRec errors
+
+Tracing: error
+(5ACBD347.0002-4:kfastslg.c,316,"KO4ST_SetupLog") RelRec mismatch: logfile = 'QA1CSTSH', count = 2280
+
+Meaning: The named table is seriously broken and must be
+recreated. In some cases you can do this yourself using this
+document:
+
+Sitworld: TEMS Database Repair `
+https://www.ibm.com/developerworks/community/blogs/jalvord/entry/Sitworld_TEMS_Database_Repair?lang=en
+
+In other cases you will help to avoid losing data. In general
+you can do this any time on a remote TEMS. On the hub TEMS
+there are specific named tables which can be replaced.
+
+Recovery plan: If necessary work with IBM Support to resolve the issue.
+--------------------------------------------------------------
+
+TEMSAUDIT1098E
+Text: Situations [count] with Application missing from catalog
+
+Tracing: error
+(5ABB50B5.0000-8:ko4rulin.cpp,928,"SitInfo::setHistRule") error: application <KVA> for situation <UADVISOR_KVA_KVA17CPUDE> is missing from catalog
+
+Meaning: The situation start was abandoned because the associated
+Application was missing from the dataserver catalog.
+
+This results in situations not being started and loss of
+desired monitoring.
+
+You can check many such cases globally. Use the Portal Client
+to evaluate all the catalogs in the TEMSes. From an TEP session
+Enterprise navigation node
+
+1) right click on Enterprise navigation node
+2) select Managed Tivoli Enterprise Management Systems
+3) In bottom left view, right click on workspace link
+   [before hub TEMS entry] and select Installed Catalogs
+4) In the new display on right, right click in table, select
+   Properties, click Return all rows and OK out
+5) Resolve any missing or out of data application data.
+   You can right-click export... the data to a local CSV file
+   for easier tracking.
+
+Recovery plan: Make sure application support is consistent across
+all hub TEMS and between the agents and the TEMS.
+--------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -12260,4 +12628,26 @@ Meaning: An agent are not delivering attributes according to the
 TEMS application support files
 
 Recovery plan: Work with IBM Support to resolve issues.
+----------------------------------------------------------------
+
+TEMSREPORT061
+Text: New table size data
+
+Sample Report
+to be added
+
+Meaning: Accumulate agent result row attribute table size
+
+Recovery plan: For TEMS Audit improvement
+----------------------------------------------------------------
+
+TEMSREPORT062
+Text: Situations with Application missing in Catalog
+
+Sample Report
+to be added
+
+Meaning: Display these cases
+
+Recovery plan: Add needed application support
 ----------------------------------------------------------------
