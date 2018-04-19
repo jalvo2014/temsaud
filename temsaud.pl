@@ -114,8 +114,10 @@
 
 ## (53FE6331.0001-2438:kpxrpcrq.cpp,873,"IRA_NCS_Sample") RPC socket change detected, initiate reconnect, node Primary:LTRSPPDB:NT!
 
+##
 
-my $gVersion = 1.85000;
+
+my $gVersion = 1.86000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -313,6 +315,18 @@ sub set_timeline;
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
 
+my %mismatchh = (
+                   "O4SRV|TNODESTS|QIBMSL" => "630",
+                   "O4SRV|CLACTRMT|IDMGRTOKEN" => "630",
+                   "O4SRV|KRAHIST" => "630",
+                   "O4SRV|KRAAUDIT" => "623",
+                   "O4SRV|TAPPLOGT" => "623",
+                   "O4SRV|TAPPLPROPS" => "623",
+                   "O4SRV|TAPPLSHR" => "623",
+                );
+my %mismatchx;
+my $mismatch_ref;
+
 my %mhmx = ();
 
 # allow user to set impact
@@ -417,6 +431,7 @@ my %advcx = (
               "TEMSAUDIT1098E" => "95",
               "TEMSAUDIT1099E" => "100",
               "TEMSAUDIT1100E" => "100",
+              "TEMSAUDIT1101E" => "100",
             );
 
 
@@ -585,6 +600,12 @@ my %knowntabx = (
                    'T3FILEDPT' => '3704',
                    'T3FILEXFER' => '5200',
                    'T6DEPOTSTS' => '64',
+                   'KORSRVRE' => '324',
+                   'KORSTATE' => '368',
+                   'KORTSX' => '524',
+                   'KPX02TOP50' => '2460',
+                   'KPX14LOGIC' => '1076',
+                   'KVA21PAGIN' => '76',
                );
 
 my %planfailx;
@@ -4052,6 +4073,24 @@ for(;;)
                my $iapp = $3;
                my $key = $3 . "|" . $2 . "|" . $1;
                $misscolx{$key} += 1;
+               $key = $iapp ."|" . $itable . "|" . $icolumn;
+               my $mx = $mismatchh{$key};
+               if (defined $mx) {
+                  $mismatch_ref = $mismatchx{$key};
+                  if (!defined $mismatch_ref) {
+                     my %mismatchref = (
+                                          count => 0,
+                                          level => $mx,
+                                          type => "column",
+                                          appl => $iapp,
+                                          table => $itable,
+                                          column => $icolumn,
+                                       );
+                     $mismatch_ref = \%mismatchref;
+                     $mismatchx{$key} = \%mismatchref;
+                  }
+                  $mismatch_ref->{count} += 1;
+               }
                next;
             }
          }
@@ -4740,6 +4779,24 @@ for(;;)
          my $ikey = $iappl . "." . $itable;
          $miss_tablex{$ikey} = 0 if ! defined $miss_tablex{$ikey};
          $miss_tablex{$ikey} += 1;
+         my $key = $iappl ."|" . $itable;
+         my $mx = $mismatchh{$key};
+         if (defined $mx) {
+            $mismatch_ref = $mismatchx{$key};
+            if (!defined $mismatch_ref) {
+               my %mismatchref = (
+                                    count => 0,
+                                    level => $mx,
+                                    type => "table",
+                                    appl => $iappl,
+                                    table => $itable,
+                                    column => "",
+                                 );
+               $mismatch_ref = \%mismatchref;
+               $mismatchx{$key} = \%mismatchref;
+            }
+            $mismatch_ref->{count} += 1;
+         }
       }
       next;
    }
@@ -5571,11 +5628,11 @@ for(;;)
    $tdur = $trcetime - $trcstime;
 
 if ($dur == 0)  {
-   print STDERR "Results Duration calculation is zero, setting to 1000\n";
+#  print STDERR "Results Duration calculation is zero, setting to 1000\n";
    $dur = 1000;
 }
 if ($tdur == 0)  {
-   print STDERR "Trace Duration calculation is zero, setting to 1000\n";
+#   print STDERR "Trace Duration calculation is zero, setting to 1000\n";
    $tdur = 1000;
 }
 
@@ -8445,6 +8502,17 @@ if ($missapp_ct > 0) {
    $advsit[$advi] = "TEMS";
 }
 
+my $mismatch_ct = scalar keys %mismatchx;
+if ($mismatch_ct > 0) {
+   for $f (sort {$a cmp $b} keys %mismatchx) {
+      $mismatch_ref = $mismatchx{$f};
+      $advi++;$advonline[$advi] = "Catalog mismatch [$mismatch_ref->{count}] $f - TEMS level likely lower than Agent $mismatch_ref->{level}";
+      $advcode[$advi] = "TEMSAUDIT1101E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+}
+
 my $timeline_ct = scalar keys %timelinex;
 if ($timeline_ct > 0) {
    $rptkey = "TEMSREPORT058";$advrptx{$rptkey} = 1;         # record report key
@@ -9203,6 +9271,7 @@ exit;
 # 1.83   - github.com commit log for history
 # 1.84   - github.com commit log for history
 # 1.85   - github.com commit log for history
+# 1.86   - Add advisory for catalog mismatches
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -11055,10 +11124,29 @@ Recovery plan: Work with IBM Support to resolve the issue.
 --------------------------------------------------------------
 
 TEMSAUDIT1100E
+Text: Catalog mismatch [count] app/table/column - TEMS level likely lower than Agent maint_level
+
+Tracing: error
+
+Meaning: This usually means an agent at one level is connecting with
+a TEMS at a higher level. If column is missing it means the whole
+table is missing.
+
+It could also mean that the TEMS version of kib.cat/kib.atr does
+not match the actual TEMS maintenance level.
+
+This can result in extreme storage growth and system failure if
+the paging disk allocation is exceeded. It also means the
+agent does not work correctly.
+
+Recovery plan: Upgrade the central services [TEMS/TEPS/WPA/S&P]
+to a level equal or higher to the agent maintenance levels.
+--------------------------------------------------------------
+
+TEMSAUDIT1101E
 Text: TEMS database table [name] with [count] RelRec errors
 
 Tracing: error
-(5ACBD347.0002-4:kfastslg.c,316,"KO4ST_SetupLog") RelRec mismatch: logfile = 'QA1CSTSH', count = 2280
 
 Meaning: The named table is seriously broken and must be
 recreated. In some cases you can do this yourself using this
