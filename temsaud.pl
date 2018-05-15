@@ -114,10 +114,11 @@
 
 ## (53FE6331.0001-2438:kpxrpcrq.cpp,873,"IRA_NCS_Sample") RPC socket change detected, initiate reconnect, node Primary:LTRSPPDB:NT!
 
-##
+## (5AF163FB.01FA-A:kdssqrun.c,2056,"Prepare") Prepare address = 1219BA840, len = 179, SQL = SELECT ATOMIZE, LCLTMSTMP, DELTASTAT, ORIGINNODE, RESULTS FROM O4SRV.TADVISOR WHERE EVENT("all_logalrt_x074_selfmon_gen____") AND SYSTEM.PARMA("ATOMIZE","K07K07LOG0.MESSAGE",18) ;
 
 
-my $gVersion = 1.86000;
+
+my $gVersion = 1.87000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -315,6 +316,8 @@ sub set_timeline;
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
 
+my %preparex;
+
 my %mismatchh = (
                    "O4SRV|TNODESTS|QIBMSL" => "630",
                    "O4SRV|CLACTRMT|IDMGRTOKEN" => "630",
@@ -432,6 +435,7 @@ my %advcx = (
               "TEMSAUDIT1099E" => "100",
               "TEMSAUDIT1100E" => "100",
               "TEMSAUDIT1101E" => "100",
+              "TEMSAUDIT1102W" => "99",
             );
 
 
@@ -606,6 +610,72 @@ my %knowntabx = (
                    'KPX02TOP50' => '2460',
                    'KPX14LOGIC' => '1076',
                    'KVA21PAGIN' => '76',
+                   'ACTSRVPG'   => '376',
+                   'CLACTRMT'   => '7452',
+                   'K3ZNTDSDCA' => '1816',
+                   'K3ZNTDSSVC' => '1340',
+                   'KD43RP'     => '204',
+                   'KD43RQ'     => '148',
+                   'KD43RS'     => '168',
+                   'KD43SO'     => '516',
+                   'KOYDBD'     => '484',
+                   'KOYDBS'     => '244',
+                   'KOYPROBD'   => '792',
+                   'KOYPROBS'   => '252',
+                   'KOYSEGD'    => '584',
+                   'KOYSTATS'   => '260',
+                   'KPX24PROCE' => '2732',
+                   'KQXAVAIL'   => '3244',
+                   'KQXPRESSRV' => '432',
+                   'KRZACTINS'  => '784',
+                   'KRZACTINSR' => '216',
+                   'KRZINSTINF' => '312',
+                   'KRZRAMDISK' => '808',
+                   'KRZRDBBGPS' => '156',
+                   'KUDDB2HADR' => '1596',
+                   'KVA37LOGIC' => '1204',
+                   'KVA38FILES' => '1028',
+                   'KVA42NETWO' => '996',
+                   'KVMCLUSTRT' => '868',
+                   'KVMSERVERN' => '804',
+                   'KVMSRVHBAS' => '644',
+                   'KVMSRVRSAN' => '460',
+                   'KORALRTD'   => '708',
+                   'KYNTHRDP'   => '852',
+                   'KOQSRVS'    => '420',
+                   'KNTSCRRTM'  => '3544',
+                   'LNXCPUCON'  => '300',
+                   'LNXFILPAT'  => '1624',
+                   'LNXRPC'     => '152',
+                   'NTNETWPORT' => '772',
+                   'NTPROCRSUM' => '340',
+                   'UNIXPVOLUM' => '552',
+                   'READHIST'   => '200',
+                   'KLZCPUAVG'  => '132',
+                   'KLZDSKIO'   => '192',
+                   'KLZSCRPTS'  => '3952',
+                   'KLZSCRRTM'  => '3544',
+                   'KBNCPUUSAG' => '324',
+                   'KBNDATETIM' => '952',
+                   'KBNDPCBATS' => '368',
+                   'KBNDPCDS'   => '169',
+                   'KBNMEMORYS' => '380',
+                   'KLOLOGEVTS' => '6864',
+                   'KLOLOGFST'  => '660',
+                   'KLOTHPLST'  => '96',
+                   'KISHTTP'    => '1304',
+                   'KNOAVAIL'   => '3244'
+                   'K07K07ERS0' => '176',
+                   'K07K07FSC0' => '736',
+                   'K07K07LGS0' => '668',
+                   'K07K07NET0' => '345',
+                   'K07K07PRO0' => '3915',
+                   'K07K07TRA0' => '332',
+                   'K07K07URL0' => '384',
+                   'K07K07USE0' => '200',
+                   'K5DK5DSANP' => '372',
+                   'K5ECSCRIPT' => '188',
+                   'K24EVENTLO' => '2864',
                );
 
 my %planfailx;
@@ -5314,6 +5384,36 @@ for(;;)
       next;
    }
 
+   # (5AF163FB.01FA-A:kdssqrun.c,2056,"Prepare") Prepare address = 1219BA840, len = 179, SQL = SELECT ATOMIZE, LCLTMSTMP, DELTASTAT, ORIGINNODE, RESULTS FROM O4SRV.TADVISOR WHERE EVENT("all_logalrt_x074_selfmon_gen____") AND SYSTEM.PARMA("ATOMIZE","K07K07LOG0.MESSAGE",18) ;
+   if (substr($logunit,0,10) eq "kdssqrun.c") {
+      if ($logentry eq "Prepare") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (defined $rest) {
+            if (substr($rest,1,15) eq "Prepare address") { # Prepare address = 1219BA840, len = 179, SQL = SELECT ATOMIZE, LCLTMSTMP, DELTASTAT, ORIGINNODE, RESULTS FROM O4SRV.TADVISOR WHERE EVENT("all_logalrt_x074_selfmon_gen____") AND SYSTEM.PARMA("ATOMIZE","K07K07LOG0.MESSAGE",18) ;
+               $rest =~ / SQL = (.*)$/;
+               my $isql = $1;
+               if (defined $isql) {
+                  my $pkey = $logtimehex . "|" . $l;
+                  my $prep_ref = $preparex{$pkey};
+                  if (!defined $prep_ref) {
+                     my %prepref = (
+                                      sql => $isql,
+                                      count => 0,
+                                      logtimehex => $logtimehex,
+                                      l => $l,
+                                   );
+                     $prep_ref = \%prepref;
+                     $preparex{$isql} = \%prepref;
+                  }
+                  $prep_ref->{count} += 1;
+               }
+            }
+         }
+      }
+   }
+
+
 
    if (substr($logunit,0,10) eq "kdssqprs.c") {
       if ($logentry eq "PRS_ParseSql") {
@@ -8342,6 +8442,102 @@ if ($gotnet == 1) {
 
 }
 
+# new report of disk.info if it can be located
+
+my $diskpath;
+my $diskfn;
+my $gotdisk = 0;
+$diskpath = $opt_logpath;
+if ( -e $diskpath . "disk.info") {
+   $gotdisk = 1;
+   $diskpath = $opt_logpath;
+} elsif ( -e $diskpath . "../disk.info") {
+   $gotdisk = 1;
+   $diskpath = $opt_logpath . "../";
+} elsif ( -e $diskpath . "../../disk.info") {
+   $gotdisk = 1;
+   $diskpath = $opt_logpath . "../../";
+}
+$diskpath = '"' . $diskpath . '"';
+
+if ($gotdisk == 1) {
+   if ($gWin == 1) {
+      $pwd = `cd`;
+      chomp($pwd);
+      $diskpath = `cd $diskpath & cd`;
+   } else {
+      $pwd = `pwd`;
+      chomp($pwd);
+      $diskpath = `(cd $diskpath && pwd)`;
+   }
+
+   chomp $diskpath;
+
+   $diskfn = $diskpath . "/disk.info";
+   $diskfn =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+
+   chomp($diskfn);
+   chdir $pwd;
+
+   #   open( FILE, "< $opt_ini" ) or die "Cannot open ini file $opt_ini : $!";
+   if (defined $diskfn) {
+      open DISK,"< $diskfn" or warn " open disk.info file $diskfn -  $!";
+      my @nts = <DISK>;
+      close DISK;
+
+      # sample disk.info report
+      # Filesystem                   1K-blocks     Used Available Use% Mounted on
+      # /dev/dasda1                     708568   283756    388820  43% /
+      # udev                           4124416      264   4124152   1% /dev
+      # tmpfs                          4124416        0   4124416   0% /dev/shm
+      # /dev/mapper/sles11vg-usr_lv    3023760  2086064    784096  73% /usr
+      # /dev/mapper/sles11vg-opt_lv    1032088   226776    752884  24% /opt
+      # /dev/mapper/sles11vg-tmp_lv    1032088   133200    846460  14% /tmp
+      # /dev/mapper/sles11vg-home_lv    516040    63856    425972  14% /home
+      # /dev/mapper/sles11vg-var_lv    2580272   828676   1725404  33% /var
+      # /dev/mapper/sles11vg-optibm   23340200 12372472   9782812  56% /opt/IBM
+      # /dev/mapper/tivolivg-tivoli    4727040  1355172   3136380  31% /usr/Tivoli
+      # /dev/dasdk1                   27638592 27628876         0 100% /opt/IBM/depot
+
+      my $l = 0;
+      my $netstat_state = 0;                 # seaching for "Active Internet connections"
+      my $recvq_pos = -1;
+      my $sendq_pos = -1;
+      foreach my $oneline (@nts) {
+         $l++;
+         chomp($oneline);
+         next if $l < 2;
+         $oneline =~ /(\S+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.*)/;
+         my $ifs = $1;
+         my $i1k = $2;
+         my $iused = $3;
+         my $iavail = $4;
+         my $iusepc = $5;
+         my $imount = $6;
+         next if !defined $iusepc;
+         next if $iusepc ne "100%";
+         $advi++;$advonline[$advi] = "100% Full filesystem[$ifs] Mount[$imount]";
+         $advcode[$advi] = "TEMSAUDIT1102W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TEMS";
+      }
+   }
+
+
+   # display count of inbound TCP sockets
+   #$cnt++;$oline[$cnt]="\n";
+   #foreach my $f (keys %inbound) {
+   #   my $inbound_ref = $inbound{$f};
+   #   foreach my $g (keys %{$inbound_ref->{instances}}) {
+   #      $outl = $f . ",";
+   #      $outl .= $g . ",";
+   #      $outl .= $inbound_ref->{instances}{$g} . ",";
+   #      $cnt++;$oline[$cnt]="$outl\n";
+   #   }
+   #}
+
+}
+
 my %iheartx;
 
 if ($full_logopfn ne "") {
@@ -8574,6 +8770,24 @@ if ($newtabct > 0) {
       $outl .= $newtabx{$f} . "\",";
       $cnt++;$oline[$cnt]="$outl\n";
    }
+}
+
+my $prepare_ct = scalar keys %preparex;
+if ($prepare_ct > 0) {
+   $rptkey = "TEMSREPORT063";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Prepare SQL counts\n";
+   $cnt++;$oline[$cnt]="Time,Line,Count,SQL,\n";
+   foreach $f ( sort { $preparex{$a}->{logtimehex} cmp $preparex{$b}->{logtimehex}} keys %preparex) {
+      my $prep_ref = $preparex{$f};
+      $outl = $prep_ref->{logtimehex} . ",";
+      $outl .= $prep_ref->{l} . ",";
+      $outl .= $prep_ref->{count} . ",";
+      $outl .= $prep_ref->{sql} . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   $outl = $prepare_ct . ",,";
+   $cnt++;$oline[$cnt]="$outl\n";
 }
 
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
@@ -9272,6 +9486,9 @@ exit;
 # 1.84   - github.com commit log for history
 # 1.85   - github.com commit log for history
 # 1.86   - Add advisory for catalog mismatches
+# 1.87   - Add advisory 100% disk mount points
+#        - Add Prepare SQL report
+#        - Add some table sizes
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -11162,6 +11379,19 @@ there are specific named tables which can be replaced.
 Recovery plan: If necessary work with IBM Support to resolve the issue.
 --------------------------------------------------------------
 
+TEMSAUDIT1102W
+Text: 100% Full filesystem[fs] Mount[name]
+
+Tracing: error
+
+Meaning: In the disk.info file a mount point was found 100% full.
+
+This is sometimes a severe error and needs to be corrected. At
+other times it may be a normal.
+
+Recovery plan: Review and repair if necessary.
+--------------------------------------------------------------
+
 TEMSAUDIT1098E
 Text: Situations [count] with Application missing from catalog
 
@@ -12730,6 +12960,17 @@ Recovery plan: For TEMS Audit improvement
 ----------------------------------------------------------------
 
 TEMSREPORT062
+Text: Situations with Application missing in Catalog
+
+Sample Report
+to be added
+
+Meaning: Display these cases
+
+Recovery plan: Add needed application support
+----------------------------------------------------------------
+
+TEMSREPORT063
 Text: Situations with Application missing in Catalog
 
 Sample Report
