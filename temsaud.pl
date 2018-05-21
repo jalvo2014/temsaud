@@ -118,7 +118,7 @@
 
 
 
-my $gVersion = 1.87000;
+my $gVersion = 1.88000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -441,6 +441,7 @@ my %advcx = (
 
 #collect and report on new attribute group table sizes
 my %newtabx;
+my %newtabszx;
 my %knowntabx = (
                    'AGGREGATS'     => '3376',
                    'AIXPAGMEM'     => '208',
@@ -460,12 +461,12 @@ my %knowntabx = (
                    'KLOPROPOS'     => '324',
                    'KLZCPU'        => '136',
                    'KLZDISK'       => '692',
-                   'KLZNET'        => '360',
+                   'KLZNET'        => '368',
                    'KLZPASMGMT'    => '528',
                    'KLZPROC'       => '1540',
                    'KLZPUSR'       => '1572',
                    'KLZSYS'        => '236',
-                   'KLZVM'         => '228',
+                   'KLZVM'         => '268',
                    'KRZAGINF'      => '828',
                    'KRZDBINF'      => '258',
                    'KRZRDBDKSP'    => '768',
@@ -547,7 +548,7 @@ my %knowntabx = (
                    'UNIXWPARCP'    => '408',
                    'UNIXWPARIN'    => '5504',
                    'UNIXWPARPM'    => '400',
-                   'WTLOGCLDSK'    => '648',
+                   'WTLOGCLDSK'    => '380',
                    'WTPHYSDSK'     => '284',
                    'WTPROCESS'     => '1028',
                    'WTREGISTRY'    => '1616',
@@ -603,6 +604,12 @@ my %knowntabx = (
                    'K2SQUERYRE' => '212',
                    'T3FILEDPT' => '3704',
                    'T3FILEXFER' => '5200',
+                   'T3PBSTAT' => '948',
+                   'T3SNAPPL' => '500',
+                   'T3SNCLIENT' => '628',
+                   'T3SNSERVER' => '628',
+                   'KLZDISK' => '948',
+                   'T3SNTRANS' => '628',
                    'T6DEPOTSTS' => '64',
                    'KORSRVRE' => '324',
                    'KORSTATE' => '368',
@@ -676,6 +683,24 @@ my %knowntabx = (
                    'K5DK5DSANP' => '372',
                    'K5ECSCRIPT' => '188',
                    'K24EVENTLO' => '2864',
+                   'KBNDPCENVS' => '600',
+                   'KBNDPCMEM' => '344',
+                   'KBNDPCUPTM' => '676',
+                   'KBNDPSDS' => '169',
+                   'KBNDPSTAT2' => '624',
+                   'KBNDSTATUS' => '1092',
+                   'KBNHTTPCON' => '804',
+                   'KBNMQCON' => '352',
+                   'KISICMP' => '724',
+                   'KNTPASCAP' => '3000',
+                   'KNTPASSTAT' => '1392',
+                   'NTCOMPINFO' => '1232',
+                   'NTIPADDR' => '872',
+                   'NTPROCINFO' => '452',
+                   'PROCESSIO' => '704',
+                   'QMCHAN_ST' => '1592',
+                   'QMCURSTAT' => '2404',
+                   'QMQ_DATA' => '932',
                );
 
 my %planfailx;
@@ -906,6 +931,7 @@ my $opt_portscan = 1;                         # portscan report
 my $opt_last = 1;
 my $opt_churnall = 0;                         # when 1, produce 100% churn report
 my $opt_prtlim;
+my $opt_hb;                                   # Agent heartbeat default 600 seconds
 
 my $arg_start = join(" ",@ARGV);
 $hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
@@ -989,6 +1015,14 @@ while (@ARGV) {
       if (defined $ARGV[0]) {
          if (substr($ARGV[0],0,1) ne "-") {
             $opt_tlslot = $ARGV[0];
+            shift(@ARGV);
+         }
+      }
+   } elsif ($ARGV[0] eq "-hb") {
+      shift(@ARGV);
+      if (defined $ARGV[0]) {
+         if (substr($ARGV[0],0,1) ne "-") {
+            $opt_hb = $ARGV[0];
             shift(@ARGV);
          }
       }
@@ -1083,6 +1117,7 @@ if (!defined $opt_eph) {$opt_eph = 0;}
 if (!defined $opt_ephdir) {$opt_ephdir = "";}
 if (!defined $opt_sth) {$opt_sth = 0;}
 if (!defined $opt_prtlim) {$opt_prtlim = 1;}
+if (!defined $opt_hb) {$opt_hb = 600;}
 $opt_stfn = "eventhist.csv" if $opt_sth == 1;
 $opt_ndfn = "nodehist.csv" if $opt_sth == 1;
 open( ZOP, ">$opt_zop" ) or die "Cannot open zop file $opt_zop : $!" if $opt_zop ne "";
@@ -3703,7 +3738,7 @@ for(;;)
                my %rbdupref = (
                                  thruname => "",
                                  curstatus => "N",
-                                 interval => 0,
+                                 interval => $opt_hb,
                                  inttmp => 0,
                                  lasttime => 0,
                                  thruchg => 0,
@@ -3827,11 +3862,13 @@ for(;;)
                # Larger values are okay since there can be delays.
             } else {  #                                                                                         ##5
                # allow grace period to be early or late */
-               my $time_diff = $logtime - $rbdup_ref->{lasttime};                                                           ##5
-               if (($time_diff < ($rbdup_ref->{interval} - $grace)) or ($time_diff > ($rbdup_ref->{interval} + $grace))) {
-                  $rbdup_ref->{dupflag} += 1;                                                                               ##6
-                  $rbdup_ref->{duplicate_reasons}{"heartbeat_outside_grace"} += 1;
-                  push @{$rbdup_ref->{heartbeat_outside_grace}},$time_diff,$logtimehex;
+               if ($rbdup_ref->{lasttime} > 0) {
+                  my $time_diff = $logtime - $rbdup_ref->{lasttime};                                                           ##5
+                  if (($time_diff < ($rbdup_ref->{interval} - $grace)) or ($time_diff > ($rbdup_ref->{interval} + $grace))) {
+                     $rbdup_ref->{dupflag} += 1;                                                                               ##6
+                     $rbdup_ref->{duplicate_reasons}{"heartbeat_outside_grace"} += 1;
+                     push @{$rbdup_ref->{heartbeat_outside_grace}},$time_diff,$logtimehex;
+                  }
                }
             }
 
@@ -5498,9 +5535,12 @@ for(;;)
             $rest = $5;
             if (defined $itbl) {
                my $itable = substr($itbl,2);
-               if (!defined $knowntabx{$itable}) {
-                  if (!defined $newtabx{$itable}) {
-                     $newtabx{$itable} = $isize;
+               my $known_size = $knowntabx{$itable};
+               if (!defined $known_size) {
+                  $newtabx{$itable} = $isize if !defined $newtabx{$itable};
+               } else {
+                  if ($isize != $known_size) {
+                     $newtabszx{$itable} = $isize if !defined $newtabszx{$itable};
                   }
                }
             }
@@ -6821,7 +6861,7 @@ if ($sqli != -1) {
 if ($soapi != -1) {
    $rptkey = "TEMSREPORT008";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="SOAP SQL Summary Report\n";
+   $cnt++;$oline[$cnt]="$rptkey: SOAP SQL Summary Report\n";
    $cnt++;$oline[$cnt]="IP,Count,SQL\n";
    foreach $f ( sort { $soapct[$soapx{$b}] <=> $soapct[$soapx{$a}] || $a cmp $b } keys %soapx ) {
       $i = $soapx{$f};
@@ -8768,6 +8808,14 @@ if ($newtabct > 0) {
    foreach $f ( sort { $a cmp $b} keys %newtabx) {
       $outl = "   \"" . $f . "\" => \"";
       $outl .= $newtabx{$f} . "\",";
+      $outl .= "new" . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   foreach $f ( sort { $a cmp $b} keys %newtabszx) {
+      $outl = "   \"" . $f . "\" => \"";
+      $outl .= $newtabszx{$f} . "\",";
+      $outl .= "was" . ",";
+      $outl .= $knowntabx{$f} . "\",";
       $cnt++;$oline[$cnt]="$outl\n";
    }
 }
@@ -9481,14 +9529,17 @@ exit;
 #1.80000 - handle temsaud.pl running on a Linux/Unix perl
 #1.81000 - Improve report explanation on churning report.
 #        - Add advisory and report on nodelist missing messages
-# 1.82   - github.com commit log for history
-# 1.83   - github.com commit log for history
-# 1.84   - github.com commit log for history
-# 1.85   - github.com commit log for history
-# 1.86   - Add advisory for catalog mismatches
-# 1.87   - Add advisory 100% disk mount points
+#1.82000 - github.com commit log for history
+#1.83000 - github.com commit log for history
+#1.84000 - github.com commit log for history
+#1.85000 - github.com commit log for history
+#1.86000 - Add advisory for catalog mismatches
+#1.87000 - Add advisory 100% disk mount points
 #        - Add Prepare SQL report
 #        - Add some table sizes
+#1.88000 - Add changed table size as well as new table size to report061
+#        - Add -hb which defaults to 600 seconds. 0 value means please calculate.
+#        - correct more table sizes
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -12949,12 +13000,12 @@ Recovery plan: Work with IBM Support to resolve issues.
 ----------------------------------------------------------------
 
 TEMSREPORT061
-Text: New table size data
+Text: New and changed table size data
 
 Sample Report
 to be added
 
-Meaning: Accumulate agent result row attribute table size
+Meaning: Accumulate agent result row attribute table size.
 
 Recovery plan: For TEMS Audit improvement
 ----------------------------------------------------------------
