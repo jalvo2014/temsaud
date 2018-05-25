@@ -118,7 +118,7 @@
 
 
 
-my $gVersion = 1.88000;
+my $gVersion = 1.89000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -215,6 +215,7 @@ my $ccsid1047 =
 
 my $opt_z;
 my $opt_zop;
+my $opt_gap;
 my $opt_ri;
 my $opt_ri_sec;
 my $opt_expslot;
@@ -315,6 +316,9 @@ sub set_timeline;
 
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
+
+my %logtimex;
+my $log_ref;
 
 my %preparex;
 
@@ -436,6 +440,7 @@ my %advcx = (
               "TEMSAUDIT1100E" => "100",
               "TEMSAUDIT1101E" => "100",
               "TEMSAUDIT1102W" => "99",
+              "TEMSAUDIT1103W" => "95",
             );
 
 
@@ -443,9 +448,47 @@ my %advcx = (
 my %newtabx;
 my %newtabszx;
 my %knowntabx = (
+                   'ACTSRVPG'   => '376',
                    'AGGREGATS'     => '3376',
                    'AIXPAGMEM'     => '208',
-                   'FILEINFO'      => '4184',
+                   'CLACTRMT'   => '7452',
+                   'FILEINFO'      => '6232',
+                   'K07K07ERS0' => '176',
+                   'K07K07FSC0' => '736',
+                   'K07K07LGS0' => '668',
+                   'K07K07LOG0' => '668',
+                   'K07K07NET0' => '345',
+                   'K07K07PRO0' => '3915',
+                   'K07K07TRA0' => '332',
+                   'K07K07URL0' => '384',
+                   'K07K07USE0' => '200',
+                   'K08K08PROC' => '4043',
+                   'K1AWADPERF' => '360',
+                   'K24EVENTLO' => '2864',
+                   'K2SQUERYRE' => '212',
+                   'K3ZNTDSDCA' => '1816',
+                   'K3ZNTDSSVC' => '1340',
+                   'K5DK5DSANP' => '372',
+                   'K5ECSCRIPT' => '188',
+                   'K5IDBCACHE' => '2304',
+                   'KBNCPUUSAG' => '324',
+                   'KBNDATETIM' => '952',
+                   'KBNDPCBATS' => '368',
+                   'KBNDPCDS'   => '169',
+                   'KBNDPCENVS' => '600',
+                   'KBNDPCMEM' => '344',
+                   'KBNDPCUPTM' => '676',
+                   'KBNDPSDS' => '169',
+                   'KBNDPSTAT2' => '624',
+                   'KBNDSTATUS' => '1092',
+                   'KBNHTTPCON' => '804',
+                   'KBNMEMORYS' => '380',
+                   'KBNMQCON' => '352',
+                   'KD43RP'     => '204',
+                   'KD43RQ'     => '148',
+                   'KD43RS'     => '168',
+                   'KD43SO'     => '516',
+                   'KGBDTASK'   => '448',
                    'KHDDBINFO'     => '1284',
                    'KHDLASTERR'    => '1584',
                    'KHDLOADST'     => '84',
@@ -454,23 +497,92 @@ my %knowntabx = (
                    'KHTAWEBST'     => '956',
                    'KHTWSRS'       => '1000',
                    'KISHSTATS'     => '372',
+                   'KISHTTP'    => '1304',
+                   'KISICMP' => '724',
                    'KISMSTATS'     => '448',
                    'KISSISTATS'    => '984',
+                   'KLOLOGEVTS' => '6864',
                    'KLOLOGFRX'     => '772',
+                   'KLOLOGFST'  => '660',
                    'KLOPOBJST'     => '324',
                    'KLOPROPOS'     => '324',
+                   'KLOTHPLST'  => '96',
                    'KLZCPU'        => '136',
-                   'KLZDISK'       => '692',
+                   'KLZCPUAVG'  => '132',
+                   'KLZDISK'       => '688',
+                   'KLZDSKIO'   => '192',
+                   'KLZIOEXT' => '272',
                    'KLZNET'        => '368',
                    'KLZPASMGMT'    => '528',
-                   'KLZPROC'       => '1540',
+                   'KLZPROC'       => '1588',
                    'KLZPUSR'       => '1572',
+                   'KLZSCRPTS'  => '3952',
+                   'KLZSCRRTM'  => '3544',
+                   'KLZSOCKD' => '296',
                    'KLZSYS'        => '236',
-                   'KLZVM'         => '268',
+                   'KLZVM'         => '200',
+                   'KNOAVAIL'   => '3244',
+                   'KNTPASCAP' => '3000',
+                   'KNTPASSTAT' => '1392',
+                   'KNTSCRRTM'  => '3544',
+                   'KOQDBD' => '2708',
+                   'KOQDBMIR' => '672',
+                   'KOQDBS' => '240',
+                   'KOQJOBD' => '1900',
+                   'KOQLSDBD' => '1768',
+                   'KOQSRVR' => '256',
+                   'KOQSRVRE' => '1604',
+                   'KOQSRVS'    => '420',
+                   'KORALRTD'   => '708',
+                   'KORSRVRE' => '324',
+                   'KORSTATE' => '368',
+                   'KORTSX' => '524',
+                   'KOYDBD'     => '484',
+                   'KOYDBS'     => '244',
+                   'KOYPROBD'   => '792',
+                   'KOYPROBS'   => '252',
+                   'KOYSEGD'    => '584',
+                   'KOYSTATS'   => '260',
+                   'KPK03PERLP' => '892',
+                   'KPX02TOP50' => '2460',
+                   'KPX13PAGIN' => '76',
+                   'KPX14LOGIC' => '1076',
+                   'KPX24PROCE' => '2732',
+                   'KPX26DISKS' => '432',
+                   'KPX34NETWO' => '996',
+                   'KQXAVAIL'   => '3244',
+                   'KQXPRESSRV' => '432',
+                   'KRZACTINS'  => '784',
+                   'KRZACTINSR' => '216',
                    'KRZAGINF'      => '828',
+                   'KRZAGTLSNR' => '1292',
+                   'KRZDAFCOUT' => '172',
+                   'KRZDAFOVEW' => '840',
                    'KRZDBINF'      => '258',
+                   'KRZINSTINF' => '312',
+                   'KRZRAMDISK' => '808',
+                   'KRZRDBBGPS' => '156',
                    'KRZRDBDKSP'    => '768',
+                   'KRZRDBLOGD' => '364',
+                   'KRZRDBPROS' => '252',
+                   'KRZRDBRFD' => '224',
+                   'KRZRDBUTS' => '332',
+                   'KRZSEGALOC' => '524',
+                   'KRZTSNLUE' => '292',
+                   'KRZTSOVEW' => '428',
+                   'KRZTSTPUE' => '244',
+                   'KSABUFFER' => '644',
+                   'KSACTS' => '864',
+                   'KSADMPCNT' => '472',
+                   'KSAJOBS' => '944',
+                   'KSAPROCESS' => '1052',
+                   'KSASERINFO' => '340',
+                   'KSASPOOL' => '760',
+                   'KSASYS' => '1444',
+                   'KSAUPDATES' => '1288',
                    'KSYCONNECT'    => '1184',
+                   'KUD3437600' => '1660',
+                   'KUDDB2HADR' => '1596',
                    'KUDDBASE00'    => '1852',
                    'KUDDBASE01'    => '1648',
                    'KUDSQLSTAT'    => '420',
@@ -478,22 +590,44 @@ my %knowntabx = (
                    'KUXDEVIC'      => '660',
                    'KUXPASALRT'    => '484',
                    'KUXPASMGMT'    => '512',
+                   'KVA21PAGIN' => '76',
+                   'KVA22LOGIC' => '1076',
+                   'KVA37LOGIC' => '1204',
+                   'KVA38FILES' => '1028',
+                   'KVA42NETWO' => '996',
+                   'KVMAEVENTS' => '192',
+                   'KVMCLUSTRT' => '868',
                    'KVMDSTORES'    => '1276',
+                   'KVMSERVERD' => '564',
+                   'KVMSERVERE' => '1876',
+                   'KVMSERVERG' => '2284',
+                   'KVMSERVERN' => '804',
+                   'KVMSERVRDS' => '720',
+                   'KVMSRVHBAS' => '644',
+                   'KVMSRVRSAN' => '460',
                    'KVMVCENTER'    => '416',
+                   'KVMVM_GEN'  => '1696',
                    'KYNAPHLTH'     => '1124',
                    'KYNAPMONCF'    => '1748',
-                   'KYNAPSRV'      => '1560',
+                   'KYNAPSRV'      => '1416',
                    'KYNAPSST'      => '1692',
-                   'KYNDBCONP'     => '1096',
+                   'KYNDBCONP'     => '1100',
                    'KYNGCACT'      => '720',
                    'KYNGCAF'       => '592',
                    'KYNGCCYC'      => '632',
                    'KYNLPORT'      => '1444',
+                   'KYNTHRDP'   => '852',
+                   'LNXCPU' => '156',
+                   'LNXCPUCON'  => '300',
                    'LNXDISK'       => '488',
-                   'LNXFILE'       => '3580',
+                   'LNXFILE'       => '5116',
+                   'LNXFILPAT'  => '1624',
                    'LNXMACHIN'     => '828',
                    'LNXNET'        => '320',
+                   'LNXOSCON' => '440',
+                   'LNXPING' => '216',
                    'LNXPROC'       => '1144',
+                   'LNXRPC'     => '152',
                    'LNXSYS'        => '204',
                    'LNXVM'         => '192',
                    'LOCALTIME'     => '112',
@@ -513,194 +647,78 @@ my %knowntabx = (
                    'NLTSMEMUTL'    => '252',
                    'NLTSNETTIN'    => '316',
                    'NLTSNETTOU'    => '316',
+                   'NTBIOSINFO' => '656',
+                   'NTCOMPINFO' => '1232',
                    'NTEVTLOG'      => '3132',
+                   'NTFLTREND' => '1584',
+                   'NTIPADDR' => '872',
                    'NTLOGINFO'     => '1256',
                    'NTMEMORY'      => '348',
+                   'NTNETWPORT' => '772',
                    'NTNETWRKIN'    => '604',
                    'NTPAGEFILE'    => '552',
                    'NTPROCESS'     => '960',
+                   'NTPROCINFO' => '452',
+                   'NTPROCRSUM' => '340',
                    'NTPROCSSR'     => '192',
                    'NTSERVICE'     => '1468',
+                   'PROCESSIO' => '704',
+                   'QMANAGER' => '796',
+                   'QMCHAN_ST' => '1592',
+                   'QMCHANS' => '980',
+                   'QMCURSTAT' => '2108',
+                   'QMEVENTC' => '436',
+                   'QMLSSTATUS' => '1180',
+                   'QMQ_DATA' => '912',
+                   'QMQ_QU_ST' => '364',
+                   'QMQUEUES' => '844',
+                   'READHIST'   => '200',
                    'RNODESTS'      => '220',
                    'SYSHEALTH'     => '132',
-                   'T5SSLALRCS'    => '616',
-                   'T5TXCS'        => '868',
-                   'T6EVENT'       => '3776',
-                   'T6PBSTAT'      => '916',
-                   'T6REALMS'      => '432',
-                   'T6TXCS'        => '752',
-                   'TOINTSIT'      => '1508',
-                   'ULLOGENT'      => '2864',
-                   'ULMONLOG'      => '1988',
-                   'UNIXCPU'       => '348',
-                   'UNIXDCSTAT'    => '184',
-                   'UNIXDEVIC'     => '560',
-                   'UNIXDISK'      => '1316',
-                   'UNIXDPERF'     => '724',
-                   'UNIXDUSERS'    => '1668',
-                   'UNIXLPAR'      => '1448',
-                   'UNIXMACHIN'    => '508',
-                   'UNIXMEM'       => '368',
-                   'UNIXNET'       => '1540',
-                   'UNIXOS'        => '976',
-                   'UNIXPS'        => '2736',
-                   'UNIXUSER'      => '540',
-                   'UNIXWPARCP'    => '408',
-                   'UNIXWPARIN'    => '5504',
-                   'UNIXWPARPM'    => '400',
-                   'WTLOGCLDSK'    => '380',
-                   'WTPHYSDSK'     => '284',
-                   'WTPROCESS'     => '1028',
-                   'WTREGISTRY'    => '1616',
-                   'WTSYSTEM'      => '900',
-                   'KLZSOCKD' => '296',
-                   'KRZTSOVEW' => '428',
-                   'KVMSERVERG' => '2284',
-                   'KVMSERVRDS' => '720',
-                   'NTFLTREND' => '1584',
-                   'QMANAGER' => '796',
-                   'QMQUEUES' => '844',
-                   'QMQ_QU_ST' => '364',
-                   'UNIXTOPCPU' => '1832',
-                   'UNIXTOPMEM' => '1840',
-                   'KOQDBD' => '2708',
-                   'KOQDBMIR' => '672',
-                   'KOQDBS' => '240',
-                   'KOQJOBD' => '1900',
-                   'KOQLSDBD' => '1768',
-                   'KOQSRVR' => '256',
-                   'KOQSRVRE' => '1604',
-                   'KRZRDBLOGD' => '364',
-                   'KRZRDBRFD' => '224',
-                   'KRZRDBUTS' => '332',
-                   'KRZSEGALOC' => '524',
-                   'KUD3437600' => '1660',
-                   'K5IDBCACHE' => '2304',
-                   'KLZIOEXT' => '260',
-                   'KPX13PAGIN' => '76',
-                   'KPX26DISKS' => '432',
-                   'KPX34NETWO' => '996',
-                   'KRZAGTLSNR' => '1292',
-                   'KRZDAFCOUT' => '172',
-                   'KRZDAFOVEW' => '840',
-                   'KRZRDBPROS' => '252',
-                   'KRZTSNLUE' => '292',
-                   'KRZTSTPUE' => '244',
-                   'KSABUFFER' => '644',
-                   'KSACTS' => '864',
-                   'KSADMPCNT' => '472',
-                   'KSAJOBS' => '944',
-                   'KSAPROCESS' => '1052',
-                   'KSASERINFO' => '340',
-                   'KSASPOOL' => '760',
-                   'KSASYS' => '1444',
-                   'KSAUPDATES' => '1288',
-                   'LNXCPU' => '156',
-                   'LNXOSCON' => '440',
-                   'LNXPING' => '216',
-                   'NTBIOSINFO' => '656',
-                   'UNIXPING' => '856',
-                   'K1AWADPERF' => '360',
-                   'K2SQUERYRE' => '212',
                    'T3FILEDPT' => '3704',
                    'T3FILEXFER' => '5200',
                    'T3PBSTAT' => '948',
                    'T3SNAPPL' => '500',
                    'T3SNCLIENT' => '628',
                    'T3SNSERVER' => '628',
-                   'KLZDISK' => '948',
                    'T3SNTRANS' => '628',
+                   'T5SSLALRCS'    => '616',
+                   'T5TXCS'        => '868',
                    'T6DEPOTSTS' => '64',
-                   'KORSRVRE' => '324',
-                   'KORSTATE' => '368',
-                   'KORTSX' => '524',
-                   'KPX02TOP50' => '2460',
-                   'KPX14LOGIC' => '1076',
-                   'KVA21PAGIN' => '76',
-                   'ACTSRVPG'   => '376',
-                   'CLACTRMT'   => '7452',
-                   'K3ZNTDSDCA' => '1816',
-                   'K3ZNTDSSVC' => '1340',
-                   'KD43RP'     => '204',
-                   'KD43RQ'     => '148',
-                   'KD43RS'     => '168',
-                   'KD43SO'     => '516',
-                   'KOYDBD'     => '484',
-                   'KOYDBS'     => '244',
-                   'KOYPROBD'   => '792',
-                   'KOYPROBS'   => '252',
-                   'KOYSEGD'    => '584',
-                   'KOYSTATS'   => '260',
-                   'KPX24PROCE' => '2732',
-                   'KQXAVAIL'   => '3244',
-                   'KQXPRESSRV' => '432',
-                   'KRZACTINS'  => '784',
-                   'KRZACTINSR' => '216',
-                   'KRZINSTINF' => '312',
-                   'KRZRAMDISK' => '808',
-                   'KRZRDBBGPS' => '156',
-                   'KUDDB2HADR' => '1596',
-                   'KVA37LOGIC' => '1204',
-                   'KVA38FILES' => '1028',
-                   'KVA42NETWO' => '996',
-                   'KVMCLUSTRT' => '868',
-                   'KVMSERVERN' => '804',
-                   'KVMSRVHBAS' => '644',
-                   'KVMSRVRSAN' => '460',
-                   'KORALRTD'   => '708',
-                   'KYNTHRDP'   => '852',
-                   'KOQSRVS'    => '420',
-                   'KNTSCRRTM'  => '3544',
-                   'LNXCPUCON'  => '300',
-                   'LNXFILPAT'  => '1624',
-                   'LNXRPC'     => '152',
-                   'NTNETWPORT' => '772',
-                   'NTPROCRSUM' => '340',
+                   'T6EVENT'       => '3776',
+                   'T6PBSTAT'      => '916',
+                   'T6REALMS'      => '432',
+                   'T6TXCS'        => '752',
+                   'TCPSTATS'      => '252',
+                   'TOINTSIT'      => '1508',
+                   'ULLOGENT'      => '2864',
+                   'ULMONLOG'      => '1988',
+                   'UNIXCPU'       => '336',
+                   'UNIXDCSTAT'    => '184',
+                   'UNIXDEVIC'     => '560',
+                   'UNIXDISK'      => '1220',
+                   'UNIXDPERF'     => '724',
+                   'UNIXDUSERS'    => '1668',
+                   'UNIXLPAR'      => '1448',
+                   'UNIXMACHIN'    => '508',
+                   'UNIXMEM'       => '228',
+                   'UNIXNET'       => '1540',
+                   'UNIXOS'        => '816',
+                   'UNIXPING' => '856',
+                   'UNIXPS'        => '2728',
                    'UNIXPVOLUM' => '552',
-                   'READHIST'   => '200',
-                   'KLZCPUAVG'  => '132',
-                   'KLZDSKIO'   => '192',
-                   'KLZSCRPTS'  => '3952',
-                   'KLZSCRRTM'  => '3544',
-                   'KBNCPUUSAG' => '324',
-                   'KBNDATETIM' => '952',
-                   'KBNDPCBATS' => '368',
-                   'KBNDPCDS'   => '169',
-                   'KBNMEMORYS' => '380',
-                   'KLOLOGEVTS' => '6864',
-                   'KLOLOGFST'  => '660',
-                   'KLOTHPLST'  => '96',
-                   'KISHTTP'    => '1304',
-                   'KNOAVAIL'   => '3244',
-                   'K07K07ERS0' => '176',
-                   'K07K07FSC0' => '736',
-                   'K07K07LGS0' => '668',
-                   'K07K07NET0' => '345',
-                   'K07K07PRO0' => '3915',
-                   'K07K07TRA0' => '332',
-                   'K07K07URL0' => '384',
-                   'K07K07USE0' => '200',
-                   'K5DK5DSANP' => '372',
-                   'K5ECSCRIPT' => '188',
-                   'K24EVENTLO' => '2864',
-                   'KBNDPCENVS' => '600',
-                   'KBNDPCMEM' => '344',
-                   'KBNDPCUPTM' => '676',
-                   'KBNDPSDS' => '169',
-                   'KBNDPSTAT2' => '624',
-                   'KBNDSTATUS' => '1092',
-                   'KBNHTTPCON' => '804',
-                   'KBNMQCON' => '352',
-                   'KISICMP' => '724',
-                   'KNTPASCAP' => '3000',
-                   'KNTPASSTAT' => '1392',
-                   'NTCOMPINFO' => '1232',
-                   'NTIPADDR' => '872',
-                   'NTPROCINFO' => '452',
-                   'PROCESSIO' => '704',
-                   'QMCHAN_ST' => '1592',
-                   'QMCURSTAT' => '2404',
-                   'QMQ_DATA' => '932',
+                   'UNIXTOPCPU' => '1832',
+                   'UNIXTOPMEM' => '1840',
+                   'UNIXUSER'      => '540',
+                   'UNIXWPARCP'    => '408',
+                   'UNIXWPARIN'    => '5504',
+                   'UNIXWPARPM'    => '400',
+                   'WTLOGCLDSK'    => '648',
+                   'WTMEMORY'      => '388',
+                   'WTPHYSDSK'     => '284',
+                   'WTPROCESS'     => '1028',
+                   'WTREGISTRY'    => '1616',
+                   'WTSYSTEM'      => '900',
                );
 
 my %planfailx;
@@ -1026,6 +1044,15 @@ while (@ARGV) {
             shift(@ARGV);
          }
       }
+   } elsif ($ARGV[0] eq "-gap") {
+      shift(@ARGV);
+      $opt_gap = 30;
+      if (defined $ARGV[0]) {
+         if (substr($ARGV[0],0,1) ne "-") {
+            $opt_gap = $ARGV[0];
+            shift(@ARGV);
+         }
+      }
    } elsif ($ARGV[0] eq "-ptlim") {
       shift(@ARGV);
       if (defined $ARGV[0]) {
@@ -1118,6 +1145,7 @@ if (!defined $opt_ephdir) {$opt_ephdir = "";}
 if (!defined $opt_sth) {$opt_sth = 0;}
 if (!defined $opt_prtlim) {$opt_prtlim = 1;}
 if (!defined $opt_hb) {$opt_hb = 600;}
+if (!defined $opt_gap) {$opt_gap = 0;}
 $opt_stfn = "eventhist.csv" if $opt_sth == 1;
 $opt_ndfn = "nodehist.csv" if $opt_sth == 1;
 open( ZOP, ">$opt_zop" ) or die "Cannot open zop file $opt_zop : $!" if $opt_zop ne "";
@@ -1715,6 +1743,8 @@ for(;;)
 {
    read_kib();
    if (!defined $inline) {
+      my $mkey = $logtimehex . "|" . $l;
+      $mhmx{$mkey} = " TEMS End Log Time";
       last;
    }
    $l++;
@@ -2206,6 +2236,8 @@ for(;;)
             my $isec = substr($start_time,6,2);
             my $ltime = timelocal($isec,$imin,$ihour,$iday,$imonth,$iyear);
             $local_diff = $ltime - $logtime;
+            my $mkey = $logtimehex . "|" . $l;
+            $mhmx{$mkey} = " TEMS Start Log Time";
          }
       }
    }
@@ -2242,6 +2274,27 @@ for(;;)
          $loci_ct += 1;
       }
    }
+
+   # following used to track teime gaps in diagnostic log
+   # which might imply an external delay mechanism
+   if ($opt_gap > 0 ) {
+      $log_ref = $logtimex{$logtimehex};
+      if (!defined $log_ref) {
+         my %logref = (
+                         time => $logtime,
+                         count => 0,
+                         line => $l,
+                         gap => 0,
+                         prev => 0,
+                         oneline => $oneline,
+                      );
+         $log_ref = \%logref;
+         $logtimex{$logtimehex} = \%logref;
+      }
+   }
+   $log_ref->{count} += 1;
+
+
 
    $syncdist_first_time = $logtime if !defined $syncdist_first_time;
 
@@ -8838,6 +8891,50 @@ if ($prepare_ct > 0) {
    $cnt++;$oline[$cnt]="$outl\n";
 }
 
+
+if ($opt_gap > 0 ) {
+   my $prev_ct = 0;
+   my $prev_time = 0;
+   foreach $f (sort {$a cmp $b} keys %logtimex) {
+      $log_ref = $logtimex{$f};
+      if ($prev_ct > 0) {
+         $log_ref->{gap} = $log_ref->{time} - $prev_time;
+         $log_ref->{prev} = $prev_ct;
+      }
+      $prev_time = $log_ref->{time};
+      $prev_ct = $log_ref->{count};
+   }
+
+   my $gap_ct = 0;
+   $rptkey = "TEMSREPORT064";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Diagnostic Log Gap Time Gap Report\n";
+   $cnt++;$oline[$cnt]="LocalTime,Gap,Count,Prev,Hextime,Line,\n";
+   foreach $f (sort {$logtimex{$b}->{gap} <=> $logtimex{$a}->{gap}} keys %logtimex) {
+      $log_ref = $logtimex{$f};
+      next if $log_ref->{gap} < $opt_gap;
+      $outl = sec2ltime(hex($f)+$local_diff) . ",";
+      $outl .= $log_ref->{gap} . ",";
+      $outl .= $log_ref->{count} . ",";
+      $outl .= $log_ref->{prev} . ",";
+      $outl .= $f . ",";
+      $outl .= $log_ref->{line} . ",";
+      $outl .= $log_ref->{oneline} . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+      $gap_ct += 1;
+   }
+
+   if ($gap_ct > 0) {
+      $advi++;$advonline[$advi] = "Diagnostic Log Time Gaps [$gap_ct] of more than $opt_gap seconds - See $rptkey report";
+      $advcode[$advi] = "TEMSAUDIT1103W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
+}
+
+
+
+
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
 open OH, ">$opt_o" or die "unable to open $opt_o: $!";
@@ -9540,6 +9637,9 @@ exit;
 #1.88000 - Add changed table size as well as new table size to report061
 #        - Add -hb which defaults to 600 seconds. 0 value means please calculate.
 #        - correct more table sizes
+#1.89000 - correct more table sizes
+#        - Add Diagnostic log time gap REPORT064 and advisory 1103W
+#        - Add Start/End log time to FTO message section
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -11443,6 +11543,16 @@ other times it may be a normal.
 Recovery plan: Review and repair if necessary.
 --------------------------------------------------------------
 
+TEMSAUDIT1103W
+Text: Diagnostic Log Time Gaps [count] of more than 30 seconds
+
+Tracing: error
+
+Meaning: See TEMSREPORT064 explanation for details.
+
+Recovery plan: Review and repair if necessary.
+--------------------------------------------------------------
+
 TEMSAUDIT1098E
 Text: Situations [count] with Application missing from catalog
 
@@ -13030,4 +13140,41 @@ to be added
 Meaning: Display these cases
 
 Recovery plan: Add needed application support
+----------------------------------------------------------------
+
+TEMSREPORT064
+Text: Diagnostic Log Gap Time Gap Report
+
+Sample Report
+LocalTime,Gap,Count,Prev,Hextime,Line,
+20180522023603,294,55,8,5B03E484,33432,
+20180522022948,183,1,9,5B03E30D,33224,
+20180522022600,135,358,13,5B03E229,32640,
+20180522023810,121,1119,8,5B03E503,33702
+
+Meaning: This shows gaps in the diagnostic log messages of thirty
+seconds or more sorted with higher gaps first.
+
+For example the first line says
+
+Local Time   20180522023603
+Gap          294
+Count        55
+Prev         8
+Hextime      5B03E484
+Line         33432
+
+The Gap means how many seconds elapsed between this diagnostic
+log time and the previous time. Count is the number of log messages
+in the current second. Prev is the number of log messages in the
+previous second.
+
+This can be used to identify cases where the TEMS processing is
+being adversely influenced by an outside source. That could be
+another higher priority process or a higher level control such as
+AIX LPAR workload manager or VMWare controls. It has also been seen
+at times after a communications error, such as with port scanning.
+
+Recovery plan: If a problem is being seen, this can point to the
+root cause.
 ----------------------------------------------------------------
