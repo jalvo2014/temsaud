@@ -118,7 +118,7 @@
 
 
 
-my $gVersion = 1.89000;
+my $gVersion = 1.90000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -317,6 +317,23 @@ sub set_timeline;
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
 
+my %apingrunx;
+my %apingx;
+my $aping_target;
+my $aping_system;
+my $aping_port;
+my $aping_stream;
+my $aping_time;
+my $aping_timehex;
+my $aping_line;
+my $aping_client;
+my $aping_state;
+my $aping_blast;
+my $aping_next;
+my $aping_ref;
+
+
+
 my %logtimex;
 my $log_ref;
 
@@ -441,6 +458,7 @@ my %advcx = (
               "TEMSAUDIT1101E" => "100",
               "TEMSAUDIT1102W" => "99",
               "TEMSAUDIT1103W" => "95",
+              "TEMSAUDIT1104E" => "100",
             );
 
 
@@ -453,8 +471,15 @@ my %knowntabx = (
                    'AIXPAGMEM'     => '208',
                    'CLACTRMT'   => '7452',
                    'FILEINFO'      => '6232',
+                   'K06CSCRIP0' => '492',
+                   'K06K06CUS0' => '924',
+                   'K06PERLEX0' => '364',
+                   'K06PERLEX1' => '280',
+                   'K06PERLEX2' => '1416',
+                   'K06PERLEX4' => '444',
+                   'K06TEST' => '404',
                    'K07K07ERS0' => '176',
-                   'K07K07FSC0' => '736',
+                   'K07K07FSC0' => '756',
                    'K07K07LGS0' => '668',
                    'K07K07LOG0' => '668',
                    'K07K07NET0' => '345',
@@ -462,7 +487,17 @@ my %knowntabx = (
                    'K07K07TRA0' => '332',
                    'K07K07URL0' => '384',
                    'K07K07USE0' => '200',
+                   'K07K07CUS0' => '988',
+                   'K07K07MAI0' => '444',
                    'K08K08PROC' => '4043',
+                   'K08K08CUS0' => '924',
+                   'K08K08FIL0' => '836',
+                   'K08K08FSA0' => '1712',
+                   'K08K08LOG0' => '1416',
+                   'K08K08MAI1' => '444',
+                   'K08K08SCR0' => '1416',
+                   'K09K09CUS0' => '924',
+                   'K09K09SOL0' => '193',
                    'K1AWADPERF' => '360',
                    'K24EVENTLO' => '2864',
                    'K2SQUERYRE' => '212',
@@ -509,9 +544,11 @@ my %knowntabx = (
                    'KLOTHPLST'  => '96',
                    'KLZCPU'        => '136',
                    'KLZCPUAVG'  => '132',
-                   'KLZDISK'       => '688',
+                   'KLZDISK'       => '948',
                    'KLZDSKIO'   => '192',
+                   'KLZDU' => '408',
                    'KLZIOEXT' => '272',
+                   'LNXIPADDR' => '548',
                    'KLZNET'        => '368',
                    'KLZPASMGMT'    => '528',
                    'KLZPROC'       => '1588',
@@ -519,8 +556,8 @@ my %knowntabx = (
                    'KLZSCRPTS'  => '3952',
                    'KLZSCRRTM'  => '3544',
                    'KLZSOCKD' => '296',
-                   'KLZSYS'        => '236',
-                   'KLZVM'         => '200',
+                   'KLZSYS'        => '268',
+                   'KLZVM'         => '268',
                    'KNOAVAIL'   => '3244',
                    'KNTPASCAP' => '3000',
                    'KNTPASSTAT' => '1392',
@@ -532,7 +569,7 @@ my %knowntabx = (
                    'KOQLSDBD' => '1768',
                    'KOQSRVR' => '256',
                    'KOQSRVRE' => '1604',
-                   'KOQSRVS'    => '420',
+                   'KOQSRVS'    => '432',
                    'KORALRTD'   => '708',
                    'KORSRVRE' => '324',
                    'KORSTATE' => '368',
@@ -547,8 +584,10 @@ my %knowntabx = (
                    'KPX02TOP50' => '2460',
                    'KPX13PAGIN' => '76',
                    'KPX14LOGIC' => '1076',
+                   'KPX20VIRTU' => '100',
                    'KPX24PROCE' => '2732',
                    'KPX26DISKS' => '432',
+                   'KPX30FILES' => '1028',
                    'KPX34NETWO' => '996',
                    'KQXAVAIL'   => '3244',
                    'KQXPRESSRV' => '432',
@@ -642,6 +681,7 @@ my %knowntabx = (
                    'LTCNETTOUT'    => '216',
                    'LTCRRT'        => '748',
                    'LTCWRT'        => '748',
+                   'NETWRKIN' => '476'
                    'NLTSCPUTIL'    => '316',
                    'NLTSDSKUTL'    => '284',
                    'NLTSMEMUTL'    => '252',
@@ -661,7 +701,7 @@ my %knowntabx = (
                    'NTPROCINFO' => '452',
                    'NTPROCRSUM' => '340',
                    'NTPROCSSR'     => '192',
-                   'NTSERVICE'     => '1468',
+                   'NTSERVICE'     => '1472',
                    'PROCESSIO' => '704',
                    'QMANAGER' => '796',
                    'QMCHAN_ST' => '1592',
@@ -693,27 +733,28 @@ my %knowntabx = (
                    'TOINTSIT'      => '1508',
                    'ULLOGENT'      => '2864',
                    'ULMONLOG'      => '1988',
-                   'UNIXCPU'       => '336',
+                   'UNIXCPU'       => '348',
                    'UNIXDCSTAT'    => '184',
                    'UNIXDEVIC'     => '560',
-                   'UNIXDISK'      => '1220',
+                   'UNIXDISK'      => '1688',
                    'UNIXDPERF'     => '724',
                    'UNIXDUSERS'    => '1668',
                    'UNIXLPAR'      => '1448',
                    'UNIXMACHIN'    => '508',
                    'UNIXMEM'       => '228',
                    'UNIXNET'       => '1540',
-                   'UNIXOS'        => '816',
-                   'UNIXPING' => '856',
+                   'UNIXOS'        => '980',
+                   'UNIXPING'      => '856',
                    'UNIXPS'        => '2728',
-                   'UNIXPVOLUM' => '552',
-                   'UNIXTOPCPU' => '1832',
-                   'UNIXTOPMEM' => '1840',
+                   'UNIXPVOLUM'    => '552',
+                   'UNIXTOPCPU'    => '1832',
+                   'UNIXTOPMEM'    => '1840',
                    'UNIXUSER'      => '540',
                    'UNIXWPARCP'    => '408',
                    'UNIXWPARIN'    => '5504',
                    'UNIXWPARPM'    => '400',
-                   'WTLOGCLDSK'    => '648',
+                   'UTCTIME'       => '112',
+                   'WTLOGCLDSK'    => '652',
                    'WTMEMORY'      => '388',
                    'WTPHYSDSK'     => '284',
                    'WTPROCESS'     => '1028',
@@ -2420,6 +2461,113 @@ for(;;)
          }
       }
    }
+
+   # aping_ref
+   #   state 0 = wait for first KDCS_Ping"
+   #   state 1 = wait for second KDCS_Ping"
+
+   # (5AF16787.00BE-11:kdcr0ip.c,249,"KDCR0_InboundPacket") ping FFFF/20863.0 (80): ip.spipe:#141.171.50.62[10318]
+   if (substr($logunit,0,9) eq "kdcr0ip.c") {
+      if ($logentry eq "KDCR0_InboundPacket") {
+
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # ping FFFF/20863.0 (80): ip.spipe:#141.171.50.62[10318]
+         if (substr($rest,1,4) eq "ping") {
+            $rest =~ /\/(\d+)\..*:#(\S+)\[(\S+)\]/;
+            $aping_stream = $1;
+            $aping_system = $2;
+            $aping_port = $3;
+            $aping_target = $2 . "[" . $3 . "]";
+            $aping_time = $logtime;
+            $aping_timehex = $logtimehex;
+            $aping_line = $l;
+            $aping_client = "";
+            $aping_state = "";
+            $aping_blast = "";
+            $aping_next = 0;
+            my $apingr_ref = $apingrunx{$aping_target};
+            if (defined $apingr_ref) {
+               $aping_ref = $apingx{$aping_target};
+               if (!defined $aping_ref) {
+                  my %apingref = (
+                                    count => 0,
+                                    instances => {},
+                                 );
+                  $aping_ref =  \%apingref;
+                  $apingx{$aping_target} =  \%apingref;
+               }
+               $aping_ref->{count} += 1;
+               push(@{$aping_ref->{instances}{$aping_target}},["ping-ping",$aping_timehex,$logtime - $apingr_ref->{time},$apingr_ref->{line} . "-" . $l]);
+            }
+           next;
+         } elsif (substr($rest,1,4) eq "quit") { # quit FFFF/20863.0 (80): ip.spipe:#141.171.50.62[10318]
+            $rest =~ /\/(\d+)\..*:#(\S+)\[(\S+)\]/;
+            my $istream = $1;
+            my $isystem = $2;
+            my $iport = $3;
+            my $itarget = $2 . "[" . $3 . "]";
+            my $apingr_ref = $apingrunx{$itarget};
+            if (defined $apingr_ref) {
+               $aping_ref = $apingx{$itarget};
+               if (!defined $aping_ref) {
+                  my %apingref = (
+                                    count => 0,
+                                    instances => {},
+                                 );
+                  $aping_ref =  \%apingref;
+                  $apingx{$aping_target} =  \%apingref;
+               }
+               $aping_ref->{count} += 1;
+               push(@{$aping_ref->{instances}{$itarget}},["ping-quit",$apingr_ref->{timehex},$logtime - $apingr_ref->{time},$apingr_ref->{line} . "-" . $l]);
+            }
+           next;
+         }
+      }
+   }
+
+   # (5AF16787.00BF-11:kdcspng.c,91,"KDCS_Ping") client-FE89: replying, state=in_reply, ptype=ping, frag=0
+   # (5AF16787.00C0-11:kdcspng.c,101,"KDCS_Ping") client-FE89: reduced blast size to 1, frag=0
+   if (substr($logunit,0,9) eq "kdcspng.c") {
+      if ($logentry eq "KDCS_Ping") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # client-FE89: replying, state=in_reply, ptype=ping, frag=0
+                                           # client-FE89: reduced blast size to 1, frag=0
+         $rest =~ /client-(\S+):(.+)$/;
+         $aping_client = $1;
+         $rest = $2;
+         if (substr($rest,1,8) eq "replying") {
+            $rest =~ /state=(\S+), /;
+            $aping_state = $1;
+            next;
+         } elsif (substr($rest,1,7) eq "reduced") {
+            $rest =~ /blast size to (\d+),/;
+            my $iblast = $1;
+            $aping_blast = $iblast;
+            if ($aping_state ne "replied") {
+               my $apingrun_ref = $apingrunx{$aping_target};
+               if (!defined $apingrun_ref) {
+                  my %apingrunref = (
+                                        system => $aping_system,
+                                        port => $aping_port,
+                                        time => $aping_time,
+                                        timehex => $aping_timehex,
+                                        line => $aping_line,
+                                        client => $aping_client,
+                                        state => $aping_state,
+                                        blast => $aping_blast,
+                                        next => 0,
+                                        instances => {},
+                                     );
+                  $apingrun_ref = \%apingrunref;
+                  $apingrunx{$aping_target} = \%apingrunref;
+               }
+            } else {
+               delete $apingrunx{$aping_target};
+            }
+         }
+      }
+   }
+
    # signal(s) for communication failures
    # (57BE11EA.0006-2:kdcc1sr.c,485,"rpc__sar") Connection lost: "ip.pipe:#172.27.2.10:7025", 1C010001:1DE0004D, 0, 130(0), FFFA/30, D140831.1:1.1.1.13, tms_ctbs630fp5:d5135a
    if (substr($logunit,0,9) eq "kdcc1sr.c") {
@@ -8933,6 +9081,40 @@ if ($opt_gap > 0 ) {
 }
 
 
+my $aping_ct = scalar keys %apingx;
+if ($aping_ct > 0) {
+   my %systemx;
+   $rptkey = "TEMSREPORT065";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Agent Ping Delay Report\n";
+   $cnt++;$oline[$cnt]="System,Count,LocalTime,Condition,Duration,Lines,\n";
+   foreach my $f (sort {$a cmp $b} keys %apingx) {
+      $aping_ref = $apingx{$f};
+      $f =~ /(\S+)\[/;
+      my $isystem = $1;
+      $systemx{$isystem} = 1;
+      foreach my $g (@{$aping_ref->{instances}{$f}}) {
+         my $icond = $g->[0];
+         my $itimehex = $g->[1];
+         my $idur = $g->[2];
+         my $ilinez = $g->[3];
+         $outl = $f . ",";
+         $outl .= $aping_ref->{count} . ",";
+         $outl .= sec2ltime(hex($itimehex)+$local_diff) . ",";
+         $outl .= $icond . ",";
+         $outl .= $idur . ",";
+         $outl .= $ilinez . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+      }
+   }
+   my $system_ct = scalar keys %systemx;
+   $advi++;$advonline[$advi] = "Agent Ping Delays Seen On $system_ct Systems - See $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1104E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+
 
 
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
@@ -9640,6 +9822,8 @@ exit;
 #1.89000 - correct more table sizes
 #        - Add Diagnostic log time gap REPORT064 and advisory 1103W
 #        - Add Start/End log time to FTO message section
+#1.90000 - Add ping delay tracking report and 1104E advisory
+#        - Add more table sizes
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -11553,6 +11737,16 @@ Meaning: See TEMSREPORT064 explanation for details.
 Recovery plan: Review and repair if necessary.
 --------------------------------------------------------------
 
+TEMSAUDIT1104E
+Text: Agent Ping Delays Seen On count Systems
+
+Tracing: error
+
+Meaning: See TEMSREPORT065 explanation for details.
+
+Recovery plan: Review and repair if necessary.
+--------------------------------------------------------------
+
 TEMSAUDIT1098E
 Text: Situations [count] with Application missing from catalog
 
@@ -13177,4 +13371,15 @@ at times after a communications error, such as with port scanning.
 
 Recovery plan: If a problem is being seen, this can point to the
 root cause.
+----------------------------------------------------------------
+
+TEMSREPORT065
+Text: Ping Delay Report
+
+Sample Report
+to be added
+
+Meaning: Display these cases
+
+Recovery plan: Add needed application support
 ----------------------------------------------------------------
