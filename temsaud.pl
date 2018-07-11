@@ -118,7 +118,7 @@
 
 
 
-my $gVersion = 1.90000;
+my $gVersion = 1.91000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -506,6 +506,10 @@ my %knowntabx = (
                    'K5DK5DSANP' => '372',
                    'K5ECSCRIPT' => '188',
                    'K5IDBCACHE' => '2304',
+                   'KA4DISK'    => '176',
+                   'KA4IFSOBJ'  => '3232',
+                   'KA4LIND'    => '88',
+                   'KA4PFJOB'   => '324',
                    'KBNCPUUSAG' => '324',
                    'KBNDATETIM' => '952',
                    'KBNDPCBATS' => '368',
@@ -524,6 +528,7 @@ my %knowntabx = (
                    'KD43RS'     => '168',
                    'KD43SO'     => '516',
                    'KGBDTASK'   => '448',
+                   'KGBDMAIL'    => '236',
                    'KHDDBINFO'     => '1284',
                    'KHDLASTERR'    => '1584',
                    'KHDLOADST'     => '84',
@@ -566,7 +571,11 @@ my %knowntabx = (
                    'KOQDBMIR' => '672',
                    'KOQDBS' => '240',
                    'KOQJOBD' => '1900',
+                   'KOQJOBS' => '248',
+                   'KOQLRTS' => '216',
                    'KOQLSDBD' => '1768',
+                   'KOQPRCS' => '276',
+                   'KOQPROBS' => '252',
                    'KOQSRVR' => '256',
                    'KOQSRVRE' => '1604',
                    'KOQSRVS'    => '432',
@@ -589,22 +598,34 @@ my %knowntabx = (
                    'KPX26DISKS' => '432',
                    'KPX30FILES' => '1028',
                    'KPX34NETWO' => '996',
+                   'KQ7ACTIVES' => '164',
+                   'KQ7WEBSERV' => '364',
+                   'KQ7WSITDTL' => '628',
                    'KQXAVAIL'   => '3244',
                    'KQXPRESSRV' => '432',
+                   'KQPAVAIL'   => '3244',
+                   'KQPSHAREP0' => '200',
                    'KRZACTINS'  => '784',
                    'KRZACTINSR' => '216',
                    'KRZAGINF'      => '828',
                    'KRZAGTLSNR' => '1292',
+                   'KRZASMDKGP' => '420',
                    'KRZDAFCOUT' => '172',
                    'KRZDAFOVEW' => '840',
                    'KRZDBINF'      => '258',
+                   'KRZDBINFO' => '804',
+                   'KRZGCSBLO' => '188',
                    'KRZINSTINF' => '312',
                    'KRZRAMDISK' => '808',
+                   'KRZRAMDKGP' => '420',
                    'KRZRDBBGPS' => '156',
                    'KRZRDBDKSP'    => '768',
                    'KRZRDBLOGD' => '364',
+                   'KRZRDBLOGS' => '500',
                    'KRZRDBPROS' => '252',
                    'KRZRDBRFD' => '224',
+                   'KRZRDBSTAT' => '456',
+                   'KRZRDBTOPO' => '400',
                    'KRZRDBUTS' => '332',
                    'KRZSEGALOC' => '524',
                    'KRZTSNLUE' => '292',
@@ -635,17 +656,19 @@ my %knowntabx = (
                    'KVA38FILES' => '1028',
                    'KVA42NETWO' => '996',
                    'KVMAEVENTS' => '192',
-                   'KVMCLUSTRT' => '868',
+                   'KVMCLUSTRT' => '872',
                    'KVMDSTORES'    => '1276',
                    'KVMSERVERD' => '564',
                    'KVMSERVERE' => '1876',
-                   'KVMSERVERG' => '2284',
+                   'KVMSERVERG' => '2288',
                    'KVMSERVERN' => '804',
                    'KVMSERVRDS' => '720',
                    'KVMSRVHBAS' => '644',
                    'KVMSRVRSAN' => '460',
                    'KVMVCENTER'    => '416',
-                   'KVMVM_GEN'  => '1696',
+                   'KVMVM_GEN'  => '1752',
+                   'KVMVM_MEM' => '632',
+                   'KVMVMDSUTL'  => '588',
                    'KYNAPHLTH'     => '1124',
                    'KYNAPMONCF'    => '1748',
                    'KYNAPSRV'      => '1416',
@@ -681,7 +704,7 @@ my %knowntabx = (
                    'LTCNETTOUT'    => '216',
                    'LTCRRT'        => '748',
                    'LTCWRT'        => '748',
-                   'NETWRKIN' => '476'
+                   'NETWRKIN' => '476',
                    'NLTSCPUTIL'    => '316',
                    'NLTSDSKUTL'    => '284',
                    'NLTSMEMUTL'    => '252',
@@ -694,6 +717,7 @@ my %knowntabx = (
                    'NTIPADDR' => '872',
                    'NTLOGINFO'     => '1256',
                    'NTMEMORY'      => '348',
+                   'NTMNTPT'       => '624',
                    'NTNETWPORT' => '772',
                    'NTNETWRKIN'    => '604',
                    'NTPAGEFILE'    => '552',
@@ -702,6 +726,7 @@ my %knowntabx = (
                    'NTPROCRSUM' => '340',
                    'NTPROCSSR'     => '192',
                    'NTSERVICE'     => '1472',
+                   'PRINTQ' => '576',
                    'PROCESSIO' => '704',
                    'QMANAGER' => '796',
                    'QMCHAN_ST' => '1592',
@@ -741,11 +766,11 @@ my %knowntabx = (
                    'UNIXDUSERS'    => '1668',
                    'UNIXLPAR'      => '1448',
                    'UNIXMACHIN'    => '508',
-                   'UNIXMEM'       => '228',
+                   'UNIXMEM'       => '448',
                    'UNIXNET'       => '1540',
                    'UNIXOS'        => '980',
                    'UNIXPING'      => '856',
-                   'UNIXPS'        => '2728',
+                   'UNIXPS'        => '2736',
                    'UNIXPVOLUM'    => '552',
                    'UNIXTOPCPU'    => '1832',
                    'UNIXTOPMEM'    => '1840',
@@ -3695,9 +3720,11 @@ for(;;)
          } elsif ($nodeliste_state == 3) {   # timestamp <1170526040407000> user <_FAGEN>
          } elsif ($nodeliste_state == 4) {   # raw obj <CTXAPP0054VB:51                 REMOTE_USDAD-METVPVL01>
             $rest =~ /raw obj <(.*)>/;
-            $nodelist_agent = substr($1,0,32);
-            $nodelist_tems = substr($1,32);
+            my $objdata = $1 . ' ' x 64;
+            $nodelist_agent = substr($objdata,0,32);
+            $nodelist_tems = substr($objdata,32,32);
             $nodelist_agent =~ s/\s+$//;   #trim trailing whitespace
+            $nodelist_tems =~ s/\s+$//;   #trim trailing whitespace
             my $nodeliste_ref = $nodelistex{$nodelist_agent};
             if (!defined $nodeliste_ref) {
                my %nodelisteref = (
@@ -3714,7 +3741,7 @@ for(;;)
             $nodeliste_ref->{error}{$nodelist_error} += 1;
             $nodeliste_ref->{op}{$nodelist_operation} += 1;
             $nodeliste_ref->{id}{$nodelist_id} += 1;
-            $nodeliste_ref->{tems}{$nodelist_tems} += 1;
+            $nodeliste_ref->{tems}{$nodelist_tems} += 1 if $nodelist_tems ne "";
             $nodeliste_state = 0;
             $nodeliste_count += 1;
          }
@@ -9824,6 +9851,8 @@ exit;
 #        - Add Start/End log time to FTO message section
 #1.90000 - Add ping delay tracking report and 1104E advisory
 #        - Add more table sizes
+#1.91000 - Handle some short length input
+#        - add some table sizes
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
