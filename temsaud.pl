@@ -116,9 +116,13 @@
 
 ## (5AF163FB.01FA-A:kdssqrun.c,2056,"Prepare") Prepare address = 1219BA840, len = 179, SQL = SELECT ATOMIZE, LCLTMSTMP, DELTASTAT, ORIGINNODE, RESULTS FROM O4SRV.TADVISOR WHERE EVENT("all_logalrt_x074_selfmon_gen____") AND SYSTEM.PARMA("ATOMIZE","K07K07LOG0.MESSAGE",18) ;
 
+## (5B4F548E.0005-C:kqmarm.cpp,810,"arm::doStageII") Both sides were acting hub last time.  Setting no delete option.
+## (5AF4C1E8.0008-B:kqmarm.cpp,860,"arm::doStageII") Failed to get records from peer HUB. rc = <1>; id = <5140>
 
 
-my $gVersion = 1.91000;
+
+
+my $gVersion = 1.92000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -312,10 +316,14 @@ sub time2sec;
 sub sec2time;
 sub sec2ltime;
 sub getphys;
+sub slotime;
 sub set_timeline;
 
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
+
+my %sec2slotx;
+my $lastslot;
 
 my %apingrunx;
 my %apingx;
@@ -470,20 +478,22 @@ my %knowntabx = (
                    'AGGREGATS'     => '3376',
                    'AIXPAGMEM'     => '208',
                    'CLACTRMT'   => '7452',
-                   'FILEINFO'      => '6232',
-                   'K06CSCRIP0' => '492',
+                   'FILEINFO'   => '6232',
+                   'ICMPSTAT'   => '324',
+                   'K06CSCRIP0' => '304',
                    'K06K06CUS0' => '924',
                    'K06PERLEX0' => '364',
-                   'K06PERLEX1' => '280',
+                   'K06PERLEX1' => '344',
                    'K06PERLEX2' => '1416',
                    'K06PERLEX4' => '444',
+                   'K06PERLEX6' => '625',
                    'K06TEST' => '404',
                    'K07K07ERS0' => '176',
-                   'K07K07FSC0' => '756',
-                   'K07K07LGS0' => '668',
+                   'K07K07FSC0' => '960',
+                   'K07K07LGS0' => '1416',
                    'K07K07LOG0' => '668',
                    'K07K07NET0' => '345',
-                   'K07K07PRO0' => '3915',
+                   'K07K07PRO0' => '3979',
                    'K07K07TRA0' => '332',
                    'K07K07URL0' => '384',
                    'K07K07USE0' => '200',
@@ -509,7 +519,9 @@ my %knowntabx = (
                    'KA4DISK'    => '176',
                    'KA4IFSOBJ'  => '3232',
                    'KA4LIND'    => '88',
+                   'KA4MSG'     => '2304',
                    'KA4PFJOB'   => '324',
+                   'KA4SYSTS'   => '188',
                    'KBNCPUUSAG' => '324',
                    'KBNDATETIM' => '952',
                    'KBNDPCBATS' => '368',
@@ -556,12 +568,12 @@ my %knowntabx = (
                    'LNXIPADDR' => '548',
                    'KLZNET'        => '368',
                    'KLZPASMGMT'    => '528',
-                   'KLZPROC'       => '1588',
+                   'KLZPROC'       => '1620',
                    'KLZPUSR'       => '1572',
                    'KLZSCRPTS'  => '3952',
                    'KLZSCRRTM'  => '3544',
                    'KLZSOCKD' => '296',
-                   'KLZSYS'        => '268',
+                   'KLZSYS'        => '288',
                    'KLZVM'         => '268',
                    'KNOAVAIL'   => '3244',
                    'KNTPASCAP' => '3000',
@@ -570,15 +582,19 @@ my %knowntabx = (
                    'KOQDBD' => '2708',
                    'KOQDBMIR' => '672',
                    'KOQDBS' => '240',
+                   'KOQDEVD' => '1420',
+                   'KOQFGRPD' => '980',
                    'KOQJOBD' => '1900',
                    'KOQJOBS' => '248',
                    'KOQLRTS' => '216',
                    'KOQLSDBD' => '1768',
                    'KOQPRCS' => '276',
                    'KOQPROBS' => '252',
+                   'KOQSRVCD' => '592',
                    'KOQSRVR' => '256',
                    'KOQSRVRE' => '1604',
                    'KOQSRVS'    => '432',
+                   'KOQSTATS' => '284',
                    'KORALRTD'   => '708',
                    'KORSRVRE' => '324',
                    'KORSTATE' => '368',
@@ -635,21 +651,30 @@ my %knowntabx = (
                    'KSACTS' => '864',
                    'KSADMPCNT' => '472',
                    'KSAJOBS' => '944',
+                   'KSAPERF' => '564',
                    'KSAPROCESS' => '1052',
                    'KSASERINFO' => '340',
+                   'KSASLOG' => '1004',
                    'KSASPOOL' => '760',
                    'KSASYS' => '1444',
+                   'KSATRANS' => '1056',
                    'KSAUPDATES' => '1288',
                    'KSYCONNECT'    => '1184',
                    'KUD3437600' => '1660',
+                   'KUD4238000' => '1600',
+                   'KUDAPPL00' => '3804',
                    'KUDDB2HADR' => '1596',
                    'KUDDBASE00'    => '1852',
                    'KUDDBASE01'    => '1648',
+                   'KUDLOG'        => '4932',
                    'KUDSQLSTAT'    => '420',
                    'KUDSYSINFO'    => '1716',
+                   'KUDTABSPC'     => '1812',
+                   'KUDTBLSPC'     => '1756',
                    'KUXDEVIC'      => '660',
                    'KUXPASALRT'    => '484',
                    'KUXPASMGMT'    => '512',
+                   'KUXSCRTSM' => '3544',
                    'KVA21PAGIN' => '76',
                    'KVA22LOGIC' => '1076',
                    'KVA37LOGIC' => '1204',
@@ -678,18 +703,25 @@ my %knowntabx = (
                    'KYNGCAF'       => '592',
                    'KYNGCCYC'      => '632',
                    'KYNLPORT'      => '1444',
+                   'KYNREQUEST'    => '1476',
                    'KYNTHRDP'   => '852',
                    'LNXCPU' => '156',
+                   'LNXCPUAVG' => '180',
                    'LNXCPUCON'  => '300',
                    'LNXDISK'       => '488',
+                   'LNXDU'         => '204',
+                   'LNXDSKIO'      => '212',
                    'LNXFILE'       => '5116',
                    'LNXFILPAT'  => '1624',
+                   'LNXIOEXT'      => '248',
                    'LNXMACHIN'     => '828',
                    'LNXNET'        => '320',
+                   'LNXNFS'        => '324',
                    'LNXOSCON' => '440',
                    'LNXPING' => '216',
                    'LNXPROC'       => '1144',
                    'LNXRPC'     => '152',
+                   'LNXSWPRT'      => '148',
                    'LNXSYS'        => '204',
                    'LNXVM'         => '192',
                    'LOCALTIME'     => '112',
@@ -719,7 +751,7 @@ my %knowntabx = (
                    'NTMEMORY'      => '348',
                    'NTMNTPT'       => '624',
                    'NTNETWPORT' => '772',
-                   'NTNETWRKIN'    => '604',
+                   'NTNETWRKIN'    => '992',
                    'NTPAGEFILE'    => '552',
                    'NTPROCESS'     => '960',
                    'NTPROCINFO' => '452',
@@ -737,7 +769,7 @@ my %knowntabx = (
                    'QMQ_DATA' => '912',
                    'QMQ_QU_ST' => '364',
                    'QMQUEUES' => '844',
-                   'READHIST'   => '200',
+                   'READHIST'   => '748',
                    'RNODESTS'      => '220',
                    'SYSHEALTH'     => '132',
                    'T3FILEDPT' => '3704',
@@ -749,11 +781,14 @@ my %knowntabx = (
                    'T3SNTRANS' => '628',
                    'T5SSLALRCS'    => '616',
                    'T5TXCS'        => '868',
-                   'T6DEPOTSTS' => '64',
+                   'T6CLNTOT'      => '604',
+                   'T6DEPOTSTS'    => '64',
                    'T6EVENT'       => '3776',
+                   'T6PBEVENT'     => '2752',
                    'T6PBSTAT'      => '916',
                    'T6REALMS'      => '432',
                    'T6TXCS'        => '752',
+                   'T6TXSM'        => '752',
                    'TCPSTATS'      => '252',
                    'TOINTSIT'      => '1508',
                    'ULLOGENT'      => '2864',
@@ -764,10 +799,13 @@ my %knowntabx = (
                    'UNIXDISK'      => '1688',
                    'UNIXDPERF'     => '724',
                    'UNIXDUSERS'    => '1668',
+                   'UNIXFILPAT'    => '1624',
+                   'UNIXIPADDR'    => '548',
                    'UNIXLPAR'      => '1448',
-                   'UNIXMACHIN'    => '508',
+                   'UNIXMACHIN'    => '516',
                    'UNIXMEM'       => '448',
                    'UNIXNET'       => '1540',
+                   'UNIXNFS'       => '492',
                    'UNIXOS'        => '980',
                    'UNIXPING'      => '856',
                    'UNIXPS'        => '2736',
@@ -784,6 +822,7 @@ my %knowntabx = (
                    'WTPHYSDSK'     => '284',
                    'WTPROCESS'     => '1028',
                    'WTREGISTRY'    => '1616',
+                   'WTSERVER'      => '364',
                    'WTSYSTEM'      => '900',
                );
 
@@ -920,6 +959,7 @@ my $tec_classname_ct = 0;
 
 my %changex;
 my $changex_ct = 0;
+my %changetx;
 
 my %misscolx;
 my $misscolx_ct;
@@ -4324,25 +4364,36 @@ for(;;)
                $ithrunode =~ s/\s+$//;   #trim trailing whitespace
                $ioldthrunode =~ s/\s+$//;   #trim trailing whitespace
                $ihostaddr =~ s/\s+$//;   #trim trailing whitespace
+               my $islot = sec2slot($logtime,60);
                my $change_ref = $changex{$idesc};
                $changex_ct += 1;
                if (!defined $change_ref) {
                   my %changeref = (
                                      count => 0,
-                                     nodes => {},
+                                     slots => {},
                                   );
                   $change_ref = \%changeref;
                   $changex{$idesc} = \%changeref;
                }
                $change_ref->{count} += 1;
-               my $change_node_ref = $change_ref->{nodes}{$inode};
+               my $change_slot_ref = $change_ref->{slots}{$islot};
+               if (!defined $change_slot_ref) {
+                  my %changeslotref = (
+                                         count => 0,
+                                         nodes => {},
+                                      );
+                  $change_slot_ref = \%changeslotref;
+                  $change_ref->{slots}{$islot} = \%changeslotref;
+                  $lastslot = $islot;
+               }
+               my $change_node_ref = $change_slot_ref->{nodes}{$inode};
                if (!defined $change_node_ref) {
                   my %changenoderef = (
                                          count => 0,
                                          instances => {},
                                   );
                   $change_node_ref = \%changenoderef;
-                  $change_ref->{nodes}{$inode} = \%changenoderef;
+                  $change_slot_ref->{nodes}{$inode} = \%changenoderef;
                }
                $change_node_ref->{count} += 1;
                my $changekey = $ithrunode . "|" . $ihostaddr;
@@ -4360,6 +4411,21 @@ for(;;)
                }
                $change_instance_ref->{count} += 1;
                $change_instance_ref->{ports}{$iport} += 1 if defined $iport;
+               my $changet_ref = $changetx{$islot};
+               if (!defined $changet_ref) {
+                  my %changetref = (
+                                      count => 0,
+                                      nodes => {},
+                                      thrunodes => {},
+                                      desc => {},
+                                   );
+                  $changet_ref = \%changetref;
+                  $changetx{$islot} = \%changetref;
+               }
+               $changet_ref->{count} += 1;
+               $changet_ref->{nodes}{$inode} += 1;
+               $changet_ref->{thrunodes}{$ithrunode} += 1;
+               $changet_ref->{desc}{$idesc} += 1;
                next;
             }
          }
@@ -6398,10 +6464,13 @@ my $change_real = 0;
 if ($changex_ct > 0) {
    foreach $f ( sort { $a cmp $b } keys %changex) {
       my $change_ref = $changex{$f};
-      foreach $g (keys %{$change_ref->{nodes}}) {
-         my $change_node_ref = $change_ref->{nodes}{$g};
-         next if $change_node_ref->{count} < 2;
-         $change_real += 1;
+      foreach $g (keys %{$change_ref->{slots}}) {
+         my $change_slot_ref = $change_ref->{slots}{$g};
+         foreach $h (keys %{$change_slot_ref->{nodes}}) {
+            my $change_node_ref = $change_slot_ref->{nodes}{$h};
+            next if $change_node_ref->{count} < 2;
+            $change_real += 1;
+         }
       }
    }
    if ($change_real > 0) {
@@ -7943,26 +8012,140 @@ if ($change_real > 0) {
    $cnt++;$oline[$cnt]="Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,\n";
    foreach $f ( sort { $a cmp $b } keys %changex) {
       my $change_ref = $changex{$f};
-      foreach $g (keys %{$change_ref->{nodes}}) {
-         my $change_node_ref = $change_ref->{nodes}{$g};
-         next if $change_node_ref->{count} < 2;
-         foreach $h (keys %{$change_node_ref->{instances}}) {
-            my $change_instance_ref = $change_node_ref->{instances}{$h};
-            $outl = $f . ",";
-            $outl .= $change_node_ref->{count} . "," . $g . ",";
-            $outl .= $change_instance_ref->{count} . ",";
-            $outl .= $change_instance_ref->{thrunode} . ",";
-            $outl .= $change_instance_ref->{hostaddr} . ",";
-            my $pports = "";
-            foreach my $i (keys %{$change_instance_ref->{ports}}) {
-               $pports .= $i . "[" . $change_instance_ref->{ports}{$i} . "] ";
+      foreach $g (keys %{$change_ref->{slots}}) {
+         my $change_slot_ref = $change_ref->{slots}{$g};
+         foreach $h (keys %{$change_slot_ref->{nodes}}) {
+            my $change_node_ref = $change_slot_ref->{nodes}{$h};
+            next if $change_node_ref->{count} < 2;
+            foreach $i (keys %{$change_node_ref->{instances}}) {
+               my $change_instance_ref = $change_node_ref->{instances}{$i};
+               $outl = $f . ",";
+               $outl .= $change_node_ref->{count} . "," . $h . ",";
+               $outl .= $change_instance_ref->{count} . ",";
+               $outl .= $change_instance_ref->{thrunode} . ",";
+               $outl .= $change_instance_ref->{hostaddr} . ",";
+               my $pports = "";
+               foreach my $j (keys %{$change_instance_ref->{ports}}) {
+                  $pports .= $j . "[" . $change_instance_ref->{ports}{$j} . "] ";
+               }
+               chop($pports) if $pports ne "";
+               $outl .= $pports . ",";
+               $outl .= $change_instance_ref->{oldthrunode} . ",";
+               $cnt++;$oline[$cnt]="$outl\n";
             }
-            chop($pports) if $pports ne "";
-            $outl .= $pports . ",";
-            $outl .= $change_instance_ref->{oldthrunode} . ",";
-            $cnt++;$oline[$cnt]="$outl\n";
          }
       }
+   }
+   my %nodeipx;
+   my $last_time = time2sec($lastslot);
+   $last_time -= 86400;
+   my $last_day = sec2time($last_time);
+   $rptkey = "TEMSREPORT067";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - last 24 hours\n";
+   $cnt++;$oline[$cnt]="Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,\n";
+   foreach $f ( sort { $a cmp $b } keys %changex) {
+      my $change_ref = $changex{$f};
+      foreach $g (keys %{$change_ref->{slots}}) {
+      next if $g le $last_day;
+         my $change_slot_ref = $change_ref->{slots}{$g};
+         foreach $h (keys %{$change_slot_ref->{nodes}}) {
+            my $change_node_ref = $change_slot_ref->{nodes}{$h};
+            next if $change_node_ref->{count} < 2;
+            foreach $i (keys %{$change_node_ref->{instances}}) {
+               my $change_instance_ref = $change_node_ref->{instances}{$i};
+               $outl = $f . ",";
+               $outl .= $change_node_ref->{count} . "," . $h . ",";
+               $outl .= $change_instance_ref->{count} . ",";
+               $outl .= $change_instance_ref->{thrunode} . ",";
+               $outl .= $change_instance_ref->{hostaddr} . ",";
+               my $pports = "";
+               foreach my $j (keys %{$change_instance_ref->{ports}}) {
+                  $pports .= $j . "[" . $change_instance_ref->{ports}{$j} . "] ";
+               }
+               chop($pports) if $pports ne "";
+               $outl .= $pports . ",";
+               $outl .= $change_instance_ref->{oldthrunode} . ",";
+               $cnt++;$oline[$cnt]="$outl\n";
+               my $node_ip = $h . "|" . $change_instance_ref->{hostaddr};
+               my $node_ip_ref = $nodeipx{$node_ip};
+               if (!defined $node_ip_ref) {
+                  my %node_ipref = (
+                                      node => $h,
+                                      hostaddr => $change_instance_ref->{hostaddr},
+                                      count => 0,
+                                      thrunodes => {},
+                                      desc => {},
+                                      ports => {},
+                                   );
+                  $node_ip_ref = \%node_ipref;
+                  $nodeipx{$node_ip} = \%node_ipref;
+               }
+               $node_ip_ref->{count} += 1;
+               $node_ip_ref->{thrunodes}{$change_instance_ref->{thrunode}} += 1;
+               $node_ip_ref->{desc}{$f} += 1;
+               foreach my $j (keys %{$change_instance_ref->{ports}}) {
+                  $node_ip_ref->{ports}{$j} += 1;
+               }
+            }
+         }
+      }
+   }
+   $rptkey = "TEMSREPORT068";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - last 24 hours Summary\n";
+   $cnt++;$oline[$cnt]="Node,Hostaddr,Count,Desc,Thrunode,Ports,\n";
+
+   foreach $f (sort { $nodeipx{$a}->{node} cmp $nodeipx{$b}->{node} ||
+                      $nodeipx{$a}->{hostaddr} cmp $nodeipx{$b}->{hostaddr}} keys %nodeipx) {
+      my $node_ip_ref = $nodeipx{$f};
+      $outl = $node_ip_ref->{node} . ",";
+      $outl .= $node_ip_ref->{count} . ",";
+      $outl .= $node_ip_ref->{hostaddr} . ",";
+      my $pdesc = "";
+      foreach my $j (keys %{$node_ip_ref->{desc}}) {
+         $pdesc .= $j . "[" . $node_ip_ref->{desc}{$j} . "] ";
+      }
+      chop($pdesc) if $pdesc ne "";
+      $outl .= $pdesc . ",";
+      my $pthru = "";
+      foreach my $j (keys %{$node_ip_ref->{thrunodes}}) {
+         $pthru .= $j . "[" . $node_ip_ref->{thrunodes}{$j} . "] ";
+      }
+      chop($pthru) if $pthru ne "";
+      $outl .= $pthru . ",";
+      my $pports = "";
+      foreach my $j (keys %{$node_ip_ref->{ports}}) {
+         $pports .= $j . " ";
+      }
+      chop($pports) if $pports ne "";
+      $outl .= $pports . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   $rptkey = "TEMSREPORT066";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Summary by hour\n";
+   $cnt++;$oline[$cnt]="LocalTime,Changes,Nodes,Types,Thrunodes,\n";
+   foreach $f ( sort { $a <=> $b } keys %changetx) {
+      my $changet_ref = $changetx{$f};
+      $outl = $f . ",";
+      $outl .= $changet_ref->{count} . ",";
+      my $agent_ct = scalar keys %{$changet_ref->{nodes}};
+      $outl .= $agent_ct . ",";
+      my $pdesc = "";
+      foreach $g ( sort {$a cmp $b} keys %{$changet_ref->{desc}}) {
+         $pdesc .= $g . "[" . $changet_ref->{desc}{$g} . "] ";
+      }
+      chop($pdesc) if $pdesc ne "";
+      $outl .= $pdesc . ",";
+      my $pthru = "";
+      foreach $g ( sort { $changet_ref->{thrunodes}{$b} <=> $changet_ref->{thrunodes}{$a} ||
+                          $a cmp $b} keys %{$changet_ref->{thrunodes}}) {
+         $pthru .= $g . "[" . $changet_ref->{thrunodes}{$g} . "] ";
+      }
+      chop($pthru) if $pthru ne "";
+      $outl .= $pthru . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
    }
 }
 
@@ -9853,6 +10036,7 @@ exit;
 #        - Add more table sizes
 #1.91000 - Handle some short length input
 #        - add some table sizes
+#1.92000 - Add Report 066/067/068 which focus on agent location instability
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -12195,7 +12379,7 @@ VM:v5wvcs03-a00001p5eenxg0006:EX,2, Validation for affinity failed.,
 PRR-Contabilit√ :Grp            ,1, Validation for node failed.,
 
 Nodes and nodelists can be invalid for several reasons. In some
-cases illegal characters are used in others [like this case]
+cases illegal characters are used. In other cases [like this]
 application support is missing. From ITM 630 on such agents are
 rejected by default and so monitoring is not being performed as
 expected. Names should be changed to legal names and application
@@ -12991,18 +13175,25 @@ Trace: error (unit:kfastpst,Entry="KFA_PostEvent" all er)
 
 Meaning
 
-TEMSREPORT047: PostEvent Node Status Instance Exceptions
+TEMSREPORT046: PostEvent Node Status Instance Exceptions
 Node,Count,Thrunode,Hostaddr,Product,Version,
 neo:neo:LO,74,REMOTE_NLAMA-MCTVPVL13,ip.pipe:#10.128.122.31[56272]<NM>neo</NM>,LO,06.30.00,
 neo:neo:LO,74,REMOTE_NLAMA-MCTVPVL13,ip.pipe:#10.213.193.41[46439]<NM>neo</NM>,LO,06.30.00,
 neo:neo:LO,74,REMOTE_NLAM3-MCTVPVL03,ip.pipe:#10.128.122.41[45325]<NM>neo</NM>,LO,06.30.00,
 
-This seen at the hub TEMS and is strong evidence of
-mal-configuration at the agents including but not
-limited to duplicate agents.
+This reports the count of times when an agent, connected via a
+TEMS and from a specific hostaddr was seen going online or offline. In
+the sample above a Tivoli Log Agent neo:neo:LO was seen 74 times, from
+three different systems and from two different remote TEMSes. This is
+pretty obviously a case of duplicate agent names.
+
+Other cases have been seen when an agent is experiencing network
+problems. A last case was when there were several agents on a system
+and there was an exclusive/anonymous bind conflict caused by
+differing usage [or non-usage] of KDEB_INTERFACELIST controls.
 
 Recovery plan: Evaluate agent configurations and change so the ITM
-has unique agent names as it requires for good monitoring.
+has unique agent names as required for good monitoring.
 ----------------------------------------------------------------
 
 TEMSREPORT047
@@ -13138,7 +13329,7 @@ associated with any ITM processses, the condition can be ignored... at
 least as far as ITM is concerned.  Send-Q values are much more important
 than Recv-Q values.
 
-Here are some conditions that have been the underlying cause of the issue.
+Here are some conditions that have been the cause of the issue.
 
 FTO misconfigured at the RTEMS
 Misconfigured agent
@@ -13160,13 +13351,24 @@ TEMSREPORT052
 Text: Process Table Report Delays - Max overlay count
 
 Sample Report
-to be added
+LocalTime,Epoch,Delay,Line,Table/Path,Max,
+20180313053116,5AA76224,14,481387,TSITSTSC_,12,
+20180313053022,5AA761EE,3,472007,TNODESTS_QA1DSNOS,12,
+20180313053022,5AA761EE,3,472020,TNODELST_QA1CNODL,12,
 
 Meaning:
-to be added
+The TEMS dataserver [SQL processor] has a locked entry position
+that can result in delays. At times multiple processes can be
+stacked up waiting for their turn. This report tells how long
+a process had to wait in seconds and how many processes were'
+waiting at the time this process started waiting. The line number
+is the effective line number of the diagnostic trace - assuming
+they were all concatenated together., The Table/Path tells what
+table was being accessed.
 
+This is often seen when the hub TEMS is extremely overloaded.
 
-Recovery plan: to be added
+Recovery plan: review workload if problem symptoms appear.
 ----------------------------------------------------------------
 
 TEMSREPORT053
@@ -13283,34 +13485,43 @@ TEMSREPORT057
 Text: Process Table Duration past [limit]
 
 Sample Report
-to be added
+20180313045521,5AA759B9,2,5,6400,8949,TNODELST,36917,
+20180313045521,5AA759B9,1,4,6454,6463,TSITSTSH,0,
+20180313045522,5AA759BA,1,5,8857,8996,SYSAPPLS,1,
+20180313045523,5AA759BB,1,5,11332,11484,SYSAPPLS,1,
+20180313045523,5AA759BB,1,5,11333,11340,TNODESTS,0,
+20180313045524,5AA759BC,2,7,13582,13854,TNODESTS,0,
 
-Meaning: This results when a situation or real time data request
-has a where clause that is too large, too complex to be
-constructed and sent to the agent. That can mean a lot of
-mixed *ANDs and *ORs. The impact is that the situation or
-data request is not run.
+Meaning:
+This us a deeper look into REPORT052 summary. It shows
+what SQL process is being worked on, how deep the depth
+of waiters etc. It isn't necessarily a problem based on
+how powerful the system running the TEMS is.
 
-Recovery plan: Work with IBM Support to resolve the root cause.
+Recovery plan: If there is a problem, contact IBM Support
 ----------------------------------------------------------------
 
 TEMSREPORT058
 Text: Timeline of interesting Advisories and Reports
 
 Sample Report
-to be added
+LocalTime,Hextime,Line,Advisory/Report,Notes,
+20180306024212,5A9DD5D4,526,TEMSAUDIT1036W, Begin stage 2 processing. Database and IB Cache synchronization with the hub,
+20180306024303,5A9DD607,1353,TEMSAUDIT1036W, End stage 2 processing. Database and IB Cache synchronization with the hub with return code: 0,
+20180306081714,5A9E245A,9042,TEMSAREPORT019,Connection Lost ip.pipe:#0.0.0.13:6015 1C010001:1DE0004D,
 
-Meaning: This collects interesting advisories and report
-details and shows them by time sequence.
+Meaning: shows a sequence of events in time order.
 
-Recovery plan: Work with IBM Support to resolve issues.
+Recovery plan: Use to help understanding performance issues.
 ----------------------------------------------------------------
 
 TEMSREPORT059
 Text: Timeline of interesting Advisories and Reports Reports by timeslot
 
 Sample Report
-to be added
+LocalTime_slot,References,
+20180306024000,TEMSAUDIT1036W[2] ,
+20180306081500,TEMSAREPORT019[1] ,
 
 Meaning: This shows the reports and how often they occured during
 time slots. Default slot is 5 minutes but can be changed using the
@@ -13323,8 +13534,12 @@ Recovery plan: Work with IBM Support to resolve issues.
 TEMSREPORT060
 Text: TEMS versus Agent attribute conflict
 
+From:
+(5A8B6BE8.002D-152:kpxrpcrq.cpp,691,"IRA_NCS_TranslateSample") Insufficient remote data for .SRVRADDN. Possible inconsistent definiton between agent and tems
+
 Sample Report
-to be added
+Attribute,Count,
+.SRVRADDN,4,
 
 Meaning: An agent are not delivering attributes according to the
 TEMS application support files
@@ -13336,7 +13551,8 @@ TEMSREPORT061
 Text: New and changed table size data
 
 Sample Report
-to be added
+Table,Size,
+   "KYNTHRDP" => "852",
 
 Meaning: Accumulate agent result row attribute table size.
 
@@ -13347,22 +13563,28 @@ TEMSREPORT062
 Text: Situations with Application missing in Catalog
 
 Sample Report
-to be added
+Situation,App,
+UADVISOR_K09_K09K09FSC0,K09,
+UADVISOR_K3Z_K3ZNTDSAB,K3Z,
 
-Meaning: Display these cases
+Meaning: Missing or out of date applicatin support
 
 Recovery plan: Add needed application support
 ----------------------------------------------------------------
 
 TEMSREPORT063
-Text: Situations with Application missing in Catalog
+Text: Prepare SQL counts
+
+(5AF163FB.01FA-A:kdssqrun.c,2056,"Prepare") Prepare address = 1219BA840, len = 179, SQL = SELECT ATOMIZE, LCLTMSTMP, DELTASTAT, ORIGINNODE, RESULTS FROM O4SRV.TADVISOR WHERE EVENT("all_logalrt_x074_selfmon_gen____") AND SYSTEM.PARMA("ATOMIZE","K07K07LOG0.MESSAGE",18) ;
 
 Sample Report
-to be added
+Time,Line,Count,SQL,
+5AFD6B9B,107900,1,SELECT O4SRV.TGROUP.GRPCLASS , O4SRV.TGROUP.GRPNAME , O4SRV.TGROUP.ID , O4SRV.TGROUP.INFO , O4SRV.TGROUP.LOCFLAG , O4SRV.TGROUP.LSTDATE , O4SRV.TGROUP.LSTRELEASE , O4SRV.TGROUP.LSTUSRPRF , O4SRV.TGROUP.TEXT  FROM O4SRV.TGROUP   ;,
+5AFD6B9B,107872,1,SELECT O4SRV.TGROUP.GRPCLASS , O4SRV.TGROUP.GRPNAME , O4SRV.TGROUP.ID , O4SRV.TGROUP.INFO , O4SRV.TGROUP.LOCFLAG , O4SRV.TGROUP.LSTDATE , O4SRV.TGROUP.LSTRELEASE , O4SRV.TGROUP.LSTUSRPRF , O4SRV.TGROUP.TEXT  FROM O4SRV.TGROUP AT ("*HUB") ;,
 
-Meaning: Display these cases
+Meaning: Looking at what the dataserver SQL is being worked on.
 
-Recovery plan: Add needed application support
+Recovery plan: Can help aid understanding workload.
 ----------------------------------------------------------------
 
 TEMSREPORT064
@@ -13406,9 +13628,59 @@ TEMSREPORT065
 Text: Ping Delay Report
 
 Sample Report
-to be added
+System,Count,LocalTime,Condition,Duration,Lines,
+141.171.52.83[7758],3,20180710171120,ping-quit,30,586710-591735,
+141.171.52.83[7758],3,20180710171120,ping-quit,31,586710-591738,
+141.171.52.83[7758],3,20180710171120,ping-quit,32,586710-591761,
 
-Meaning: Display these cases
+Meaning: A view on rare cases where the agent is not getting a
+prompt response and is contacting the TEMS to ask about processing.
 
-Recovery plan: Add needed application support
+Recovery plan: If any issues are being seen, work with IBM Support.
+----------------------------------------------------------------
+
+TEMSREPORT066
+Text: Agent Flipping Summary by hour
+
+Sample Report
+LocalTime,Changes,Nodes,Types,Thrunodes,
+20180903080000,21,17,Host info/loc/addr[8] Thrunode[13],REMOTE_va01prtmapp003[4] REMOTE_va01prtmapp004[3] REMOTE_va10plvtem025[3] REMOTE_va10plvtem027[3] REMOTE_va10plvtem023[2] REMOTE_va10plvtem028[2] HUB_us98ham030wlpxa[1] REMOTE_va10plvtem024[1] REMOTE_va10plvtem029[1] REMOTE_va10plvtem301[1],
+20180903090000,661,632,Host info/loc/addr[657] Thrunode[4],REMOTE_va10plvtem022[643] REMOTE_va10plvtem025[6] REMOTE_va10plvtem024[5] REMOTE_va01prtmapp004[3] REMOTE_va10plvtem023[3] REMOTE_va10plvtem027[1],
+20180903100000,66,9,Host info/loc/addr[58] Thrunode[8],REMOTE_va10plvtem022[50] REMOTE_va10plvtem025[6] REMOTE_va01prtmapp004[5] REMOTE_va01prtmapp003[1] REMOTE_va10plvtem023[1] REMOTE_va10plvtem026[1] REMOTE_va10plvtem028[1] REMOTE_va10plvtem029[1],
+
+Meaning: An hourly summary of agent location flipping. Useful for
+identifying network issues and agent configuration issues.
+
+Recovery plan: Work with IBM Support.
+----------------------------------------------------------------
+
+TEMSREPORT067
+Text: Agent Flipping Report - last 24 hours
+
+Sample Report
+Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,
+Host info/loc/addr,2,CON01:VA10DWVSQL308:MSS,2,REMOTE_va10plvtem023,ip.spipe:#30.135.21.134,11853[2],,
+Host info/loc/addr,6,Primary:VA10DWPAPP003:NT,6,REMOTE_va10plvtem025,ip.spipe:#30.135.105.30,34861[1] 33266[1] 34698[1] 34788[1] 27523[1] 27599[1],,
+Host info/loc/addr,4,Primary:VA01QWAPAPP002:NT,4,REMOTE_va01prtmapp004,ip.spipe:#10.100.141.60,49250[1] 49242[1] 49251[1] 49246[1],,
+Host info/loc/addr,6,Primary:VA10DWPAPP003:NT,6,REMOTE_va10plvtem025,ip.spipe:#30.135.105.30,16554[1] 16793[1] 16419[1] 16475[1] 16719[1] 16644[1],,
+Host info/loc/addr,4,Primary:VA01QWAPAPP002:NT,4,REMOTE_va01prtmapp004,ip.spipe:#10.100.141.60,49234[2] 49236[1] 49247[1],
+
+Meaning: A detailed report on agent location flipping focussing on just
+identifying network issues and agent configuration issues.
+
+Recovery plan: Work with IBM Support.
+----------------------------------------------------------------
+
+TEMSREPORT068
+Text: Agent Flipping Report - last 24 hours Summary
+
+Sample Report
+Node,Hostaddr,Count,Desc,Thrunode,Ports,
+CON01:VA10DWVSQL308:MSS,25,ip.spipe:#30.118.196.59,Host info/loc/addr[9] Thrunode[16],REMOTE_va10plvtem023[16] REMOTE_va10plvtem022[9],7757,
+CON01:VA10DWVSQL308:MSS,22,ip.spipe:#30.135.21.134,Host info/loc/addr[6] Thrunode[16],REMOTE_va10plvtem023[15] REMOTE_va10plvtem022[7],11853,
+
+Meaning: An summary of agent location flipping. Useful for
+identifying network issues and agent configuration issues.
+
+Recovery plan: Work with IBM Support.
 ----------------------------------------------------------------
