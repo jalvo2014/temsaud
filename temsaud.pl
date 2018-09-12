@@ -122,7 +122,7 @@
 
 
 
-my $gVersion = 1.92000;
+my $gVersion = 1.93000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -10037,6 +10037,7 @@ exit;
 #1.91000 - Handle some short length input
 #        - add some table sizes
 #1.92000 - Add Report 066/067/068 which focus on agent location instability
+#1.93000 - Update table sizes
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -12157,7 +12158,7 @@ Meaning:
 
 Code,Text,Count,Source,Level
 1C010001:1DE0000F, Endpoint unresponsive,3,
-,,3,ip.spipe:#10.230.2.45:3660,tms_ctbs630fp7:d6305a,
+,,3,ip.spipe:#xx.xxx.x.xx:3660,tms_ctbs630fp7:d6305a,
 
 This reports on ITM communications failures. In any large environment,
 there are usually some number of these. If there are a lot of them
@@ -12464,9 +12465,9 @@ Trace: error (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
 Meaning
 
 Node,Count,Hostaddr,Thrunode,Product,Version
-UITASM1A:KA4,1,ip.pipe:#10.75.200.108[10111]<NM>UITASM1A</NM>,REMOTE_USWS0047,A4,06.21.00,
-UITASM1A:KA4,1,ip.pipe:#10.75.200.109[6015]<NM>UITASM1X</NM>,REMOTE_USWS0047,A4,06.21.00,
-UITASM1A:KA4,1,ip.pipe:#10.75.200.109[6015]<NM>UITASM1A</NM>,REMOTE_USWS0047,A4,06.21.00,
+UITASM1A:KA4,1,ip.pipe:#xx.xx.xxx.xxx[10111]<NM>UITASM1A</NM>,REMOTE_USWS0047,A4,06.21.00,
+UITASM1A:KA4,1,ip.pipe:#xx.xx.xxx.xxx[6015]<NM>UITASM1X</NM>,REMOTE_USWS0047,A4,06.21.00,
+UITASM1A:KA4,1,ip.pipe:#xx.xx.xxx.xxx[6015]<NM>UITASM1A</NM>,REMOTE_USWS0047,A4,06.21.00,
 
 This records a time when a remote TEMS sends an updated agent
 status to a hub TEMS. If this occurs a lot that may indicate
@@ -12534,8 +12535,8 @@ Trace: error
 Meaning
 
 Error,Target,Count
-1C010001:1DE0004D,ip.spipe:#10.230.2.44:3660,1,
-1C010001:1DE0004D,ip.spipe:#10.231.46.80:3660,4,
+1C010001:1DE0004D,ip.spipe:#xx.xxx.x.xx:3660,1,
+1C010001:1DE0004D,ip.spipe:#xx.xxx.xx.xx.3660,4,
 
 This reports on Remote Procedure Call errors. These can indicate
 network or TEMS or Agent workload issues.
@@ -12746,14 +12747,14 @@ Parameter added -noflip to suppress
 Meaning
 
 Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,
-Host info/loc/addr,23,Primary:ATENEA2:NT,1,RTEMS01,ip.pipe:#10.231.33.234,,
-Host info/loc/addr,23,Primary:ATENEA2:NT,20,RTEMS01,ip.pipe:#10.231.33.95,,
-Host info/loc/addr,23,Primary:ATENEA2:NT,2,RTEMS02,ip.pipe:#10.231.33.95,,
+Host info/loc/addr,23,Primary:ATENEA2:NT,1,RTEMS01,ip.pipe:#xx.xxx.xx.xxx,,
+Host info/loc/addr,23,Primary:ATENEA2:NT,20,RTEMS01,ip.pipe:#xx.xxx.xx.xx,,
+Host info/loc/addr,23,Primary:ATENEA2:NT,2,RTEMS02,ip.pipe:#xx.xxx.xx.xx,,
 ...
-Thrunode,3,sappspaix04:KUX,2,RTEMS01,ip.spipe:#10.231.38.65,RTEMS02,
-Thrunode,3,sappspaix04:KUX,1,RTEMS02,ip.spipe:#10.231.38.65,RTEMS01,
-Thrunode,4,enertperpprd:KUX,2,RTEMS02,ip.pipe:#10.231.29.131,RTEMS01,
-Thrunode,4,enertperpprd:KUX,2,RTEMS01,ip.pipe:#10.231.29.131,RTEMS02,
+Thrunode,3,sappspaix04:KUX,2,RTEMS01,ip.spipe:#xx.xxx.xx.xx,RTEMS02,
+Thrunode,3,sappspaix04:KUX,1,RTEMS02,ip.spipe:#xx.xxx.xx.xx,RTEMS01,
+Thrunode,4,enertperpprd:KUX,2,RTEMS02,ip.pipe:#xx.xxx.xx.xxx,RTEMS01,
+Thrunode,4,enertperpprd:KUX,2,RTEMS01,ip.pipe:#xx.xxx.xx.xxx,RTEMS02,
 ...
 
 This report is new at ITM 630 FP7 on a hub or remote TEMS. It means
@@ -13177,9 +13178,9 @@ Meaning
 
 TEMSREPORT046: PostEvent Node Status Instance Exceptions
 Node,Count,Thrunode,Hostaddr,Product,Version,
-neo:neo:LO,74,REMOTE_NLAMA-MCTVPVL13,ip.pipe:#10.128.122.31[56272]<NM>neo</NM>,LO,06.30.00,
-neo:neo:LO,74,REMOTE_NLAMA-MCTVPVL13,ip.pipe:#10.213.193.41[46439]<NM>neo</NM>,LO,06.30.00,
-neo:neo:LO,74,REMOTE_NLAM3-MCTVPVL03,ip.pipe:#10.128.122.41[45325]<NM>neo</NM>,LO,06.30.00,
+neo:neo:LO,74,REMOTE_NLAMA-MCTVPVL13,ip.pipe:#xx.xxx.xxx.xx[56272]<NM>neo</NM>,LO,06.30.00,
+neo:neo:LO,74,REMOTE_NLAMA-MCTVPVL13,ip.pipe:#xx.xxx.xxx.xx[46439]<NM>neo</NM>,LO,06.30.00,
+neo:neo:LO,74,REMOTE_NLAM3-MCTVPVL03,ip.pipe:#xx.xxx.xxx.xx[45325]<NM>neo</NM>,LO,06.30.00,
 
 This reports the count of times when an agent, connected via a
 TEMS and from a specific hostaddr was seen going online or offline. In
@@ -13262,7 +13263,7 @@ Meaning
 Local_Time,Duration,IP,Diagnostic_Line_Number,
 ,SOAP_Message_Summary,
 ,First_Row_Result,
-20171201161040,0,ip.ssl:#9.30.240.127:52381,55960,
+20171201161040,0,ip.ssl:#x.xx.xxx.xxx:52381,55960,
 ,CT_Export=;filename=a;request=;CT_Get=;userid=sysadmin;password=xxxxxxx;table=O4SRV.UTCTIME;sql=SELECT NODE, AFFINITIES, PRODUCT, VERSION, RESERVED, O4ONLINE FROM O4SRV.INODESTS WHERE (O4ONLINE = 'N' OR O4ONLINE = 'Y');,
 ,<TABLE name="O4SRV.UTCTIME"><OBJECT>Universal_Time</OBJECT><DATA><ROW><NODE>54905lp7:KUX</NODE><AFFINITIES>%IBM.STATIC013          000000000P000Jyw0a7</AFFINITIES><PRODUCT>UX</PRODUCT><VERSION>06.23.05</VERSION><RESERVED>A=00:aix526;C=06.23.05.00:aix526;G=06.23.05.00:aix526;</RESERVED><O4ONLINE>N</O4ONLINE></ROW>
 
@@ -13659,11 +13660,11 @@ Text: Agent Flipping Report - last 24 hours
 
 Sample Report
 Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,
-Host info/loc/addr,2,CON01:VA10DWVSQL308:MSS,2,REMOTE_va10plvtem023,ip.spipe:#30.135.21.134,11853[2],,
-Host info/loc/addr,6,Primary:VA10DWPAPP003:NT,6,REMOTE_va10plvtem025,ip.spipe:#30.135.105.30,34861[1] 33266[1] 34698[1] 34788[1] 27523[1] 27599[1],,
-Host info/loc/addr,4,Primary:VA01QWAPAPP002:NT,4,REMOTE_va01prtmapp004,ip.spipe:#10.100.141.60,49250[1] 49242[1] 49251[1] 49246[1],,
-Host info/loc/addr,6,Primary:VA10DWPAPP003:NT,6,REMOTE_va10plvtem025,ip.spipe:#30.135.105.30,16554[1] 16793[1] 16419[1] 16475[1] 16719[1] 16644[1],,
-Host info/loc/addr,4,Primary:VA01QWAPAPP002:NT,4,REMOTE_va01prtmapp004,ip.spipe:#10.100.141.60,49234[2] 49236[1] 49247[1],
+Host info/loc/addr,2,CON01:VA10DWVSQL308:MSS,2,REMOTE_va10plvtem023,ip.spipe:#xx.xxx.xx.xxx,11853[2],,
+Host info/loc/addr,6,Primary:VA10DWPAPP003:NT,6,REMOTE_va10plvtem025,ip.spipe:#xx.xxx.xxx.xx,34861[1] 33266[1] 34698[1] 34788[1] 27523[1] 27599[1],,
+Host info/loc/addr,4,Primary:VA01QWAPAPP002:NT,4,REMOTE_va01prtmapp004,ip.spipe:#xx.xxx.xxx.xx,49250[1] 49242[1] 49251[1] 49246[1],,
+Host info/loc/addr,6,Primary:VA10DWPAPP003:NT,6,REMOTE_va10plvtem025,ip.spipe:#xx.xxx.xxx.xx,16554[1] 16793[1] 16419[1] 16475[1] 16719[1] 16644[1],,
+Host info/loc/addr,4,Primary:VA01QWAPAPP002:NT,4,REMOTE_va01prtmapp004,ip.spipe:#xx.xxx.xxx.xx,49234[2] 49236[1] 49247[1],
 
 Meaning: A detailed report on agent location flipping focussing on just
 identifying network issues and agent configuration issues.
@@ -13676,8 +13677,8 @@ Text: Agent Flipping Report - last 24 hours Summary
 
 Sample Report
 Node,Hostaddr,Count,Desc,Thrunode,Ports,
-CON01:VA10DWVSQL308:MSS,25,ip.spipe:#30.118.196.59,Host info/loc/addr[9] Thrunode[16],REMOTE_va10plvtem023[16] REMOTE_va10plvtem022[9],7757,
-CON01:VA10DWVSQL308:MSS,22,ip.spipe:#30.135.21.134,Host info/loc/addr[6] Thrunode[16],REMOTE_va10plvtem023[15] REMOTE_va10plvtem022[7],11853,
+CON01:VA10DWVSQL308:MSS,25,ip.spipe:#xx.xxx.xxx.xx,Host info/loc/addr[9] Thrunode[16],REMOTE_va10plvtem023[16] REMOTE_va10plvtem022[9],7757,
+CON01:VA10DWVSQL308:MSS,22,ip.spipe:#xx.xxx.xx.xxx,Host info/loc/addr[6] Thrunode[16],REMOTE_va10plvtem023[15] REMOTE_va10plvtem022[7],11853,
 
 Meaning: An summary of agent location flipping. Useful for
 identifying network issues and agent configuration issues.
