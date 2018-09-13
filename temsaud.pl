@@ -122,7 +122,7 @@
 
 
 
-my $gVersion = 1.93000;
+my $gVersion = 1.94000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -401,10 +401,10 @@ my %advcx = (
               "TEMSAUDIT1036W" => "60",
               "TEMSAUDIT1037E" => "100",
               "TEMSAUDIT1038W" => "80",
-              "TEMSAUDIT1039W" => "95",
+              "TEMSAUDIT1039W" => "85",
               "TEMSAUDIT1040E" => "100",
               "TEMSAUDIT1041E" => "100",
-              "TEMSAUDIT1042E" => "100",
+              "TEMSAUDIT1042E" => "95",
               "TEMSAUDIT1043E" => "110",
               "TEMSAUDIT1044E" => "100",
               "TEMSAUDIT1045W" => "95",
@@ -412,7 +412,7 @@ my %advcx = (
               "TEMSAUDIT1047W" => "95",
               "TEMSAUDIT1048E" => "100",
               "TEMSAUDIT1049E" => "100",
-              "TEMSAUDIT1050W" => "100",
+              "TEMSAUDIT1050W" => "95",
               "TEMSAUDIT1051E" => "110",
               "TEMSAUDIT1052E" => "200",
               "TEMSAUDIT1053W" => "95",
@@ -467,6 +467,8 @@ my %advcx = (
               "TEMSAUDIT1102W" => "99",
               "TEMSAUDIT1103W" => "95",
               "TEMSAUDIT1104E" => "100",
+              "TEMSAUDIT1105E" => "102",
+              "TEMSAUDIT1106W" => "95",
             );
 
 
@@ -959,7 +961,12 @@ my $tec_classname_ct = 0;
 
 my %changex;
 my $changex_ct = 0;
+my $change_ref;
+my $change_slot_ref;
+my $change_node_ref;
+my $change_instance_ref;
 my %changetx;
+my $changet_ref;
 
 my %misscolx;
 my $misscolx_ct;
@@ -4337,7 +4344,7 @@ for(;;)
          if ($opt_flip == 1) {
             $oneline =~ /^\((\S+)\)(.+)$/;
             $rest = $2;                       #  Host info/loc/addr change detected for node <uuc_wtwavwq9:06                 > thrunode <REMOTE_usitmpl8057-itm2         > hostAddr: <ip.spipe:#192.168.10.72[4206]<NM>uuc_wtwavwq9</NM>          >
-            if (index($rest,"for node") != -1) {
+            if (index($rest,"detected for node") != -1) {
                $rest =~ / (.*?) change detected for node \<(.*?)\>(.+)$/;
                my $idesc = $1;
                my $inode = $2;
@@ -4365,18 +4372,19 @@ for(;;)
                $ioldthrunode =~ s/\s+$//;   #trim trailing whitespace
                $ihostaddr =~ s/\s+$//;   #trim trailing whitespace
                my $islot = sec2slot($logtime,60);
-               my $change_ref = $changex{$idesc};
+               $change_ref = $changex{$idesc};
                $changex_ct += 1;
                if (!defined $change_ref) {
                   my %changeref = (
                                      count => 0,
                                      slots => {},
+                                     nodesum => {},
                                   );
                   $change_ref = \%changeref;
                   $changex{$idesc} = \%changeref;
                }
                $change_ref->{count} += 1;
-               my $change_slot_ref = $change_ref->{slots}{$islot};
+               $change_slot_ref = $change_ref->{slots}{$islot};
                if (!defined $change_slot_ref) {
                   my %changeslotref = (
                                          count => 0,
@@ -4386,32 +4394,34 @@ for(;;)
                   $change_ref->{slots}{$islot} = \%changeslotref;
                   $lastslot = $islot;
                }
-               my $change_node_ref = $change_slot_ref->{nodes}{$inode};
+               $change_slot_ref->{count} += 1;
+               $change_node_ref = $change_slot_ref->{nodes}{$inode};
                if (!defined $change_node_ref) {
                   my %changenoderef = (
                                          count => 0,
                                          instances => {},
-                                  );
+                                      );
                   $change_node_ref = \%changenoderef;
                   $change_slot_ref->{nodes}{$inode} = \%changenoderef;
                }
                $change_node_ref->{count} += 1;
                my $changekey = $ithrunode . "|" . $ihostaddr;
-               my $change_instance_ref = $change_node_ref->{instances}{$changekey};
+               $change_instance_ref = $change_node_ref->{instances}{$changekey};
                if (!defined $change_instance_ref) {
                   my %changeinstanceref = (
                                              count => 0,
-                                             hostaddr =>$ihostaddr,
-                                             thrunode =>$ithrunode,
-                                             oldthrunode =>$ioldthrunode,
+                                             hostaddr => $ihostaddr,
+                                             thrunode => $ithrunode,
+                                             oldthrunode => $ioldthrunode,
                                              ports => {},
-                                  );
+                                          );
                   $change_instance_ref = \%changeinstanceref;
                   $change_node_ref->{instances}{$changekey} = \%changeinstanceref;
                }
                $change_instance_ref->{count} += 1;
+               $change_ref->{nodesum}{$inode} += 1;
                $change_instance_ref->{ports}{$iport} += 1 if defined $iport;
-               my $changet_ref = $changetx{$islot};
+               $changet_ref = $changetx{$islot};
                if (!defined $changet_ref) {
                   my %changetref = (
                                       count => 0,
@@ -6463,12 +6473,12 @@ if ($readn_ct > 0) {
 my $change_real = 0;
 if ($changex_ct > 0) {
    foreach $f ( sort { $a cmp $b } keys %changex) {
-      my $change_ref = $changex{$f};
+      $change_ref = $changex{$f};
       foreach $g (keys %{$change_ref->{slots}}) {
-         my $change_slot_ref = $change_ref->{slots}{$g};
+         $change_slot_ref = $change_ref->{slots}{$g};
          foreach $h (keys %{$change_slot_ref->{nodes}}) {
-            my $change_node_ref = $change_slot_ref->{nodes}{$h};
-            next if $change_node_ref->{count} < 2;
+            $change_node_ref = $change_slot_ref->{nodes}{$h};
+            next if $change_ref->{nodesum}{$h} < 2;
             $change_real += 1;
          }
       }
@@ -8011,14 +8021,14 @@ if ($change_real > 0) {
    $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report\n";
    $cnt++;$oline[$cnt]="Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,\n";
    foreach $f ( sort { $a cmp $b } keys %changex) {
-      my $change_ref = $changex{$f};
+      $change_ref = $changex{$f};
       foreach $g (keys %{$change_ref->{slots}}) {
-         my $change_slot_ref = $change_ref->{slots}{$g};
+         $change_slot_ref = $change_ref->{slots}{$g};
          foreach $h (keys %{$change_slot_ref->{nodes}}) {
-            my $change_node_ref = $change_slot_ref->{nodes}{$h};
-            next if $change_node_ref->{count} < 2;
+            $change_node_ref = $change_slot_ref->{nodes}{$h};
+            next if $change_ref->{nodesum}{$h} < 2;
             foreach $i (keys %{$change_node_ref->{instances}}) {
-               my $change_instance_ref = $change_node_ref->{instances}{$i};
+               $change_instance_ref = $change_node_ref->{instances}{$i};
                $outl = $f . ",";
                $outl .= $change_node_ref->{count} . "," . $h . ",";
                $outl .= $change_instance_ref->{count} . ",";
@@ -8037,6 +8047,8 @@ if ($change_real > 0) {
       }
    }
    my %nodeipx;
+   my %nodeipdx;
+   my %nodeippx;
    my $last_time = time2sec($lastslot);
    $last_time -= 86400;
    my $last_day = sec2time($last_time);
@@ -8045,15 +8057,15 @@ if ($change_real > 0) {
    $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - last 24 hours\n";
    $cnt++;$oline[$cnt]="Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,\n";
    foreach $f ( sort { $a cmp $b } keys %changex) {
-      my $change_ref = $changex{$f};
+      $change_ref = $changex{$f};
       foreach $g (keys %{$change_ref->{slots}}) {
       next if $g le $last_day;
-         my $change_slot_ref = $change_ref->{slots}{$g};
+         $change_slot_ref = $change_ref->{slots}{$g};
          foreach $h (keys %{$change_slot_ref->{nodes}}) {
-            my $change_node_ref = $change_slot_ref->{nodes}{$h};
-            next if $change_node_ref->{count} < 2;
+            $change_node_ref = $change_slot_ref->{nodes}{$h};
+            next if $change_ref->{nodesum}{$h} < 2;
             foreach $i (keys %{$change_node_ref->{instances}}) {
-               my $change_instance_ref = $change_node_ref->{instances}{$i};
+               $change_instance_ref = $change_node_ref->{instances}{$i};
                $outl = $f . ",";
                $outl .= $change_node_ref->{count} . "," . $h . ",";
                $outl .= $change_instance_ref->{count} . ",";
@@ -8087,10 +8099,88 @@ if ($change_real > 0) {
                foreach my $j (keys %{$change_instance_ref->{ports}}) {
                   $node_ip_ref->{ports}{$j} += 1;
                }
+               my $node_ipd_ref = $nodeipdx{$h};
+               if (!defined $node_ipd_ref) {
+                  my %node_ipdref = (
+                                      hostaddr => {},
+                                    );
+                  $node_ipd_ref = \%node_ipdref;
+                  $nodeipdx{$h} = \%node_ipdref;
+               }
+               $node_ipd_ref->{hostaddr}{$change_instance_ref->{hostaddr}} += 1 if !defined $node_ipd_ref->{hostaddr}{$change_instance_ref->{hostaddr}};
+               my $node_ipp_ref = $nodeippx{$h};
+               if (!defined $node_ipp_ref) {
+                  my %node_ippref = (
+                                      hostaddr1 => "",
+                                      ports => {},
+                                    );
+                  $node_ipp_ref = \%node_ippref;
+                  $nodeippx{$h} = \%node_ippref;
+               }
+               $node_ipp_ref->{hostaddr1} = $change_instance_ref->{hostaddr};
+               foreach my $j (keys %{$change_instance_ref->{ports}}) {
+                  $node_ipp_ref->{ports}{$j} += 1 if !defined $node_ipp_ref->{ports}{$j};
+               }
             }
          }
       }
    }
+
+   $rptkey = "TEMSREPORT069";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - Duplicate Agent Names from last 24 hours\n";
+   $cnt++;$oline[$cnt]="Node,Count,Hostaddrs,\n";
+   my $idupcnt = 0;
+   foreach $f (sort { $a cmp $b} keys %nodeipdx) {
+      my $node_ipd_ref = $nodeipdx{$f};
+      my $ip_ct = scalar keys %{$node_ipd_ref->{hostaddr}};
+      next if $ip_ct < 2;
+      $idupcnt += 1;
+      $outl = $f . ",";
+      $outl .= $ip_ct . ",";
+      my $paddr = "";
+      foreach my $j (keys %{$node_ipd_ref->{hostaddr}}) {
+         $paddr .= $j . " ";
+      }
+      chop($paddr) if $paddr ne "";
+      $outl .= $paddr . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   if ($idupcnt > 0 ) {
+      $advi++;$advonline[$advi] = "$idupcnt duplicate agent name cases - see $rptkey report";
+      $advcode[$advi] = "TEMSAUDIT1105E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "diagnostic";
+   }
+
+   $rptkey = "TEMSREPORT070";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - Multi Listening Ports from last 24 hours\n";
+   $cnt++;$oline[$cnt]="Node,Count,Hostaddr1,Ports,\n";
+   my $iportcnt = 0;
+   foreach $f (sort { $a cmp $b} keys %nodeippx) {
+      my $node_ipp_ref = $nodeippx{$f};
+      my $ip_ct = scalar keys %{$node_ipp_ref->{ports}};
+      next if $ip_ct < 2;
+      $iportcnt += 1;
+      $outl = $f . ",";
+      $outl .= $ip_ct . ",";
+      $outl .= $node_ipp_ref->{hostaddr1} . ",";
+      my $pport = "";
+      foreach my $j (keys %{$node_ipp_ref->{ports}}) {
+         $pport .= $j . " ";
+      }
+      chop($pport) if $pport ne "";
+      $outl .= $pport . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   if ($iportcnt > 0 ) {
+      $advi++;$advonline[$advi] = "$iportcnt agents with multiple listening ports - see $rptkey report";
+      $advcode[$advi] = "TEMSAUDIT1106W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "diagnostic";
+   }
+
    $rptkey = "TEMSREPORT068";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - last 24 hours Summary\n";
@@ -8099,6 +8189,7 @@ if ($change_real > 0) {
    foreach $f (sort { $nodeipx{$a}->{node} cmp $nodeipx{$b}->{node} ||
                       $nodeipx{$a}->{hostaddr} cmp $nodeipx{$b}->{hostaddr}} keys %nodeipx) {
       my $node_ip_ref = $nodeipx{$f};
+      next if $node_ip_ref->{count} < 2;
       $outl = $node_ip_ref->{node} . ",";
       $outl .= $node_ip_ref->{count} . ",";
       $outl .= $node_ip_ref->{hostaddr} . ",";
@@ -8122,12 +8213,13 @@ if ($change_real > 0) {
       $outl .= $pports . ",";
       $cnt++;$oline[$cnt]="$outl\n";
    }
+
    $rptkey = "TEMSREPORT066";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Summary by hour\n";
    $cnt++;$oline[$cnt]="LocalTime,Changes,Nodes,Types,Thrunodes,\n";
    foreach $f ( sort { $a <=> $b } keys %changetx) {
-      my $changet_ref = $changetx{$f};
+      $changet_ref = $changetx{$f};
       $outl = $f . ",";
       $outl .= $changet_ref->{count} . ",";
       my $agent_ct = scalar keys %{$changet_ref->{nodes}};
@@ -10038,6 +10130,7 @@ exit;
 #        - add some table sizes
 #1.92000 - Add Report 066/067/068 which focus on agent location instability
 #1.93000 - Update table sizes
+#1.94000 - Add report069 on known duplicate agent names.
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -11961,6 +12054,26 @@ Meaning: See TEMSREPORT065 explanation for details.
 Recovery plan: Review and repair if necessary.
 --------------------------------------------------------------
 
+TEMSAUDIT1105E
+Text: count duplicate agent name cases
+
+Tracing: error
+
+Meaning: See TEMSREPORT069 explanation for details.
+
+Recovery plan: Configure agents with unique names.
+--------------------------------------------------------------
+
+TEMSAUDIT1106W
+Text: count agents with multiple listening ports
+
+Tracing: error
+
+Meaning: See TEMSREPORT070 explanation for details.
+
+Recovery plan: Investigate Agent configuration and networking.
+--------------------------------------------------------------
+
 TEMSAUDIT1098E
 Text: Situations [count] with Application missing from catalog
 
@@ -13684,4 +13797,41 @@ Meaning: An summary of agent location flipping. Useful for
 identifying network issues and agent configuration issues.
 
 Recovery plan: Work with IBM Support.
+----------------------------------------------------------------
+
+TEMSREPORT069
+Text: Agent Flipping Report - Duplicate Agent Names from last 24 hours
+
+Sample Report
+Node,Count,Hostaddrs,
+Primary:CA47PWVCTX096:NT,2,ip.spipe:#xx.xxx.x.xxx ip.spipe:#xx.xxx.x.xxx,
+Primary:CA47PWVCTX104:NT,2,ip.spipe:#xx.xxx.x.xxx ip.spipe:#xx.xxx.x.xxx,
+
+Meaning: An list of agent names which have been reporting from different systems
+over the last 24 hours. This causes significant TEMS instability and TEPS
+performance isssues. ITM depends on each agent having a unique name and
+that should not be violated.
+
+Recovery plan: Reconfigure the agents to have unique names.
+----------------------------------------------------------------
+
+TEMSREPORT070
+Text: Agent Flipping Report - Multi Listening Ports from last 24 hours
+
+Sample Report
+Node,Count,Hostaddr1,Ports,
+MFP01CA017:NT,2,ip.spipe:#xx.xx.xx.xxx,ppppp ppppp,
+PCXTA49:VA10PWPAPP043:MQ,4,ip.spipe:#xx.xxx.xxx.xxx,pppp pppp pppp pppp,
+
+Meaning: An list of agent names which have been reporting using different
+listening ports over the last 24 hours. This is evidence of agent
+configuration issues or severe networking issues. The Hostaddr1 is a
+system running the agent. There could be more than one system so cross-check
+with REPORT069.
+
+This condition has some impact on the hub and remote TEMSes. However the
+big impact is that monitoring on the agent may not be working as expected.
+
+Recovery plan: Investigate agents and resolve issues, perhaps with
+IBM Support.
 ----------------------------------------------------------------
