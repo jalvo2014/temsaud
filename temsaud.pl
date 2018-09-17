@@ -122,7 +122,7 @@
 
 
 
-my $gVersion = 1.94000;
+my $gVersion = 1.95000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -1060,9 +1060,13 @@ my $opt_nominal_max_impact = 50;                     # Above this impact level, 
 my $opt_nominal_loci = 1;                     # Above this percent, record in loci report
 my $opt_portscan = 1;                         # portscan report
 my $opt_last = 1;
+my $opt_dupfile;                              # Produce potential duplicate agent file
 my $opt_churnall = 0;                         # when 1, produce 100% churn report
 my $opt_prtlim;
 my $opt_hb;                                   # Agent heartbeat default 600 seconds
+
+my $dupfi = -1;
+my @dupf = [],
 
 my $arg_start = join(" ",@ARGV);
 $hdri++;$hdr[$hdri] = "Runtime parameters: $arg_start";
@@ -1183,6 +1187,9 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-noportscan") {
       $opt_portscan = 0;
       shift(@ARGV);
+   } elsif ($ARGV[0] eq "-dupfile") {
+      $opt_dupfile = 1;
+      shift(@ARGV);
    } elsif ($ARGV[0] eq "-churnall") {
       $opt_churnall = 1;
       shift(@ARGV);
@@ -1259,6 +1266,7 @@ if (!defined $opt_sth) {$opt_sth = 0;}
 if (!defined $opt_prtlim) {$opt_prtlim = 1;}
 if (!defined $opt_hb) {$opt_hb = 600;}
 if (!defined $opt_gap) {$opt_gap = 0;}
+if (!defined $opt_dupfile) {$opt_dupfile = 0;}
 $opt_stfn = "eventhist.csv" if $opt_sth == 1;
 $opt_ndfn = "nodehist.csv" if $opt_sth == 1;
 open( ZOP, ">$opt_zop" ) or die "Cannot open zop file $opt_zop : $!" if $opt_zop ne "";
@@ -8145,12 +8153,23 @@ if ($change_real > 0) {
       chop($paddr) if $paddr ne "";
       $outl .= $paddr . ",";
       $cnt++;$oline[$cnt]="$outl\n";
+      $dupfi++;$dupf[$dupfi] = $outl;
    }
    if ($idupcnt > 0 ) {
       $advi++;$advonline[$advi] = "$idupcnt duplicate agent name cases - see $rptkey report";
       $advcode[$advi] = "TEMSAUDIT1105E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "diagnostic";
+      if ($opt_dupfile == 1) {
+         my $dupfn = "dupagent.csv";
+         open DUPFILE, ">$dupfn" or die "Unable to open Duplicate Agent output file $dupfn\n";
+         print DUPFILE "*Potential Duplicate Agent Name Cases - $opt_nodeid\n";
+         print DUPFILE "*Node,Count,Hostaddrs,\n";
+         for ($i=0;$i<=$dupfi;$i++) {
+            print DUPFILE "$dupf[$i]\n";
+         }
+         close(DUPFILE);
+      }
    }
 
    $rptkey = "TEMSREPORT070";$advrptx{$rptkey} = 1;         # record report key
@@ -10131,6 +10150,7 @@ exit;
 #1.92000 - Add Report 066/067/068 which focus on agent location instability
 #1.93000 - Update table sizes
 #1.94000 - Add report069 on known duplicate agent names.
+#1.95000 - Add -dupfile option to produce dupagent.csv of potential duplicate agent name cases
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
