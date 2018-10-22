@@ -122,7 +122,7 @@
 
 
 
-my $gVersion = 1.95000;
+my $gVersion = 1.99000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -322,6 +322,26 @@ sub set_timeline;
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
 
+my @accept;
+my $accept_ref;
+my %accept_trackerx;
+my $accept_tracker_ref;
+
+my @newPCB;
+my $newpcb_ref;
+my @listen;
+my $listen_ref;
+
+my %accepthbx;
+my $accepthb_ref;
+
+
+
+my %barunx;
+my %ip72x;
+my %resumex;
+my $resume_ref;
+
 my %sec2slotx;
 my $lastslot;
 
@@ -469,6 +489,8 @@ my %advcx = (
               "TEMSAUDIT1104E" => "100",
               "TEMSAUDIT1105E" => "102",
               "TEMSAUDIT1106W" => "95",
+              "TEMSAUDIT1107E" => "100",
+              "TEMSAUDIT1108E" => "100",
             );
 
 
@@ -483,17 +505,21 @@ my %knowntabx = (
                    'FILEINFO'   => '6232',
                    'ICMPSTAT'   => '324',
                    'K06CSCRIP0' => '304',
+                   'K06LOGFILE' => '2824',
                    'K06K06CUS0' => '924',
                    'K06PERLEX0' => '364',
                    'K06PERLEX1' => '344',
                    'K06PERLEX2' => '1416',
                    'K06PERLEX4' => '444',
+                   'K06PERLEX5' => '468',
                    'K06PERLEX6' => '625',
                    'K06TEST' => '404',
                    'K07K07ERS0' => '176',
                    'K07K07FSC0' => '960',
                    'K07K07LGS0' => '1416',
                    'K07K07LOG0' => '668',
+                   'K07K07MAL0' => '52',
+                   'K07K07MNT0' => '1712',
                    'K07K07NET0' => '345',
                    'K07K07PRO0' => '3979',
                    'K07K07TRA0' => '332',
@@ -509,15 +535,21 @@ my %knowntabx = (
                    'K08K08MAI1' => '444',
                    'K08K08SCR0' => '1416',
                    'K09K09CUS0' => '924',
+                   'K09K09FSC0' => '968',
                    'K09K09SOL0' => '193',
                    'K1AWADPERF' => '360',
                    'K24EVENTLO' => '2864',
                    'K2SQUERYRE' => '212',
-                   'K3ZNTDSDCA' => '1816',
+                   'K3ZNTDSDCA' => '1836',
+                   'K3ZNTDSDAI' => '1140',
+                   'K3ZNTDSDNS' => '584',
+                   'K3ZNTDSDS'  => '304',
+                   'K3ZNTDSLDP' => '272',
                    'K3ZNTDSSVC' => '1340',
                    'K5DK5DSANP' => '372',
                    'K5ECSCRIPT' => '188',
                    'K5IDBCACHE' => '2304',
+                   'KA4CTLD'    => '88',
                    'KA4DISK'    => '176',
                    'KA4IFSOBJ'  => '3232',
                    'KA4LIND'    => '88',
@@ -581,9 +613,9 @@ my %knowntabx = (
                    'KNTPASCAP' => '3000',
                    'KNTPASSTAT' => '1392',
                    'KNTSCRRTM'  => '3544',
-                   'KOQDBD' => '2708',
+                   'KOQDBD' => '2712',
                    'KOQDBMIR' => '672',
-                   'KOQDBS' => '240',
+                   'KOQDBS' => '248',
                    'KOQDEVD' => '1420',
                    'KOQFGRPD' => '980',
                    'KOQJOBD' => '1900',
@@ -649,11 +681,11 @@ my %knowntabx = (
                    'KRZTSNLUE' => '292',
                    'KRZTSOVEW' => '428',
                    'KRZTSTPUE' => '244',
-                   'KSABUFFER' => '644',
+                   'KSABUFFER' => '768',
                    'KSACTS' => '864',
                    'KSADMPCNT' => '472',
                    'KSAJOBS' => '944',
-                   'KSAPERF' => '564',
+                   'KSAPERF' => '672',
                    'KSAPROCESS' => '1052',
                    'KSASERINFO' => '340',
                    'KSASLOG' => '1004',
@@ -676,6 +708,7 @@ my %knowntabx = (
                    'KUXDEVIC'      => '660',
                    'KUXPASALRT'    => '484',
                    'KUXPASMGMT'    => '512',
+                   'KUXSCRPTS' => '3952',
                    'KUXSCRTSM' => '3544',
                    'KVA21PAGIN' => '76',
                    'KVA22LOGIC' => '1076',
@@ -818,6 +851,7 @@ my %knowntabx = (
                    'UNIXWPARCP'    => '408',
                    'UNIXWPARIN'    => '5504',
                    'UNIXWPARPM'    => '400',
+                   'UNXPRINTQ'     => '288',
                    'UTCTIME'       => '112',
                    'WTLOGCLDSK'    => '652',
                    'WTMEMORY'      => '388',
@@ -1064,6 +1098,10 @@ my $opt_dupfile;                              # Produce potential duplicate agen
 my $opt_churnall = 0;                         # when 1, produce 100% churn report
 my $opt_prtlim;
 my $opt_hb;                                   # Agent heartbeat default 600 seconds
+my $opt_crit = "";
+my $critical_fn = "temsaud.crit";
+my @crits;
+my $crit_line;
 
 my $dupfi = -1;
 my @dupf = [],
@@ -1227,8 +1265,14 @@ while (@ARGV) {
       $opt_workpath = shift(@ARGV);
 #     $opt_inplace = 0;
       die "workpath specified but no path found\n" if !defined $opt_workpath;
-   }
-   else {
+   } elsif ( $ARGV[0] eq "-crit") {
+      shift(@ARGV);
+      $opt_crit = shift(@ARGV);
+      if (!defined $opt_crit) {
+         print STDERR "option -crit with no following crit directory";
+         exit 1;
+      }
+   } else {
       $logfn = shift(@ARGV);
       die "log file not defined\n" if !defined $logfn;
    }
@@ -3110,6 +3154,7 @@ for(;;)
    }
    # (55C220BB.0003-5B:kdebpli.c,115,"pipe_listener") ip.spipe suspending new connections: 1DE0000D
    if (substr($logunit,0,9) eq "kdebpli.c") {
+#$DB::single=2 if $l == 346;;
       if ($logentry eq "pipe_listener") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # suspending new connections
@@ -3118,6 +3163,28 @@ for(;;)
             $portscan++;
             $portscan_suspend++;
             push (@{$portscan_timex{$logtimehex}},"suspend");
+
+         }
+
+      # (5BB5C655.0002-19:kdebpli.c,259,"KDEBP_Listen") pipe 2 assigned: PLE=115B244F0, count=1, hMon=2D5003E1
+      } elsif ($logentry eq "KDEBP_Listen") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # suspending new connections
+         if (index($rest,"assigned") != -1) {
+            $rest =~ /pipe (\d+) assigned: .*? count=(\d+),/;
+            my $ipipe = $1;
+            my $icount = $2;
+            my $accept_ref = $newPCB[0];
+            if (defined $accept_ref) {
+               if ($accept_ref->{state} == 1) {
+                  shift @newPCB;
+                  $accept_ref->{pipe} = $ipipe;
+                  $accept_ref->{pipe_count} = $icount;
+                  $accept_ref->{l_listen} = $l;
+                  $accept_ref->{state} = 2;
+                  push @listen,$accept_ref;
+               }
+            }
          }
       }
    }
@@ -3131,6 +3198,113 @@ for(;;)
             $portscan++;
             $portscan_72++;
             push (@{$portscan_timex{$logtimehex}},"error72");
+
+         # Accept from 10.220.11.61:51900, pASD=115C47810, socket=0000000F
+         } elsif (substr($rest,1,11) eq "Accept from") {
+            $rest =~ /Accept from (\S+):(\d+), pASD=(\S+), socket=(\S+)/;
+            my $iip = $1;
+            my $iport = $2;
+            my $iasd = $3;
+            my $isocket = $4;
+            my $barun_ref = $barunx{$logthread};
+            if (!defined $barun_ref) {
+               my %barunref = (
+                                 asd => "",
+                                 port => "",
+                                 ip => "",
+                                 socket => "",
+                                 l => 0,
+                              );
+               $barun_ref = \%barunref;
+               $barunx{$logthread} = \%barunref;
+            }
+            $barun_ref->{asd} = $iasd;
+            $barun_ref->{ip} = $iip;
+            $barun_ref->{port} = $iport;
+            $barun_ref->{socket} = $isocket;
+            $barun_ref->{l} = $l;
+            # second use logic adds to array of accepts
+            if ($iip ne "127.0.0.1") {
+               my %acceptref = (
+                                  ip => $iip,
+                                  port => $iport,
+                                  asd => $iasd,
+                                  socket => $isocket,
+                                  state => 0,
+                                  pipe_addr => "",
+                                  pipe => 0,
+                                  pipe_count => 0,
+                                  node => "",
+                                  l_accept => $l,
+                                  l_newPCB => 0,
+                                  l_listen => 0,
+                                  l_hb => 0,
+                               );
+              push @accept,\%acceptref;
+         }
+
+#        # Accept error: pASD=115C47810, socket=0000000F, iErrno=72
+#        } elsif (substr($rest,1,12) eq "Accept error") {
+#           $rest =~ /Accept error: pASD=(\S+), socket=(\S+), iErrno=(\d+)/;
+#           my $iasd = $1;
+#           my $isocket = $2;
+#           my $ierror = $3;
+#           my $barun_ref = $barunx{$logthread};
+#           if (defined $barun_ref) {
+#              if ($barun_ref->{asd} eq $iasd) {
+#                 if ($barun_ref->{socket} eq $isocket) {
+#                    my $ikey = $barun_ref->{ipport};
+#                    my $ip72_ref = $ip72x{$ikey};
+#                    if (!defined $ip72_ref) {
+#                       my %ip72ref = (
+#                                        error => {},
+#                                        count => 0,
+#                                        times => [],
+#                                        lines => []
+#                                     );
+#                       $ip72_ref = \%ip72ref;
+#                       $ip72x{$ikey} = \%ip72ref;
+#                    }
+#                    $ip72_ref->{count} += 1;
+#                    $ip72_ref->{error}{$ierror} += 1;
+#                    push (@{$ip72_ref->{times}},$logtimehex);
+#                    push (@{$ip72_ref->{lines}},$l);
+#$DB::single=2;
+#my $x = 1;
+#                 }
+#              }
+#           }
+         }
+      }
+   }
+   # (5BB5FB99.0001-7:kdebpli.c,87,"pipe_listener") ip.spipe resuming new connections
+   if (substr($logunit,0,9) eq "kdebpli.c") {
+      if ($logentry eq "pipe_listener") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # ip.spipe resuming new connections
+         if (index($rest,"resuming new connections") != -1) {
+            $rest =~ / (\S+) resuming new connections/;
+            my $itcb = $1;
+            my $barun_ref = $barunx{$logthread};
+            if (defined $barun_ref) {
+               if ($l-1 == $barun_ref->{l}) {
+                  my $ikey = $barun_ref->{ip};
+                  $resume_ref = $resumex{$ikey};
+                  if (!defined $resume_ref) {
+                     my %resumeref = (
+                                        count => 0,
+                                        instances => [],
+                                        ports => {},
+                                     );
+                     $resume_ref = \%resumeref;
+                     $resumex{$ikey} = \%resumeref;
+                  }
+                  $resume_ref->{count} += 1;
+                  $resume_ref->{ports}{$barun_ref->{port}} += 1;
+                  my @iresumedet = [$logtimehex,$barun_ref->{l},$barun_ref->{port},$itcb];
+                  push @{$resume_ref->{instances}},\@iresumedet;
+               }
+            }
          }
       }
    }
@@ -3741,9 +3915,49 @@ for(;;)
          if ($logtime > $agto_etime) {
             $agto_etime = $logtime;
          }
+
+         # now track for Listen queue
+         if (substr($rest,-8,8) eq "ON-LINE.") {
+            my $accept_ref = $listen[0];
+            if (defined $accept_ref) {
+               if ($accept_ref->{state} == 2) {
+                  shift @listen;
+                  $accept_ref->{node} = $iagent;
+                  $accept_ref->{l_hb} = $l;
+                  $accept_ref->{state} = 3;
+                  # We have gathered all we need
+                  my $accept_tracker_ref = $accept_trackerx{$accept_ref->{node}};
+                  if (!defined $accept_tracker_ref) {
+                     my %accept_trackerref = (
+                                               count => 0,
+                                               instances => {},
+                                             );
+                     $accept_tracker_ref = \%accept_trackerref;
+                     $accept_trackerx{$accept_ref->{node}} = \%accept_trackerref;
+                  }
+                  $accept_tracker_ref->{count} += 1;
+                  my $accept_instance_ref = $accept_tracker_ref->{instances}{$accept_ref->{ip}};
+                  if (!defined $accept_instance_ref) {
+                     my %accept_instanceref = (
+                                                 count => 0,
+                                                 ports => {},
+                                                 times => [],
+                                                 pipea => {},
+                                              );
+                     $accept_instance_ref = \%accept_instanceref;
+                     $accept_tracker_ref->{instances}{$accept_ref->{ip}} = \%accept_instanceref;
+                  }
+                  $accept_instance_ref->{count} += 1;
+                  $accept_instance_ref->{ports}{$accept_ref->{port}} += 1;
+                  $accept_instance_ref->{pipea}{$accept_ref->{pipe_addr}} += 1;
+                  push @{$accept_instance_ref->{times}},$logtimehex;
+               }
+            }
+         }
       }
       next;
    }
+
 
    # (5927EF95.0000-7:ko4stg3u.cpp,569,"IBInterface::handleNodelistRecord") Error: <1136> failed to download node list record
    # (59FA17DC.0001-8:ko4stg3u.cpp,754,"IBInterface::updateIB") Error: Failed to resolve object name for EIB notification 1 of 1:
@@ -3832,6 +4046,18 @@ for(;;)
             $pcb_ref->{newPCB} += 1;
             $pcb_ref->{addr}{$iaddr}=1;
             $pcbr{$iaddr} = $iip;
+
+            # pop top of accept stack
+            my $accept_ref = $accept[0];
+            if (defined $accept_ref) {
+               if ($accept_ref->{state} == 0) {
+                  shift @accept;
+                  $accept_ref->{pipe_addr} = $iip;
+                  $accept_ref->{l_newPCB} = $l;
+                  $accept_ref->{state} = 1;
+                  push @newPCB,$accept_ref;
+               }
+            }
             next;
          }
       }
@@ -6235,6 +6461,12 @@ $cnt++;$oline[$cnt]="Total Rows,,,$sitrows_tot\n";
 $cnt++;$oline[$cnt]="Total Result (bytes),,,$sitres_tot\n";
 my $trespermin = int($sitres_tot / ($dur / 60));
 $cnt++;$oline[$cnt]="Total Results per minute,,,$trespermin\n";
+if ($trespermin >= 500000) {
+   my $wrate = ($trespermin*100)/500000;
+   my $wpc = sprintf '%.2f%%', $wrate;
+   $crit_line = "6,High incoming results $trespermin per minute worried[$wpc]";
+   push @crits,$crit_line;
+}
 if ($uadvisor_bytes>0) {
    $cnt++;$oline[$cnt]="Total UADVISOR (bytes),,,$uadvisor_bytes\n";
    my $res_pc = int(($uadvisor_bytes*100)/$sitres_tot);
@@ -6316,6 +6548,8 @@ if ($syncdist_early > -1) {
       $advcode[$advi] = "TEMSAUDIT1008E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "Sync";
+      $crit_line = "2,Early remote SQL failures [&syncdist_early]";
+      push @crits,$crit_line;
    }
 
 if ($stage2_ct > 2) {
@@ -6353,6 +6587,8 @@ if (($portscan_suspend + $portscan_72) > 0) {
    $advcode[$advi] = "TEMSAUDIT1049E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Portscan";
+   $crit_line = "4,Definite Evidence of port scanning [$scantype] which can destabilize any ITM process including TEMS";
+   push @crits,$crit_line;
 }
 
 my $portscan_timex_ct = scalar keys %portscan_timex;
@@ -6515,6 +6751,8 @@ if ($hublost_total > 0) {
       $advcode[$advi] = "TEMSAUDIT1052E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "HUB";
+      $crit_line = "1,Hub TEMS has lost connection to HUB $hublost_total times";
+      push @crits,$crit_line;
    } else {
       $advi++;$advonline[$advi] = "Remote TEMS has lost connection to HUB $hublost_total times";
       $advcode[$advi] = "TEMSAUDIT1051E";
@@ -6666,6 +6904,8 @@ if ($et > 0) {
       $advcode[$advi] = "TEMSAUDIT1044E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = $f;
+      $crit_line = "1,TEMS database table $f with $etct Verify Index errors";
+      push @crits,$crit_line;
    }
 }
 
@@ -6688,6 +6928,8 @@ if ($et > 0) {
       $advcode[$advi] = "TEMSAUDIT1040E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = $f;
+      $crit_line = "1,TEMS database table $f with $etct Open Index errors";
+      push @crits,$crit_line;
    }
 }
 
@@ -6717,9 +6959,11 @@ if ($st > 0) {
       my $stct = $stablex{$f}->{count};
       if ($stct > 0) {
          $advi++;$advonline[$advi] = "TEMS database table $f with $stct RelRec errors";
-         $advcode[$advi] = "TEMSAUDIT1100E";
+         $advcode[$advi] = "TEMSAUDIT1101E";
          $advimpact[$advi] = $advcx{$advcode[$advi]};
          $advsit[$advi] = $f;
+         $crit_line = "1,TEMS database table $f with $stct RelRec errors";
+         push @crits,$crit_line;
       }
    }
 }
@@ -8160,6 +8404,8 @@ if ($change_real > 0) {
       $advcode[$advi] = "TEMSAUDIT1105E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "diagnostic";
+      $crit_line = "2,$idupcnt duplicate agent name cases - see TEMSREPORT069 Report";
+      push @crits,$crit_line;
       if ($opt_dupfile == 1) {
          my $dupfn = "dupagent.csv";
          open DUPFILE, ">$dupfn" or die "Unable to open Duplicate Agent output file $dupfn\n";
@@ -8257,6 +8503,90 @@ if ($change_real > 0) {
       chop($pthru) if $pthru ne "";
       $outl .= $pthru . ",";
       $cnt++;$oline[$cnt]="$outl\n";
+   }
+}
+
+my $resume_ct = scalar keys %resumex;
+if ($resume_ct > 0) {
+   $rptkey = "TEMSREPORT071";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: TCP Suspend/Resume Report\n";
+   $cnt++;$oline[$cnt]="System,Count,Instances[time:line:port:protocol],\n";
+
+   foreach $f (sort { $resumex{$b}->{count} <=> $resumex{$a}->{count} ||
+                      $a cmp $b} keys %resumex) {
+      $resume_ref = $resumex{$f};
+      $outl = $f . ",";
+      $outl .= $resume_ref->{count} . ",";
+
+      my $pinst = "";
+      foreach my $d (@{$resume_ref->{instances}}) {
+         my $itime = $d->[0]->[0];
+         my $iline = $d->[0]->[1];
+         my $iport = $d->[0]->[2];
+         my $itcb = $d->[0]->[3];
+         $pinst .= $itime . ":" . $iline . ":" . $iport . ":" . $itcb . " ";
+      }
+      chop($pinst) if $pinst ne "";
+      $outl .= $pinst . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   $crit_line = "8,TCP Resets observed [$resume_ct] - See temsaud.csv report $rptkey";
+   push @crits,$crit_line;
+   $advi++;$advonline[$advi] = "TCP Resets observed [$resume_ct] - see $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1107E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "comm";
+}
+my $tracker_ct = scalar keys %accept_trackerx;
+if ($tracker_ct > 0) {
+   $rptkey = "TEMSREPORT072";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: TCP Accept Connection Exception Report\n";
+   $cnt++;$oline[$cnt]="Node,Count,\n";
+   $cnt++;$oline[$cnt]=",IP,Count,Pipe_Addr,Ports,Times,\n";
+   my $acceptn_ex = 0;
+   my $accepti_ex = 0;
+   foreach $f (sort {$a cmp $b} keys %accept_trackerx) {
+      my $accept_tracker_ref = $accept_trackerx{$f};
+      next if $accept_tracker_ref->{count} < 2;
+      $acceptn_ex += 1;
+      $outl = $f . "," . $accept_tracker_ref->{count} . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+      foreach $g (sort {$a cmp $b} keys %{$accept_tracker_ref->{instances}}) {
+         my $accept_instance_ref = $accept_tracker_ref->{instances}{$g};
+         $accepti_ex += 1;
+         $outl = "," . $g . "," . $accept_instance_ref->{count} . ",";
+         my $ppipea = "";
+         foreach my $j (keys %{$accept_instance_ref->{pipea}}) {
+            $ppipea .= $j . " ";
+         }
+         chop($ppipea) if $ppipea ne "";
+         $outl .= $ppipea . ",";
+
+         my $pports = "";
+         foreach my $j (keys %{$accept_instance_ref->{ports}}) {
+            $pports .= $j . " ";
+         }
+         chop($pports) if $pports ne "";
+         $outl .= $pports . ",";
+
+         my $ptimes = "";
+         foreach my $j (@{$accept_instance_ref->{times}}) {
+            $ptimes .= $j . ":";
+         }
+         chop($ptimes) if $ptimes ne "";
+         $outl .= $ptimes . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+      }
+   }
+   if ($acceptn_ex > 0) {
+      $crit_line = "8,TCP Connection Exceptions Resets - Instances[$accepti_ex] in Agents[$acceptn_ex] - See temsaud.csv report $rptkey";
+      push @crits,$crit_line;
+      $advi++;$advonline[$advi] = "TCP Connection Exception Instances[$accepti_ex] in Agents[$acceptn_ex] - see $rptkey report";
+      $advcode[$advi] = "TEMSAUDIT1108E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "agent";
    }
 }
 
@@ -8873,6 +9203,10 @@ if ($gotnet == 1) {
 
    my %inbound;
    my $inbound_ref;
+   my $high_sendq = 0;
+   my $high_recvq = 0;
+   my $sendq_ct = 0;
+   my $recvq_ct = 0;
 
    #   open( FILE, "< $opt_ini" ) or die "Cannot open ini file $opt_ini : $!";
    if (defined $netstatfn) {
@@ -8945,8 +9279,12 @@ if ($gotnet == 1) {
                            push @nzero_line,$oneline;
                            $total_sendq += 1;
                            $total_recvq += 1;
+                           $sendq_ct += $sendq;
+                           $recvq_ct += $recvq;
                            $max_sendq = $sendq if $sendq > $max_sendq;
                            $max_recvq = $recvq if $recvq > $max_recvq;
+                           $high_sendq += 1 if $sendq >= 1024;
+                           $high_recvq += 1 if $recvq >= 1024;
                         }
                      }
                   }
@@ -8987,6 +9325,12 @@ if ($gotnet == 1) {
       }
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TCP";
+   }
+   if (($high_sendq + $high_recvq > 0) or
+       ($sendq_ct > 32767) or
+       ($recvq_ct > 32767)) {
+      $crit_line = "8,Possible TCP Blockage Condition: Recv-Q[$high_recvq,$max_recvq,$recvq_ct] Send-Q[$high_sendq,$max_sendq,sendq_ct]";
+      push @crits,$crit_line;
    }
 
 
@@ -9265,7 +9609,7 @@ if ($mismatch_ct > 0) {
    for $f (sort {$a cmp $b} keys %mismatchx) {
       $mismatch_ref = $mismatchx{$f};
       $advi++;$advonline[$advi] = "Catalog mismatch [$mismatch_ref->{count}] $f - TEMS level likely lower than Agent $mismatch_ref->{level}";
-      $advcode[$advi] = "TEMSAUDIT1101E";
+      $advcode[$advi] = "TEMSAUDIT1100E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
    }
@@ -9505,6 +9849,18 @@ if ($rpti != -1) {
 }
 print OH "\n";
 close(OH);
+
+if ($opt_crit ne "") {
+   if ($#crits != -1) {
+      my $critfn = $opt_crit . $critical_fn;
+      open(CRIT,">$critfn");
+      for my $cline (@crits) {
+         $crit_line = $cline . "\n";
+         print CRIT $crit_line;
+      }
+      close(CRIT);
+   }
+}
 
 if ($opt_sr == 1) {
    if ($soap_burst_minute != -1) {
@@ -10151,6 +10507,10 @@ exit;
 #1.93000 - Update table sizes
 #1.94000 - Add report069 on known duplicate agent names.
 #1.95000 - Add -dupfile option to produce dupagent.csv of potential duplicate agent name cases
+#1.96000 - Accept crit directory and populate crit file
+#1.97000 - Add potential TCP Blockage critical issue
+#1.98000 - Collect BaseAccept and suspend data
+#1.99000 - Collect general BaseAccept data and report
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -12094,6 +12454,26 @@ Meaning: See TEMSREPORT070 explanation for details.
 Recovery plan: Investigate Agent configuration and networking.
 --------------------------------------------------------------
 
+TEMSAUDIT1107E
+Text: TCP Resets observed [count]
+
+Tracing: error
+
+Meaning: See TEMSREPORT071 explanation for details.
+
+Recovery plan: Investigate Agent configuration and networking.
+--------------------------------------------------------------
+
+TEMSAUDIT1108E
+Text: TCP Connection Exception Instances[count] in Agents[count]
+
+Tracing: error
+
+Meaning: See TEMSREPORT072 explanation for details.
+
+Recovery plan: Investigate Agent configuration and networking.
+--------------------------------------------------------------
+
 TEMSAUDIT1098E
 Text: Situations [count] with Application missing from catalog
 
@@ -13851,6 +14231,85 @@ with REPORT069.
 
 This condition has some impact on the hub and remote TEMSes. However the
 big impact is that monitoring on the agent may not be working as expected.
+
+Recovery plan: Investigate agents and resolve issues, perhaps with
+IBM Support.
+----------------------------------------------------------------
+
+TEMSREPORT071
+Text: TCP Suspend/Resume Report
+
+Sample Report
+System,Count,Instances[time:line:port:protocol],
+xxx.xxx.xxx.xxx,2,5BB5CC68:4928:60496:ip.spipe 5BB5D5C8:7594:60512:ip.spipe
+xxx.xx.xx.xxx,2,5BB5CC7A:4951:4316:ip.spipe 5BB5E642:12252:4643:ip.spipe
+
+Meaning: There are exception communication conditions when the foreign
+agent or TEMS sends a RST or "reset" to close the TCP Socket. This can
+have many causes:
+
+1) port scan testing
+2) mal-configured agents.
+3) A proxy server which was mis-handling ITM traffic
+
+The condition is de-stabilizing to the TEMS involved and the condition
+should be investigated and resolved. If ITM agents are involved a
+pdcollect should be gathered an a Case opened with IBM Support. If
+no ITM Agent is involved, the sending system should be investigated.
+
+Recovery plan: Investigate agents and resolve issues, perhaps with
+IBM Support.
+----------------------------------------------------------------
+
+TEMSREPORT072
+Text: TCP Accept Connection Exception Report
+
+Sample Report
+Node,Count,
+,IP,Count,Pipes,Ports,Times,
+MSSQLSERVER:PHMKTTNA01:MSS,2,
+,10.191.153.190,1,10.165.185.31,57232,5BB5C921,
+,10.22.56.200,1,10.92.1.31,64978,5BB6136F,
+MXOCCESL15:Q7,33,
+,10.159.204.46,2,192.168.50.200,62884 62836,5BB5DA8B:5BB5F453,
+,10.204.5.12,2,192.168.50.200,54375 59715,5BB5C7B9:5BB60263,
+,10.22.36.48,3,200.23.29.184 192.168.50.200,65083 65316 49195,5BB5D5DB:5BB5ED4B:5BB60713,
+,10.22.36.49,3,192.168.50.200 200.23.29.184,56433 51385 49328,5BB5DF3B:5BB5F1FB:5BB60E1B,
+
+Meaning: There are exception cases where the same agent is connecting from
+multiple IP address and/or port numbers.
+
+The REPORT071 issues should be corrected first. The sort of error conditions
+seen there usually overlay with this report. In that case the connections
+are being reset.
+
+The IP address is what the agent presents with. In simple network cases that
+will be the ip address of the agent. In more complex cases, such as
+an agent connecting via a Network Address Translation firewall, the
+TEMS uses the internal Pipe_Addr. That Pipe_Addr is what will be
+observed in diagnostic messages. Because of that both are presented here.
+
+Most of the time the underlying condition is that the agents have been
+accidentally configured with the same name. That usually means the agent has
+CTIRA_HOSTNAME and CTIRA_SYSTEM_NAME specified and it is identical to
+another agent on a different system. That happens when system images
+are cloned and the agents not configured to unique names... as ITM
+expects and depends on. There are less common cases, such as when
+an agent is installed twice on the same system or is restarted invalidly.
+
+The condition is de-stabilizing to the TEMS involved and can cause TEMS
+crashes and severe TEPS performance problems. In addition, monitoring
+is diminished because only one agent name at a time can present
+situation events.
+
+When the report shows multiple ports on a single system, that can mean
+that the agent is frequently losing connection to the TEMS it is
+configured to and regaining it. Most often this is a agent configuration
+issue. It can also be general network unreliability but that is rare.
+
+NOTE: At this writing, this information is only available when the
+diagnostic IV85368 APAR fix is installed. This is expected to be
+including in the upcoming ITM 630 FP7 SP1 maintenance.
 
 Recovery plan: Investigate agents and resolve issues, perhaps with
 IBM Support.
