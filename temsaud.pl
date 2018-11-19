@@ -122,7 +122,7 @@
 
 
 
-my $gVersion = 1.99000;
+my $gVersion = 2.02000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -503,8 +503,20 @@ my %knowntabx = (
                    'AIXPAGMEM'     => '208',
                    'CLACTRMT'   => '7452',
                    'FILEINFO'   => '6232',
+                   'HLAADRS'     => '116',
+                   'HLALCPOL'    => '96',
+                   'HLALCPTH'    => '80',
+                   'HLALCSTR'    => '108',
+                   'HLALCSYS'    => '108',
+                   'HLALFILT'    => '69',
+                   'HLALXCFSY'   => '108',
+                   'HLHCHKS'     => '1180',
+                   'HLLXCFPT'    => '102',
                    'ICMPSTAT'   => '324',
                    'K06CSCRIP0' => '304',
+                   'K06CSCRIP1' => '391',
+                   'K06CSCRIP2' => '304',
+                   'JNC747300'  => '136',
                    'K06LOGFILE' => '2824',
                    'K06K06CUS0' => '924',
                    'K06PERLEX0' => '364',
@@ -513,6 +525,7 @@ my %knowntabx = (
                    'K06PERLEX4' => '444',
                    'K06PERLEX5' => '468',
                    'K06PERLEX6' => '625',
+                   'K06POBJST'  => '324',
                    'K06TEST' => '404',
                    'K07K07ERS0' => '176',
                    'K07K07FSC0' => '960',
@@ -537,6 +550,19 @@ my %knowntabx = (
                    'K09K09CUS0' => '924',
                    'K09K09FSC0' => '968',
                    'K09K09SOL0' => '193',
+                   'K10K10FIL0' => '500',
+                   'K12GSMAO10' => '436',
+                   'K12GSMAOR1' => '884',
+                   'K12GSMAOR2' => '820',
+                   'K12GSMAOR3' => '564',
+                   'K12GSMAOR4' => '884',
+                   'K12GSMAOR5' => '628',
+                   'K12GSMAOR6' => '628',
+                   'K12GSMAOR7' => '628',
+                   'K12GSMAOR8' => '500',
+                   'K12GSMAOR9' => '1204',
+                   'K12K12ORA2' => '712',
+                   'K12POBJST'  => '324',
                    'K1AWADPERF' => '360',
                    'K24EVENTLO' => '2864',
                    'K2SQUERYRE' => '212',
@@ -589,7 +615,7 @@ my %knowntabx = (
                    'KISSISTATS'    => '984',
                    'KLOLOGEVTS' => '6864',
                    'KLOLOGFRX'     => '772',
-                   'KLOLOGFST'  => '660',
+                   'KLOLOGFST'  => '916',
                    'KLOPOBJST'     => '324',
                    'KLOPROPOS'     => '324',
                    'KLOTHPLST'  => '96',
@@ -666,6 +692,7 @@ my %knowntabx = (
                    'KRZDBINFO' => '804',
                    'KRZGCSBLO' => '188',
                    'KRZINSTINF' => '312',
+                   'KRZLIBCART' => '188',
                    'KRZRAMDISK' => '808',
                    'KRZRAMDKGP' => '420',
                    'KRZRDBBGPS' => '156',
@@ -676,11 +703,13 @@ my %knowntabx = (
                    'KRZRDBRFD' => '224',
                    'KRZRDBSTAT' => '456',
                    'KRZRDBTOPO' => '400',
+                   'KRZRDBCUSQ' => '1940',
                    'KRZRDBUTS' => '332',
                    'KRZSEGALOC' => '524',
                    'KRZTSNLUE' => '292',
                    'KRZTSOVEW' => '428',
                    'KRZTSTPUE' => '244',
+                   'KSAALERTS' => '2416',
                    'KSABUFFER' => '768',
                    'KSACTS' => '864',
                    'KSADMPCNT' => '472',
@@ -693,10 +722,14 @@ my %knowntabx = (
                    'KSASYS' => '1444',
                    'KSATRANS' => '1056',
                    'KSAUPDATES' => '1288',
+                   'KSKSCHEDUL' => '1876',
+                   'KSKTAPEVOL' => '1992',
                    'KSYCONNECT'    => '1184',
                    'KUD3437600' => '1660',
                    'KUD4238000' => '1600',
                    'KUDAPPL00' => '3804',
+                   'KUDBPOOL' => '1356',
+                   'KUDCUSSQLD' => '1904',
                    'KUDDB2HADR' => '1596',
                    'KUDDBASE00'    => '1852',
                    'KUDDBASE01'    => '1648',
@@ -718,6 +751,7 @@ my %knowntabx = (
                    'KVMAEVENTS' => '192',
                    'KVMCLUSTRT' => '872',
                    'KVMDSTORES'    => '1276',
+                   'KVMRSPOOLM' => '612',
                    'KVMSERVERD' => '564',
                    'KVMSERVERE' => '1876',
                    'KVMSERVERG' => '2288',
@@ -738,6 +772,7 @@ my %knowntabx = (
                    'KYNGCAF'       => '592',
                    'KYNGCCYC'      => '632',
                    'KYNLPORT'      => '1444',
+                   'KYNMSGQUE'     => '1276',
                    'KYNREQUEST'    => '1476',
                    'KYNTHRDP'   => '852',
                    'LNXCPU' => '156',
@@ -2941,6 +2976,13 @@ for(;;)
                $gskiterrorx{$errnum} = \%gerrorref;
             }
             $gerror_ref->{count} += 1;
+            $accept_ref = $accept[0];
+            if (defined $accept_ref) {
+               if ($accept_ref->{l_accept} == $l - 1){
+                  shift @accept;
+               }
+            }
+
             next;
          }
       }
@@ -3154,7 +3196,6 @@ for(;;)
    }
    # (55C220BB.0003-5B:kdebpli.c,115,"pipe_listener") ip.spipe suspending new connections: 1DE0000D
    if (substr($logunit,0,9) eq "kdebpli.c") {
-#$DB::single=2 if $l == 346;;
       if ($logentry eq "pipe_listener") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # suspending new connections
@@ -4246,7 +4287,7 @@ for(;;)
             if (!defined $rbdup_ref) {
                my %rbdupref = (
                                  thruname => "",
-                                 curstatus => "N",
+                                 curstatus => "",
                                  interval => $opt_hb,
                                  inttmp => 0,
                                  lasttime => 0,
@@ -4422,6 +4463,7 @@ for(;;)
                $ionline = $1;
                $rest = $2;
             }
+            $ionline =~ s/\s+$//;   #trim trailing whitespace
             my $ihostAddr = "";
             my $isystem = "";
             my $iport = "";
@@ -4440,7 +4482,7 @@ for(;;)
             if (!defined $rbdup_ref) {
                my %rbdupref = (
                                  thruname => "",
-                                 curstatus => "N",
+                                 curstatus => "",
                                  interval => 0,
                                  inttmp => 0,
                                  lasttime => 0,
@@ -6862,12 +6904,22 @@ foreach $f (keys %miss_tablex) {
 
 my $et = scalar keys %etablex;
 if ($et > 0) {
+   my $et_tab = "";
    foreach $f (keys %etablex) {
       my $etct = $etablex{$f}->{count};
-      $advi++;$advonline[$advi] = "TEMS database table with $etct errors";
-      $advcode[$advi] = "TEMSAUDIT1022E";
-      $advimpact[$advi] = $advcx{$advcode[$advi]};
-      $advsit[$advi] = $f;
+      my $dtct = $dtablex{$f}->{count};
+      if ($etct != $dtct) {
+         $advi++;$advonline[$advi] = "TEMS database table with $etct errors";
+         $advcode[$advi] = "TEMSAUDIT1022E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = $f;
+         $et_tab .= $f . " ";
+      }
+   }
+   if ($et_tab ne "") {
+      chop $et_tab;
+      $crit_line = "1,TEMS database tables[$et_tab] with errors - see TEMS Audit Report";
+      push @crits,$crit_line;
    }
 }
 
@@ -9329,7 +9381,7 @@ if ($gotnet == 1) {
    if (($high_sendq + $high_recvq > 0) or
        ($sendq_ct > 32767) or
        ($recvq_ct > 32767)) {
-      $crit_line = "8,Possible TCP Blockage Condition: Recv-Q[$high_recvq,$max_recvq,$recvq_ct] Send-Q[$high_sendq,$max_sendq,sendq_ct]";
+      $crit_line = "8,Possible TCP Blockage Condition: Recv-Q[$high_recvq,$max_recvq,$recvq_ct] Send-Q[$high_sendq,$max_sendq,$sendq_ct]";
       push @crits,$crit_line;
    }
 
@@ -10511,6 +10563,9 @@ exit;
 #1.97000 - Add potential TCP Blockage critical issue
 #1.98000 - Collect BaseAccept and suspend data
 #1.99000 - Collect general BaseAccept data and report
+#2.00000 - Correct critical error issue for sendq_ct
+#2.01000 - correct duplicate offline logic
+#2.02000 - Have duplicate type of errors suppress i/o error counts
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
