@@ -117,7 +117,7 @@
 
 ## (5C081B4F.0000-14:kpxrreg.cpp,1623,"IRA_NotifySDAInstallStatus") SDA Notification failed, agent "pima2vla:LZ", product "LZ" found unexpected RegBind type=4. Can't provide agent with SDA install result.
 
-my $gVersion = 2.03000;
+my $gVersion = 2.04000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -321,6 +321,9 @@ my $suspend_last = 0;
 my $suspend_ct = 0;
 my $suspend_time = 0;
 
+my %svptx;
+my %pipe_peer;
+
 my @accept;
 my $accept_ref;
 my %accept_trackerx;
@@ -496,6 +499,8 @@ my %advcx = (
               "TEMSAUDIT1108E" => "100",
               "TEMSAUDIT1109E" => "100",
               "TEMSAUDIT1110E" => "100",
+              "TEMSAUDIT1111W" => "96",
+              "TEMSAUDIT1112W" => "90",
             );
 
 
@@ -1031,6 +1036,7 @@ my %soaperror;
 my $soaperror_fault = "";
 my $soaperror_client = "";
 my $soaperror_ct;
+my $soaperror_login_exceeded = 0;
 my $tec_translate_ct = 0;
 my $tec_classname_ct = 0;
 
@@ -1143,6 +1149,7 @@ my $opt_crit = "";
 my $critical_fn = "temsaud.crit";
 my @crits;
 my $crit_line;
+my $opt_portlim = 5;
 
 my $dupfi = -1;
 my @dupf = [],
@@ -1237,6 +1244,14 @@ while (@ARGV) {
       if (defined $ARGV[0]) {
          if (substr($ARGV[0],0,1) ne "-") {
             $opt_hb = $ARGV[0];
+            shift(@ARGV);
+         }
+      }
+   } elsif ($ARGV[0] eq "-portlim") {
+      shift(@ARGV);
+      if (defined $ARGV[0]) {
+         if (substr($ARGV[0],0,1) ne "-") {
+            $opt_portlim = $ARGV[0];
             shift(@ARGV);
          }
       }
@@ -1352,6 +1367,7 @@ if (!defined $opt_prtlim) {$opt_prtlim = 1;}
 if (!defined $opt_hb) {$opt_hb = 600;}
 if (!defined $opt_gap) {$opt_gap = 0;}
 if (!defined $opt_dupfile) {$opt_dupfile = 0;}
+if (!defined $opt_portlim) {$opt_portlim = 5;}
 $opt_stfn = "eventhist.csv" if $opt_sth == 1;
 $opt_ndfn = "nodehist.csv" if $opt_sth == 1;
 open( ZOP, ">$opt_zop" ) or die "Cannot open zop file $opt_zop : $!" if $opt_zop ne "";
@@ -2247,33 +2263,42 @@ for(;;)
             $rvrun_def->{virt_self} = $second;
          } elsif ($first eq "ccbEphemeral") {
             $rvrun_def->{ephemeral} = hex($second);
-            $rvrun_def->{pipe_addr} =~ /(.*?):/;
-            my $ephem = $1;
-            my $recvect_def = $recvectx{$ephem};
+            my $ipipe = $rvrun_def->{pipe_addr};
+            my $recvect_def = $recvectx{$ipipe};
             if (!defined $recvect_def) {
                my %recvectdef = (
-                                   pipe_addr => $rvrun_def->{pipe_addr},
-                                   fixup => $rvrun_def->{fixup},
-                                   phys_self => $rvrun_def->{phys_self},
-                                   phys_peer => $rvrun_def->{phys_peer},
-                                   virt_self => $rvrun_def->{virt_self},
-                                   virt_peer => $rvrun_def->{virt_peer},
-                                   ephemeral => $rvrun_def->{ephemeral},
+                                   count => 0,
+                                   peers => {},
                                    thrunode => $opt_nodeid,
-                                   service_point => "",
-                                   service_type => "",
-                                   driver => "",
-                                   build_date => "",
-                                   build_target => "",
-                                   process_time => 0,
                                 );
-               $recvectx{$ephem} = \%recvectdef;
+               $recvectx{$ipipe} = \%recvectdef;
                $recvect_def = \%recvectdef;
             }
             $recvect_def->{count} += 1;
-            $rvrun_last_line = $l;
+            my $recvect_peer_def = $recvect_def->{peers}{$rvrun_def->{virt_peer}};
+            if (!defined $recvect_peer_def) {
+               my %recvectpeerdef = (
+                                       fixup => $rvrun_def->{fixup},
+                                       phys_self => $rvrun_def->{phys_self},
+                                       phys_peer => $rvrun_def->{phys_peer},
+                                       virt_self => $rvrun_def->{virt_self},
+                                       ephemeral => $rvrun_def->{ephemeral},
+                                       service_point => "",
+                                       service_type => "",
+                                       driver => "",
+                                       build_date => "",
+                                       build_target => "",
+                                       process_time => 0,
+                                       time => $logtime,
+                                       times => [],
+                                    );
+               $recvect_def->{peers}{$rvrun_def->{virt_peer}} = \%recvectpeerdef;
+               $recvect_peer_def = \%recvectpeerdef;
+            }
+            push @{$recvect_peer_def->{times}},$logtime;
+            $rvrun_last_line = $l + 1;
             $rvrun_last_thread = $rvrun_def->{thread};
-            $rvrun_last_def = $recvect_def;
+            $rvrun_last_def = $recvect_peer_def;
             delete  $rvrunx{$contkey};
          }
 
@@ -5014,6 +5039,8 @@ for(;;)
                $soapdetx{$soaprun_def->{line}} = \%soapdet;
                delete $soaprunx{$logthread};
             }
+         } elsif (substr($rest,1,23) eq "Login attempts exceeded") {
+            $soaperror_login_exceeded += 1;
          }
       }
    }
@@ -6689,6 +6716,13 @@ if ($nmr_total > 0) {
    $advsit[$advi] = "NMR";
 }
 
+if ($soaperror_login_exceeded > 0) {
+   $advi++;$advonline[$advi] = "$soaperror_login_exceeded SOAP \"Login attempts exceeded\"";
+   $advcode[$advi] = "TEMSAUDIT1112W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "SOAP";
+}
+
 if ($anic_total > 0) {
    $cnt++;$oline[$cnt]="Activity Not In Call count,,,$anic_total,\n";
    $cnt++;$oline[$cnt]="\n";
@@ -8033,6 +8067,125 @@ if ($timex_ct > 0) {
    }
 }
 
+# The following logic inverts the receive vector data to use in reports
+my $eph_ct = scalar keys %recvectx;
+my $eph_ports_ct = 0;
+if ($eph_ct > 0) {
+   foreach $f ( sort { $a cmp $b } keys %recvectx) {
+      my $recvect_def = $recvectx{$f};
+      my $peer_lag_time = 0;
+      foreach $g  ( sort { $a cmp $b } keys %{$recvect_def->{peers}}) {
+         my $recvect_peer_def = $recvect_def->{peers}{$g};
+         my $ipipeaddr = $f;
+         my $ifixup = $recvect_peer_def->{fixup};
+         my $iphysself = $recvect_peer_def->{phys_self};
+         my $iphyspeer = $recvect_peer_def->{phys_peer};
+         my $ivirtself = $recvect_peer_def->{virt_self};
+         my $ivirtpeer = $g;
+         my $iephemeral = $recvect_peer_def->{ephemeral};
+         my $iservice_point = $recvect_peer_def->{service_point};
+         my $iservice_type =  $recvect_peer_def->{service_type};
+         my $idriver =   $recvect_peer_def->{driver};
+         my $ibuild_date =   $recvect_peer_def->{build_date};
+         my $ibuild_target =   $recvect_peer_def->{build_target};
+         my $iprocess_time =   $recvect_peer_def->{process_time};
+         if ($iservice_point ne "") {
+            my $sp_def = $svptx{$iservice_point};
+            if (!defined $sp_def) {
+               my %spdef = (
+                              count => 0,
+                              count_vsys => 0,
+                              peers => {},
+                           );
+               $sp_def = \%spdef;
+               $svptx{$iservice_point} = \%spdef;
+            }
+            $sp_def->{count} += 1;
+
+            $ivirtpeer =~ /(.*)\:(.*)/;
+            my $ivsystem = $1;
+            my $ivport = $2;
+            my $spv_def = $sp_def->{peers}{$ivsystem};
+            if (!defined $spv_def) {
+               $sp_def->{count_vsys} += 1;
+               my %spvdef = (
+                               count => 0,
+                               ports => {},
+                               type => $iservice_type,
+                               driver => $idriver,
+                               pipes => {},
+                               times => [],
+                            );
+               $spv_def = \%spvdef;
+               $sp_def->{peers}{$ivsystem} = \%spvdef;
+            }
+            push @{$spv_def->{times}},@{$recvect_peer_def->{times}};
+            $spv_def->{count} += 1;
+            $spv_def->{ports}{$ivport} += 1;
+            $spv_def->{pipes}{$ipipeaddr} += 1;
+         }
+
+         $iphyspeer =~ /(.*)\:(.*)/;
+         my $isystem = $1;
+         my $iport = $2;
+         my $phys_ref = $physicalx{$isystem};
+         if (!defined $phys_ref) {
+            my %physref = (
+                             count => 0,
+                             pipes => {},
+                             thrunode => $ithrunode,
+                             service_point => $iservice_point,
+                             service_type => $iservice_type,
+                             driver => $idriver,
+                             build_date => $ibuild_date,
+                             build_target => $ibuild_target,
+                             process_time => $iprocess_time,
+                             ports => {},
+                          );
+            $phys_ref = \%physref;
+            $physicalx{$isystem} = \%physref;
+         }
+         $phys_ref->{count} += 1;
+         $phys_ref->{ports}{$iport} = 1;
+         $eph_ports_ct += 1;
+         $pipex{$ipipeaddr} = $iphyspeer;
+         my $pipe_ref = $phys_ref->{pipes}{$ipipeaddr};
+         if (!defined $pipe_ref) {
+            my %piperef = (
+                             count => 0,
+                             instances => {},
+                          );
+            $pipe_ref = \%piperef;
+            $phys_ref->{pipes}{$ipipeaddr} = \%piperef;
+         }
+         $pipe_ref->{count} += 1;
+
+         my $ephemkey =  "";
+         $ephemkey .= "ephemeral" if $iephemeral & 16;    # define KDEBP_EPH_OPTION           ((unsigned int)0x10)
+         $ephemkey .= "|" . "peerxlate" if $iephemeral & 2;    # define KDEBP_EPH_PEERXLATE        ((unsigned int)0x2)
+         $ephemkey .= "|" . "selfxlate" if $iephemeral & 1;     # define KDEBP_EPH_SELFXLATE        ((unsigned int)0x1)
+         $ephemkey .= "|" . "portxlate" if $iephemeral & 4; # define KDEBP_EPH_PORTXLATE        ((unsigned int)0x4)
+         $ephemkey .= "|" . "portnumber" if $iephemeral & 8; # define KDEBP_EPH_PORTNUMBER       ((unsigned int)0x8)
+         my $ephem_ref = $pipe_ref->{instances}{$ephemkey};
+         if (!defined $ephem_ref) {
+            my %ephemref = (
+                             count => 0,
+                             gate => "",
+                          );
+            $ephem_ref = \%ephemref;
+            $pipe_ref->{instances}{$ephemkey} = \%ephemref;
+         }
+         $ephem_ref->{count} += 1;
+         if ($iephemeral & 2) {
+            $ephem_ref->{gate} = $ivirtpeer if $iephemeral & 2;
+            $pipe_peer{$ipipeaddr} = $ephem_ref->{gate};
+         }
+      }
+   }
+}
+
+
+
 if ($comme_ct > 0) {
    $rptkey = "TEMSREPORT019";$advrptx{$rptkey} = 1;         # record report key
    $advi++;$advonline[$advi] = "Remote Procedure Connection lost $comme_ct - see $rptkey Report";
@@ -8041,15 +8194,21 @@ if ($comme_ct > 0) {
    $advsit[$advi] = "RPCFail";
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: RPC Error report\n";
-   $cnt++;$oline[$cnt]="Error,Target,Count\n";
+   $cnt++;$oline[$cnt]="Error,Target,Count,Peersys\n";
    foreach $f ( sort { $commex{$b}->{count} <=> $commex{$a}->{count} } keys %commex) {
       my $perror = $f;
       foreach $g ( sort { $a cmp $b } keys %{$commex{$f}->{targets}} ) {
          my $ptarget = $g;
          my $pcount = $commex{$f}->{targets}{$g}->{count};
+         my $iaddr = "";
+         $ptarget =~ /#(\S+)/;
+         $iaddr = $1 if defined $1;
+         my $ppeer = "";
+         $ppeer = $pipe_peer{$iaddr} if defined $pipe_peer{$iaddr};
          $outl = $perror . ',';
          $outl .= $ptarget . ",";
          $outl .= $pcount . ",";
+         $outl .= $ppeer . ",";
          $cnt++;$oline[$cnt]=$outl . "\n";
       }
    }
@@ -8699,6 +8858,81 @@ if ($listen_ct > 0) {
    $advsit[$advi] = "agent";
 }
 
+my $svpt_ct = scalar keys %svptx;
+if ($svpt_ct > 0) {
+   $rptkey = "TEMSREPORT074";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Service Point Duplicates Report\n";
+   $cnt++;$oline[$cnt]="Service_Point,Count,Systems,Thrunode\n";
+   $cnt++;$oline[$cnt]=",VirtPeer,Type,Driver,Port_Count,Pipe_Count,Ports,Pipes,\n";
+   $cnt++;$oline[$cnt]=",,Inter-Arrival-Times,\n";
+   my $sp_ct = 0;
+   foreach $f (sort {$svptx{$b}->{count_vsys} <=> $svptx{$a}->{count_vsys} ||
+                     $svptx{$b}->{count} <=> $svptx{$a}->{count}} keys %svptx) {
+      my $sp_def = $svptx{$f};
+      last if $sp_def->{count} == 1;
+      last if ($sp_def->{count_vsys} == 1) and ($sp_def->{count} <2);
+      $sp_ct += 1;
+      $outl = $f . ",";
+      $outl .= $sp_def->{count} . ",";
+      $outl .= $sp_def->{count_vsys} . ",";
+      $outl .= $opt_nodeid . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+      foreach $g (sort {$a cmp $b} keys %{$sp_def->{peers}}) {
+         my $spv_def = $sp_def->{peers}{$g};
+         $outl = "," . $g . ",";
+         $outl .= $spv_def->{type} . ",";
+         $outl .= $spv_def->{driver} . ",";
+         my $port_cnt = scalar keys %{$spv_def->{ports}};
+         $outl .= $port_cnt . ",";
+         my $pipe_cnt = scalar keys %{$spv_def->{pipes}};
+         $outl .= $pipe_cnt . ",";
+         my $pports = "";
+         my $port_ct = 0;
+         foreach my $d (sort {$a <=> $b} keys %{$spv_def->{ports}}) {
+            $pports .= $d . " ";
+            $port_ct += 1;
+            last if $port_ct >= $opt_portlim;
+         }
+         chop($pports) if $pports ne "";
+         $outl .= $pports . ",";
+         my $ppipes = "";
+         my $pipe_ct = 0;
+         foreach my $d (sort {$a cmp $b} keys %{$spv_def->{pipes}}) {
+            $ppipes .= $d . " ";
+            $pipe_ct += 1;
+            last if $pipe_ct >= $opt_portlim;
+         }
+         chop($ppipes) if $ppipes ne "";
+         $outl .= $ppipes . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+
+         my $icount = @{$spv_def->{times}};
+         if ($icount > 1) {
+            my $ptime = "";
+            my $lagtime = 0;
+            foreach my $h (sort {$a <=> $b} @{$spv_def->{times}}) {
+               if ($lagtime > 0) {
+                  my $inter = $h - $lagtime;
+                  $ptime .= $inter . " ";
+               }
+               $lagtime = $h;
+            }
+            chop($ptime) if $ptime ne "";
+            $outl = ",," . $ptime;
+            $cnt++;$oline[$cnt]="$outl\n";
+         }
+      }
+   }
+
+   $crit_line = "2,Service Point Duplications [$sp_ct] - see report $rptkey";
+   push @crits,$crit_line;
+   $advi++;$advonline[$advi] = "Service Point Duplications [$sp_ct] - see $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1111W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "agent";
+}
+
 if ($sit32_total > 0) {
    $rptkey = "TEMSREPORT029";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
@@ -8749,80 +8983,6 @@ foreach $f ( sort { $a cmp $b } keys %rbdupx) {
    }
 }
 
-# The following logic inverts the receive vector data to use in reports
-my $eph_ct = scalar keys %recvectx;
-my $eph_ports_ct = 0;
-if ($eph_ct > 0) {
-   foreach $f ( sort { $a cmp $b } keys %recvectx) {
-      my $recvect_def = $recvectx{$f};
-      my $ipipeaddr = $recvect_def->{pipe_addr};
-      my $ifixup = $recvect_def->{fixup};
-      my $iphysself = $recvect_def->{phys_self};
-      my $iphyspeer = $recvect_def->{phys_peer};
-      my $ivirtself = $recvect_def->{virt_self};
-      my $ivirtpeer = $recvect_def->{virt_peer};
-      my $iephemeral = $recvect_def->{ephemeral};
-      my $ithrunode =   $recvect_def->{thrunode};
-      my $iservice_point =   $recvect_def->{service_point};
-      my $iservice_type =   $recvect_def->{service_type};
-      my $idriver =   $recvect_def->{driver};
-      my $ibuild_date =   $recvect_def->{build_date};
-      my $ibuild_target =   $recvect_def->{build_target};
-      my $iprocess_time =   $recvect_def->{process_time};
-      $iphyspeer =~ /(.*)\:(.*)/;
-      my $isystem = $1;
-      my $iport = $2;
-      my $phys_ref = $physicalx{$isystem};
-      if (!defined $phys_ref) {
-         my %physref = (
-                          count => 0,
-                          pipes => {},
-                          thrunode => $ithrunode,
-                          service_point => $iservice_point,
-                          service_type => $iservice_type,
-                          driver => $idriver,
-                          build_date => $ibuild_date,
-                          build_target => $ibuild_target,
-                          process_time => $iprocess_time,
-                          ports => {},
-                       );
-         $phys_ref = \%physref;
-         $physicalx{$isystem} = \%physref;
-      }
-      $phys_ref->{count} += 1;
-      $phys_ref->{ports}{$iport} = 1;
-      $eph_ports_ct += 1;
-      $pipex{$ipipeaddr} = $iphyspeer;
-      my $pipe_ref = $phys_ref->{pipes}{$ipipeaddr};
-      if (!defined $pipe_ref) {
-         my %piperef = (
-                          count => 0,
-                          instances => {},
-                       );
-         $pipe_ref = \%piperef;
-         $phys_ref->{pipes}{$ipipeaddr} = \%piperef;
-      }
-      $pipe_ref->{count} += 1;
-
-      my $ephemkey =  "";
-      $ephemkey .= "ephemeral" if $iephemeral & 16;    # define KDEBP_EPH_OPTION           ((unsigned int)0x10)
-      $ephemkey .= "|" . "peerxlate" if $iephemeral & 2;    # define KDEBP_EPH_PEERXLATE        ((unsigned int)0x2)
-      $ephemkey .= "|" . "selfxlate" if $iephemeral & 1;     # define KDEBP_EPH_SELFXLATE        ((unsigned int)0x1)
-                                                         # define KDEBP_EPH_PORTXLATE        ((unsigned int)0x4)
-                                                         # define KDEBP_EPH_PORTNUMBER       ((unsigned int)0x8)
-      my $ephem_ref = $pipe_ref->{instances}{$ephemkey};
-      if (!defined $ephem_ref) {
-         my %ephemref = (
-                          count => 0,
-                          gate => "",
-                       );
-         $ephem_ref = \%ephemref;
-         $pipe_ref->{instances}{$ephemkey} = \%ephemref;
-      }
-      $ephem_ref->{count} += 1;
-      $ephem_ref->{gate} = $ivirtpeer if $iephemeral & 2;
-   }
-}
 
 my $phys_ct = 0;
 
@@ -9125,12 +9285,13 @@ if ($eph_ct > 0) {
          last;
       }
    }
+
    $rptkey = "TEMSREPORT040";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Detail Receive Vector Report\n";
    $cnt++;$oline[$cnt]="temsnodeid,phys_addr,phys_count,pipe_addr,pipe_count,xlate,xlate_count,gateway,service_point,service_type,driver,build_date,build_target,process_time,\n";
    foreach $f ( sort { $a cmp $b } keys %physicalx) {
-   my $phys_ref = $physicalx{$f};
+      my $phys_ref = $physicalx{$f};
       foreach $g ( sort { $a cmp $b } keys %{$phys_ref->{pipes}}) {
          my $pipe_ref = $phys_ref->{pipes}{$g};
          foreach $h ( sort { $a cmp $b } keys %{$pipe_ref->{instances}}) {
@@ -10017,22 +10178,25 @@ if ($opt_eph == 1) {
       print EPH "temsnodeid,eph_addr,pipe_addr,fixup,phys_self,phys_peer,virt_self,virt_peer,ephemeral,service_point,service_type,driver,build_date,build_target,process_time\n";
       foreach $f ( sort { $a cmp $b } keys %recvectx) {
          my $recvect_def = $recvectx{$f};
-         $outl = $recvect_def->{thrunode} . ",";
-         $outl .= $f . ",";
-         $outl .= $recvect_def->{pipe_addr} . ",";
-         $outl .= $recvect_def->{fixup} . ",";
-         $outl .= $recvect_def->{phys_self} . ",";
-         $outl .= $recvect_def->{phys_peer} . ",";
-         $outl .= $recvect_def->{virt_self} . ",";
-         $outl .= $recvect_def->{virt_peer} . ",";
-         $outl .= $recvect_def->{ephemeral} . ",";
-         $outl .= $recvect_def->{service_point} . ",";
-         $outl .= $recvect_def->{service_type} . ",";
-         $outl .= $recvect_def->{driver} . ",";
-         $outl .= $recvect_def->{build_date} . ",";
-         $outl .= $recvect_def->{build_target} . ",";
-         $outl .= $recvect_def->{process_time} . ",";
-         print EPH "$outl\n";
+         foreach $g  ( sort { $a cmp $b } keys %{$recvect_def->{peer}}) {
+            my $recvect_peer_def = $recvect_def->{peers}{$g};
+            $outl = $recvect_def->{thrunode} . ",";
+            $outl .= $f . ",";
+            $outl .= $recvect_peer_def->{pipe_addr} . ",";
+            $outl .= $recvect_peer_def->{fixup} . ",";
+            $outl .= $recvect_peer_def->{phys_self} . ",";
+            $outl .= $recvect_peer_def->{phys_peer} . ",";
+            $outl .= $recvect_peer_def->{virt_self} . ",";
+            $outl .= $g . ",";
+            $outl .= $recvect_peer_def->{ephemeral} . ",";
+            $outl .= $recvect_peer_def->{service_point} . ",";
+            $outl .= $recvect_peer_def->{service_type} . ",";
+            $outl .= $recvect_peer_def->{driver} . ",";
+            $outl .= $recvect_peer_def->{build_date} . ",";
+            $outl .= $recvect_peer_def->{build_target} . ",";
+            $outl .= $recvect_peer_def->{process_time} . ",";
+            print EPH "$outl\n";
+         }
       }
       close EPH;
    }
@@ -10630,6 +10794,8 @@ exit;
 #2.01000 - correct duplicate offline logic
 #2.02000 - Have duplicate type of errors suppress i/o error counts
 #2.03000 - Handle BaseAccept data
+#2.04000 - Handle receive_vector data
+#        - add SOAP Login exceeded advisory
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -12648,6 +12814,40 @@ Meaning: See TEMSREPORT072 explanation for details.
 Recovery plan: Investigate Agent configuration and networking.
 --------------------------------------------------------------
 
+TEMSAUDIT1111W
+Text: Service Point Duplications [count] - see TEMSREPORT074 report
+
+Tracing: error (comp:kde,unit:kdebp0r,Entry="receive_vectors" all er)(comp:kde,unit:kdeprxi,Entry="KDEP_ReceiveXID" all er)
+
+Meaning: See TEMSREPORT074 explanation for details.
+
+Recovery plan: Investigate Agent configuration and networking.
+--------------------------------------------------------------
+
+TEMSAUDIT1112W
+Text: [Count] [count] SOAP "Login attempts exceeded";
+
+Tracing: error
+
+Meaning: Each SOAP request requires userid/password credentials. If these
+are rejected and if this happens too many times, then SOAP starts rejecting
+all such requests. This means that tacmd will stop working.
+
+The number to exceed can be controlled by KDHS_MAX_FAILED_LOGINS which
+defaults to 5.
+
+This can cause severe performance issues at the hub TEMS and cause even
+tacmd login to fail.
+
+Recovery plan: If you run with a diagnostic trace of
+
+error (unit:ksh all er)
+
+you can see what ip address the SOAP is coming from. Identify
+that and correct the issue. Usually it is a password that has
+expired or changed and the SOAP logic needs a new valid password.
+--------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -14505,9 +14705,85 @@ that the agent is frequently losing connection to the TEMS it is
 configured to and regaining it. Most often this is a agent configuration
 issue. It can also be general network unreliability but that is rare.
 
+Because of the diagnostic log wrap-around nature, not all data may
+be captured. So after curing the identified issues, the diagnostic
+should be run again
+
 NOTE: At this writing, this information is only available when the
 diagnostic IV85368 APAR fix is installed. This is expected to be
 including in the upcoming ITM 630 FP7 SP1 maintenance.
+
+Recovery plan: Investigate agents and resolve issues, perhaps with
+IBM Support.
+----------------------------------------------------------------
+
+TEMSREPORT074
+Text: Service Point Duplicates Report
+
+Sample Report
+Service_Point,Count,Systems,Thrunode
+,VirtPeer,Type,Driver,Port_Count,Pipe_Count,Ports,Pipes,
+,,Inter-Arrival-Times,
+root.mastivoli03_sy,2,2,TEMS,
+,10.103.5.42,Linux;3.10.0-327.el7.x86_64,tms_ctbs630fp7:d6305a,1,1,45402,10.103.5.42:30590,
+,127.0.0.1,Linux;3.10.0-327.el7.x86_64,tms_ctbs630fp7:d6305a,1,1,33794,127.0.0.1:30590,
+root.mapdboweb5_lz,46,1,TEMS,
+,10.103.35.141,Linux;3.10.0-327.el7.x86_64,tms_ctbs630fp5:d5135a,46,1,33052 33538 33656 35071 35220,1
+,,1806 2019 1806 1956 2019 1806 2019 1806 1806 1806 1806 1806 1806 1806 1806 1806 1806 1806 1806 1806
+
+
+Meaning: There are records which show the same agent name is presenting from
+different systems. There are also records which may show that different port
+numbers are being used on each access.
+
+In some cases these will be from agent using EPHEMERAL:Y, running beyond a
+Network Address Translation Firewall or running using KDE_Gateway. The data
+presented is calculated to be the ip address which the agent knows locally.
+Because of this there may be apparent duplications which are actually in
+different network segments.
+
+Most of the time the underlying condition is that the agents have been
+accidentally configured with the same name. That usually means the agent has
+CTIRA_HOSTNAME and CTIRA_SYSTEM_NAME specified and it is identical to
+another agent on a different system. That happens when system images
+are cloned and the agents not configured to unique names... as ITM
+expects and depends on. There are less common cases, such as when
+an agent is installed twice on the same system or is restarted invalidly.
+
+The condition is de-stabilizing to the TEMS involved and can cause TEMS
+crashes and severe TEPS performance problems. In addition, monitoring
+is diminished because only one agent name at a time can present
+situation events.
+
+The report can also show shows multiple ports on a single system, that can mean
+that the agent is frequently losing connection to the TEMS it is
+configured to and regaining it. Most often this is a agent configuration
+issue. It can also be general network unreliability but that is rare.
+In real life cases up to 299 ports have been seen.
+
+The third line shows the difference in inter-arrival time of new ports.
+In the example they occur every 30/32 minutes.
+
+With each connection there is a pipe_addr also recorded. The pipe_addr
+is how the TEMS identifies each connection even in the face of the
+various connections which are possible. That can be useful in correlating
+other TEMS diagnostic and database information with the actual connection.
+Finally, this data is available on a TEMS by TEMS basis. A hub TEMS will
+be totally unaware of how a pipe_addr will be used to connect to an agent.
+Instead it passes a request to a thrunode [often a remote TEMS] which
+can make the connection.
+
+By default a maximum of 5 ports and pipes are displayed. That can be
+increased by adding -portlim 999  for example.
+
+NOTE: Thiis information will be available if the the following trace
+is run at the TEMS
+
+KBB_RAS1=error (comp:kde,unit:kdebp0r,Entry="receive_vectors" all er)(comp:kde,unit:kdeprxi,Entry="KDEP_ReceiveXID" all er)
+
+It will also be availabel if the diagnostic IV85368 APAR fix is
+installed. This is expected to be including in the upcoming
+ITM 630 FP7 SP1 maintenance.
 
 Recovery plan: Investigate agents and resolve issues, perhaps with
 IBM Support.
