@@ -117,7 +117,9 @@
 
 ## (5C081B4F.0000-14:kpxrreg.cpp,1623,"IRA_NotifySDAInstallStatus") SDA Notification failed, agent "pima2vla:LZ", product "LZ" found unexpected RegBind type=4. Can't provide agent with SDA install result.
 
-my $gVersion = 2.04000;
+## (5C1B6BA3.0007-162C:kbbssge.c,72,"BSS1_GetEnv") KDEB_INTERFACELIST="10.245.4.7"
+
+my $gVersion = 2.05000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -345,6 +347,7 @@ my $accepthb_ref;
 
 my %barunx;
 my %ip72x;
+my %ipx;
 my %resumex;
 my $resume_ref;
 
@@ -501,6 +504,7 @@ my %advcx = (
               "TEMSAUDIT1110E" => "100",
               "TEMSAUDIT1111W" => "96",
               "TEMSAUDIT1112W" => "90",
+              "TEMSAUDIT1113E" => "100",
             );
 
 
@@ -674,6 +678,7 @@ my %knowntabx = (
                    'KOYPROBD'   => '792',
                    'KOYPROBS'   => '252',
                    'KOYSEGD'    => '584',
+                   'KOYSRVRE'   => '732',
                    'KOYSTATS'   => '260',
                    'KPK03PERLP' => '892',
                    'KPX02TOP50' => '2460',
@@ -1650,6 +1655,7 @@ my @sitrmin = ();           # situation results minimum of result size
 my @sitrmax = ();           # situation results maximum of result size
 my @sitrmaxnode = ();       # situation node giving maximum of result size
 my @sitnoded = ();          # array of hashes about each node and arrival times etc
+my @sitnodes = ();          # Array of nodes supplying results
 my $sitct_tot = 0;          # total results
 my $sitrows_tot = 0;        # total rows
 my $sitres_tot = 0;         # total size
@@ -1785,6 +1791,9 @@ my $act_id = -1;                             # sequence id for action commands
 my $act_max = 0;                             # max number of simultaneous action commands
 my @act_max_cmds = ();                       # array of max simultaneous action commands
 my %act_current_cmds = ();                   # hash of current simultaneous action commands
+my $act_cmds_start = 0;
+my $act_cmds_total = 0;
+my $act_cmds_seq = 0;
 
 my $act_start = 0;
 my $act_end = 0;
@@ -5848,6 +5857,7 @@ for(;;)
              @act_max_cmds = ();
              @act_max_cmds = values %act_current_cmds;
           }
+          $act_cmds_start = $logtime if $current_act == 1;
       } else {
          $runref = $runx{$logthread};                     # is this a known command capture?
          if (defined $runref) {                           # ignore if process started before trace capture
@@ -5876,6 +5886,12 @@ for(;;)
                push(@{$act_act[$ax]},$cmd1);
                my $endid = $runref->{'id'};
                delete $act_current_cmds{$endid};
+               my $current_act = keys %act_current_cmds;
+               if ($current_act == 0) {
+                  $act_cmds_total += $logtime - $act_cmds_start;
+                  $act_cmds_seq += 1;
+               }
+
             } else {
                if (substr($rest,1,1) eq "<") {
                    # (53FE31BA.0044-61C:kglhc1c.c,592,"KGLHC1_Command") <0x190B3D18,0x8> Attribute type 0
@@ -6184,12 +6200,14 @@ for(;;)
                $sitrmax[$sx] = $insize;
                $sitrmaxnode[$sx] = $inode;
                $sitnoded[$sx] = {};
+               $sitnodes[$sx] = {};
             }
             else {
                $sx = $sitx{$isit};
             }
             $sitct[$sx] += 1;
             $sitct_tot  += 1;
+            $sitnodes[$sx]{$inode} = 1;
             $sitrows[$sx] += $irows;
             $sitrows_tot += $irows;
             if ($insize != 0) {
@@ -7096,7 +7114,7 @@ my $situation_max = "";
 
 
 $cnt++;$oline[$cnt]="Situation Summary Report\n";
-$cnt++;$oline[$cnt]="Situation,Table,Count,Rows,ResultBytes,Result/Min,Fraction,Cumulative%,MinResults,MaxResults,MaxNode\n";
+$cnt++;$oline[$cnt]="Situation,Table,Count,Rows,ResultBytes,Result/Min,Fraction,Cumulative%,MinResults,MaxResults,MaxNode,Nodes\n";
 foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] ||
                                     $a cmp $b                      } keys %sitx ) {
    $i = $sitx{$f};
@@ -7130,7 +7148,9 @@ foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] ||
          $advimpact[$advi] = $advcx{$advcode[$advi]};
          $advsit[$advi] = $sit[$i];
    }
-   $outl .= $sitrmaxnode[$i];
+   $outl .= $sitrmaxnode[$i] . ",";
+   my $nodes_ct = scalar keys %{$sitnodes[$i]};
+   $outl .= $nodes_ct . ",";
    $cnt++;$oline[$cnt]=$outl . "\n";
    $lag_fraction = $fraction;
 }
@@ -7411,6 +7431,10 @@ if ($acti != -1) {
    if ($#act_max_cmds > 0) {
       $cnt++;$oline[$cnt]="\n";
       $outl = "Maximum action command overlay - $act_max";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      $outl = "Action command sequences - $act_cmds_seq";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+      $outl = "Action command sequences duration - $act_cmds_total";
       $cnt++;$oline[$cnt]=$outl . "\n";
       $outl = "Seq,Command";
       $cnt++;$oline[$cnt]=$outl . "\n";
@@ -9424,6 +9448,200 @@ if ($opt_last == 1) {
    }
 }
 
+# if KDEB_INTERFACELIST is present, cross-check with ipconfig.info
+if ($opt_kdebi ne "") {
+   my $ipconfigpath;
+   my $ipconfigfn;
+   my $gotipc = 0;
+   $ipconfigpath = $opt_logpath;
+   if ( -e $ipconfigpath . "ipconfig.info") {
+      $gotipc = 1;
+      $ipconfigpath = $opt_logpath;
+   } elsif ( -e $ipconfigpath . "../ipconfig.info") {
+      $gotipc = 1;
+      $ipconfigpath = $opt_logpath . "../";
+   } elsif ( -e $ipconfigpath . "../../ipconfig.info") {
+      $gotipc = 1;
+      $ipconfigpath = $opt_logpath . "../../";
+   }
+
+   $ipconfigpath = '"' . $ipconfigpath . '"';
+
+   if ($gotipc == 1) {
+      if ($gWin == 1) {
+         $pwd = `cd`;
+         chomp($pwd);
+         $ipconfigpath = `cd $ipconfigpath & cd`;
+      } else {
+         $pwd = `pwd`;
+         chomp($pwd);
+         $ipconfigpath = `(cd $ipconfigpath && pwd)`;
+      }
+
+      chomp $ipconfigpath;
+
+      $ipconfigfn = $ipconfigpath . "/ipconfig.info";
+      $ipconfigfn =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+
+      chomp($ipconfigfn);
+      chdir $pwd;
+      if (defined $ipconfigfn) {
+         open IPCO,"< $ipconfigfn" or warn " open ipconfig.info file $ipconfigfn -  $!";
+         my @ipc = <IPCO>;
+         close IPCO;
+
+         # Example Linux ipconfig.info
+
+         # eth0      Link encap:Ethernet  HWaddr 00:50:56:A4:4A:92
+         #           inet addr:10.254.2.244  Bcast:10.254.3.255  Mask:255.255.254.0
+         #           inet6 addr: fe80::250:56ff:fea4:4a92/64 Scope:Link
+         #           UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+         #           RX packets:12815356873 errors:0 dropped:0 overruns:0 frame:0
+         #           TX packets:12737930579 errors:0 dropped:0 overruns:0 carrier:0
+         #           collisions:0 txqueuelen:1000
+         #           RX bytes:10613141817403 (9.6 TiB)  TX bytes:2205958991044 (2.0 TiB)
+         #
+         # eth1      Link encap:Ethernet  HWaddr 00:50:56:A4:28:C2
+         #           inet addr:10.254.6.244  Bcast:10.254.7.255  Mask:255.255.254.0
+         #           inet6 addr: fe80::250:56ff:fea4:28c2/64 Scope:Link
+         #           UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+         #           RX packets:150695566 errors:0 dropped:0 overruns:0 frame:0
+         #           TX packets:16615596 errors:0 dropped:0 overruns:0 carrier:0
+         #           collisions:0 txqueuelen:1000
+         #           RX bytes:10024511842 (9.3 GiB)  TX bytes:11755947811 (10.9 GiB)
+         #
+         # eth2      Link encap:Ethernet  HWaddr 00:50:56:A4:7F:F9
+         #           inet addr:10.254.8.244  Bcast:10.254.9.255  Mask:255.255.254.0
+         #           inet6 addr: fe80::250:56ff:fea4:7ff9/64 Scope:Link
+         #           UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+         #           RX packets:4396302 errors:0 dropped:0 overruns:0 frame:0
+         #           TX packets:79383 errors:0 dropped:0 overruns:0 carrier:0
+         #           collisions:0 txqueuelen:1000
+         #           RX bytes:314250049 (299.6 MiB)  TX bytes:6051115 (5.7 MiB)
+         #
+         # eth3      Link encap:Ethernet  HWaddr 00:50:56:A4:18:55
+         #           inet addr:192.168.149.244  Bcast:192.168.149.255  Mask:255.255.254.0
+         #           inet6 addr: fe80::250:56ff:fea4:1855/64 Scope:Link
+         #           UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+         #           RX packets:4225314847 errors:0 dropped:0 overruns:0 frame:0
+         #           TX packets:1042493717 errors:0 dropped:0 overruns:0 carrier:0
+         #           collisions:0 txqueuelen:1000
+         #           RX bytes:260452043145 (242.5 GiB)  TX bytes:19750846202676 (17.9 TiB)
+         #
+         # lo        Link encap:Local Loopback
+         #           inet addr:127.0.0.1  Mask:255.0.0.0
+         #           inet6 addr: ::1/128 Scope:Host
+         #           UP LOOPBACK RUNNING  MTU:65536  Metric:1
+         #           RX packets:6979708456 errors:0 dropped:0 overruns:0 frame:0
+         #           TX packets:6979708456 errors:0 dropped:0 overruns:0 carrier:0
+         #           collisions:0 txqueuelen:0
+         #           RX bytes:99643965860430 (90.6 TiB)  TX bytes:99643965860430 (90.6 TiB)
+
+         # Example Windows ipconfig.info
+
+         # Windows IP Configuration
+         #
+         #    Host Name . . . . . . . . . . . . : PV60056
+         #    Primary Dns Suffix  . . . . . . . : celsia.local
+         #    Node Type . . . . . . . . . . . . : Hybrid
+         #    IP Routing Enabled. . . . . . . . : No
+         #    WINS Proxy Enabled. . . . . . . . : No
+         #    DNS Suffix Search List. . . . . . : celsia.local
+         #                                        epsa.co
+         #                                        internal.ad
+         #                                        grupoargossa.corp
+         #                                        grupoargos.loc
+         #                                        ocb.local
+         #                                        argos.co
+         #                                        argos.com.co
+         #                                        satorsa.loc
+         #                                        ganaderia.loc
+         #                                        tekia.loc
+         #
+         # Ethernet adapter Ethernet:
+         #
+         #    Connection-specific DNS Suffix  . :
+         #    Description . . . . . . . . . . . : vmxnet3 Ethernet Adapter
+         #    Physical Address. . . . . . . . . : 00-50-56-B1-16-49
+         #    DHCP Enabled. . . . . . . . . . . : No
+         #    Autoconfiguration Enabled . . . . : Yes
+         #    IPv4 Address. . . . . . . . . . . : 10.240.160.190(Preferred)
+         #    Subnet Mask . . . . . . . . . . . : 255.255.255.0
+         #    Default Gateway . . . . . . . . . : 10.240.160.1
+         #    DNS Servers . . . . . . . . . . . : 10.240.161.190
+         #                                        10.240.161.175
+         #    NetBIOS over Tcpip. . . . . . . . : Enabled
+
+         # Example AIX ipconfig.info
+
+         # en0: flags=1e084863,480<UP,BROADCAST,NOTRAILERS,RUNNING,SIMPLEX,MULTICAST,GROUPRT,64BIT,CHECKSUM_OFFLOAD(ACTIVE),CHAIN>
+         # 	inet 10.169.128.204 netmask 0xffffff00 broadcast 10.169.128.255
+         # 	 tcp_sendspace 262144 tcp_recvspace 262144 rfc1323 1
+         # lo0: flags=e08084b,c0<UP,BROADCAST,LOOPBACK,RUNNING,SIMPLEX,MULTICAST,GROUPRT,64BIT,LARGESEND,CHAIN>
+         # 	inet 127.0.0.1 netmask 0xff000000 broadcast 127.255.255.255
+         # 	inet6 ::1%1/0
+         # 	 tcp_sendspace 131072 tcp_recvspace 131072 rfc1323 1
+
+
+
+
+         my $l = 0;
+         my $ip_win = 0;
+         my $ip_aix = 0;
+         my $ip_lnx = 0;
+         my $got_type = 0;
+         my $ipconfig_state = 0;                 # seaching for "Active Internet connections"
+         foreach my $oneline (@ipc) {
+            $l++;
+            chomp($oneline);
+            next if $oneline eq "";
+            if ($l == 2) {
+               if (substr($oneline,0,24) eq "Windows IP Configuration") {
+                  $ip_win = 1;
+                  $got_type = 1;
+               }
+               next;
+            }
+            if ($l == 1) {
+               if (substr($oneline,0,2) eq "en") {
+                  $ip_aix = 1;
+                  $got_type = 1;
+               } elsif (substr($oneline,0,3) eq "eth") {
+                  $ip_lnx = 1;
+                  $got_type = 1;
+               }
+               next;
+            }
+            last if $got_type == 0;
+            if ($ip_win == 1) {
+               if (substr($oneline,3,12) eq "IPv4 Address") {
+                  $oneline =~ /: (\d+\.\d+\.\d+\.\d+)/;
+                  $ipx{$1} = 1 if defined $1;
+               }
+            } elsif ($ip_lnx == 1) {
+               $oneline =~ /inet addr:(\d+\.\d+\.\d+\.\d+)/;
+               $ipx{$1} = 1 if defined $1;
+            } elsif ($ip_aix == 1) {
+               $oneline =~ /inet (\d+\.\d+\.\d+\.\d+)/;
+               $ipx{$1} = 1 if defined $1;
+            }
+         }
+      }
+   }
+   my @ipwords = split(" ",$opt_kdebi);
+   foreach my $ipword (@ipwords) {
+      $ipword =~s/\-\+//g;
+      next if $ipword eq "";
+      next if defined $ipx{$ipword};
+      $advi++;$advonline[$advi] = "KDEB_INTERFACELIST IP Address $ipword missing from system";
+      $advcode[$advi] = "TEMSAUDIT1113E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+      $crit_line = "2,KDEB_INTERFACELIST IP Address $ipword missing from system";
+      push @crits,$crit_line;
+   }
+}
+
 # new report of netstat.info if it can be located
 
 my $netstatpath;
@@ -10796,6 +11014,9 @@ exit;
 #2.03000 - Handle BaseAccept data
 #2.04000 - Handle receive_vector data
 #        - add SOAP Login exceeded advisory
+#2.05000 - Add duration and count of action sequences
+#        - Cross check KDEB_INTERFACELIST with system IP Addresses
+#        - Add count of reporting nodes to situation summary report
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -12825,7 +13046,7 @@ Recovery plan: Investigate Agent configuration and networking.
 --------------------------------------------------------------
 
 TEMSAUDIT1112W
-Text: [Count] [count] SOAP "Login attempts exceeded";
+Text: [count] SOAP "Login attempts exceeded"
 
 Tracing: error
 
@@ -12846,6 +13067,34 @@ error (unit:ksh all er)
 you can see what ip address the SOAP is coming from. Identify
 that and correct the issue. Usually it is a password that has
 expired or changed and the SOAP logic needs a new valid password.
+--------------------------------------------------------------
+
+TEMSAUDIT1113E
+Text: KDEB_INTERFACELIST IP Address $ipword missing from system
+
+Tracing: error
+
+Meaning: Using KDEB_INTERFACELIST you can control the interface survey
+results. The simplest case - KDEB_INTERFACELIST=xx.xx.xx.xx -  means that
+the named IP address should be presented first in the results. That is a
+good way of making sure a non-routeable interface [ip address] is not
+advertised for others to vainly connect to.
+
+This particular error is when you specify an address which is not present
+in the system environment. The result is a constant stream of attempts
+to use a non-existant interface and the connection fails.
+
+The address(es) in KDEB_INTERFACELIST are compared to the pdcollect file
+ipconfig.info.
+
+KDEB_INTEFACELIST is rarely needed in practical cases but is vital when
+it is needed. Here is a more complete explanation of that control:
+
+Sitworld: ITM 6 Interface Guide Using KDEB_INTERFACELIST
+https://www.ibm.com/developerworks/community/blogs/jalvord/entry/Sitworld_ITM_6_Interface_Guide_Using_KDEB_INTERFACELIST?lang=en
+
+Recovery plan: Correct the KDEB_INTERFACELIST to reference an existing
+ip address.
 --------------------------------------------------------------
 
 TEMSREPORT001
@@ -12927,11 +13176,12 @@ stress can be relieved. This is often not seen as high CPU.
 TEMS has a lot of internal locking and the effect is a lot of
  waiting and general slow processing.
 
-Situation Summary ReportSituation,Table,Count,Rows,ResultBytes,Result/Min,Fraction,Cumulative%,MinResults,MaxResults,MaxNode
-HEARTBEAT,*.RNODESTS,23821,23821,5240620,13589,42.82%,42.82%,220,220,mla_udmypdmdb01:07
-all_logscrp_x07w_aix,*.K07K07LGS0,7614,7614,5086152,13189,41.56%,84.37%,668,1336,mla_au122db1080mlax2:07
-all_svc_gntw_win_3,*.NTSERVICE,800,576,845568,2192,6.91%,91.28%,0,1468,mla_au13uap203mlaw2:NT
-all_lastbkp_gudw_db2,*.KUD3437600,160,315,522900,1355,4.27%,95.55%,0,4980,db2inst1:mla_uqmyposms1:UD
+Situation Summary Report
+Situation,Table,Count,Rows,ResultBytes,Result/Min,Fraction,Cumulative%,MinResults,MaxResults,MaxNode,Nodes
+HEARTBEAT,*.RNODESTS,23821,23821,5240620,13589,42.82%,42.82%,220,220,mla_udmypdmdb01:07,1,
+all_logscrp_x07w_aix,*.K07K07LGS0,7614,7614,5086152,13189,41.56%,84.37%,668,1336,mla_au122db1080mlax2:07,4,
+all_svc_gntw_win_3,*.NTSERVICE,800,576,845568,2192,6.91%,91.28%,0,1468,mla_au13uap203mlaw2:NT,210,
+all_lastbkp_gudw_db2,*.KUD3437600,160,315,522900,1355,4.27%,95.55%,0,4980,db2inst1:mla_uqmyposms1:UD,1,
 ... more follow
 
 Following is a second sorting of report that shows which
@@ -13046,6 +13296,8 @@ and as subprocesses. There have been cases where hundreds ran at the
 same time and destabilized the TEMS.
 
 Maximum action command overlay - 32
+Action command sequences - 419
+Action command sequences duration - 239
 Seq,Command
 0,/opt/IBM/ITM/scripts/bsm_history.pl "MHC_SAP_SMP_Login_Tx" 'RRT_Response_Time_Critical' 3 "1170306152002000" 5 "Performance degraded" >/dev/null,
 1,/opt/IBM/ITM/scripts/bsm_history.pl "MHC_SAP_SMP_Login_Tx" 'RRT_Response_Time_Critical' 3 "1170306151944000" 5 "Performance degraded" >/dev/null,
@@ -13056,6 +13308,12 @@ even trigger TEMS instability. Avoid that by limiting such usage.
 The highest intensity is when the action command is configured to
 run on each evaluation, not just the first time. That is rarely
 useful and should be avoided.
+
+The Action command sequences is how many action commands where
+overlaps count as one. Action command sequences duration is how
+long the sequences lasted. This is not terribly accurate since
+the times are on a second boundary, but they do give a good overall
+estimate of how long action commands are running at the TEMS.
 
 Recovery plan: Mimimize the number of action commands.
 ----------------------------------------------------------------
