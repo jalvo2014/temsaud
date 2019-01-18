@@ -119,7 +119,7 @@
 
 ## (5C1B6BA3.0007-162C:kbbssge.c,72,"BSS1_GetEnv") KDEB_INTERFACELIST="10.245.4.7"
 
-my $gVersion = 2.05000;
+my $gVersion = 2.06000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -287,6 +287,8 @@ my $tempInt;
 my $f;
 my $g;
 my $h;
+my $gsk701 = 0;
+my $csv1_path = "";
 
 
 my @seg = ();
@@ -505,6 +507,7 @@ my %advcx = (
               "TEMSAUDIT1111W" => "96",
               "TEMSAUDIT1112W" => "90",
               "TEMSAUDIT1113E" => "100",
+              "TEMSAUDIT1114E" => "100",
             );
 
 
@@ -541,6 +544,7 @@ my %knowntabx = (
                    'K06PERLEX6' => '625',
                    'K06POBJST'  => '324',
                    'K06TEST' => '404',
+                   'K07K07ERL0' => '634',
                    'K07K07ERS0' => '176',
                    'K07K07FSC0' => '960',
                    'K07K07LGS0' => '1416',
@@ -548,6 +552,8 @@ my %knowntabx = (
                    'K07K07MAL0' => '52',
                    'K07K07MNT0' => '1712',
                    'K07K07NET0' => '345',
+                   'K07K07NTP0' => '334',
+                   'K07POBJST'  => '324',
                    'K07K07PRO0' => '3979',
                    'K07K07TRA0' => '332',
                    'K07K07URL0' => '384',
@@ -556,11 +562,14 @@ my %knowntabx = (
                    'K07K07MAI0' => '444',
                    'K08K08PROC' => '4043',
                    'K08K08CUS0' => '924',
-                   'K08K08FIL0' => '836',
+                   'K08K08FIL0' => '988',
                    'K08K08FSA0' => '1712',
                    'K08K08LOG0' => '1416',
                    'K08K08MAI1' => '444',
                    'K08K08SCR0' => '1416',
+                   'K08K08URL0' => '640',
+                   'K08K08USE0' => '372',
+                   'K08POBJST'  => '324',
                    'K09K09CUS0' => '924',
                    'K09K09FSC0' => '968',
                    'K09K09SOL0' => '193',
@@ -649,6 +658,7 @@ my %knowntabx = (
                    'KLZSOCKD' => '296',
                    'KLZSYS'        => '288',
                    'KLZVM'         => '268',
+                   'KMCPRCA'     => '1236',
                    'KNOAVAIL'   => '3244',
                    'KNTPASCAP' => '3000',
                    'KNTPASSTAT' => '1392',
@@ -781,15 +791,17 @@ my %knowntabx = (
                    'KVMVMDSUTL'  => '588',
                    'KYNAPHLTH'     => '1124',
                    'KYNAPMONCF'    => '1748',
-                   'KYNAPSRV'      => '1416',
+                   'KYNAPSRV'      => '1560',
                    'KYNAPSST'      => '1692',
                    'KYNDBCONP'     => '1100',
+                   'KYNEJB'        => '1028',
                    'KYNGCACT'      => '720',
                    'KYNGCAF'       => '592',
                    'KYNGCCYC'      => '632',
                    'KYNLPORT'      => '1444',
                    'KYNMSGQUE'     => '1276',
                    'KYNREQUEST'    => '1476',
+                   'KYNSERVLT'     => '1296',
                    'KYNTHRDP'   => '852',
                    'LNXCPU' => '156',
                    'LNXCPUAVG' => '180',
@@ -851,6 +863,7 @@ my %knowntabx = (
                    'QMCHANS' => '996',
                    'QMCURSTAT' => '2108',
                    'QMEVENTC' => '436',
+                   'QMEVENTH' => '2756',
                    'QMLSSTATUS' => '1180',
                    'QMQ_DATA' => '932',
                    'QMQ_QU_ST' => '364',
@@ -2610,6 +2623,20 @@ for(;;)
       }
    }
 
+   #(5BEDAB54.0005-4:kbbssge.c,72,"BSS1_GetEnv") CSV1_PATH=LD_LIBRARY_PATH=LIBPATH="/lib:/usr/lib:/opt/IBM/ITM/aix536/ms/lib:/opt/IBM/ITM/tmaitm6/aix536/lib:none/lib:/opt/IBM/ITM/aix526/gs/lib64"
+   if ($csv1_path eq "") {
+      if (substr($logunit,0,9) eq "kbbssge.c") {
+         if ($logentry eq "BSS1_GetEnv") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # CSV1_PATH=LD_LIBRARY_PATH=LIBPATH="/lib:/usr/lib:/opt/IBM/ITM/aix536/ms/lib:/opt/IBM/ITM/tmaitm6/aix536/lib:none/lib:/opt/IBM/ITM/aix526/gs/lib64
+            if (substr($rest,1,9) eq "CSV1_PATH") {
+               $rest =~ /CSV1_PATH=LD_LIBRARY_PATH=LIBPATH=\"(\S+)\"/;
+               $csv1_path = $1;
+            }
+         }
+      }
+   }
+
    # (540827D1.001C-4:kbbracd.c,126,"set_filter") *** KDC_DEBUG=Y is in effect
    if ($opt_kdc_debug eq "") {
       if (substr($logunit,0,9) eq "kbbracd.c") {
@@ -2939,6 +2966,19 @@ for(;;)
          if (substr($rest,1,51) eq "Status 1DE0004D=KDE1_STC_INVALIDTRANSPORTCORRELATOR") {
             $itc_ct += 1;
             set_timeline($logtime,$l,$logtimehex,"TEMSAUDIT1096W",$rest);
+            next;
+         }
+      }
+   }
+
+   # CSV1_PATH issue
+   # (5BEDAB55.0003-4:kdebenc.c,447,"ssl_provider_constructor") GSKit error 701: GSK_ATTRIBUTE_INVALID_ID-Invalid attribute identifier
+   if (substr($logunit,0,9) eq "kdebenc.c") {
+      if ($logentry eq "ssl_provider_constructor") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Status 1DE0004D=KDE1_STC_INVALIDTRANSPORTCORRELATOR
+         if (substr($rest,1,70) eq "GSKit error 701: GSK_ATTRIBUTE_INVALID_ID-Invalid attribute identifier") {
+            $gsk701 = 1;
             next;
          }
       }
@@ -6759,7 +6799,7 @@ if ($gmm_total > 0) {
 
 if ($kcf_count > 0) {
    if ($opt_tems eq "*REMOTE") {
-      $advi++;$advonline[$advi] = "MQ/Config or Config should run only on hub TEMS and is a remote TEMS";
+      $advi++;$advonline[$advi] = "MQ/Config or Config should run only on hub TEMS and this TEMS is a remote";
       $advcode[$advi] = "TEMSAUDIT1046W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "KCF";
@@ -8956,6 +8996,12 @@ if ($svpt_ct > 0) {
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "agent";
 }
+if ($gsk701 == 1) {
+   $advi++;$advonline[$advi] = "Invalid CSV1_PATH [$csv1_path]";
+   $advcode[$advi] = "TEMSAUDIT1114E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "agent";
+}
 
 if ($sit32_total > 0) {
    $rptkey = "TEMSREPORT029";$advrptx{$rptkey} = 1;         # record report key
@@ -9595,22 +9641,24 @@ if ($opt_kdebi ne "") {
             $l++;
             chomp($oneline);
             next if $oneline eq "";
-            if ($l == 2) {
-               if (substr($oneline,0,24) eq "Windows IP Configuration") {
-                  $ip_win = 1;
-                  $got_type = 1;
+            if ($got_type == 0) {
+               if ($l == 2) {
+                  if (substr($oneline,0,24) eq "Windows IP Configuration") {
+                     $ip_win = 1;
+                     $got_type = 1;
+                  }
+                  next;
                }
-               next;
-            }
-            if ($l == 1) {
-               if (substr($oneline,0,2) eq "en") {
-                  $ip_aix = 1;
-                  $got_type = 1;
-               } elsif (substr($oneline,0,3) eq "eth") {
-                  $ip_lnx = 1;
-                  $got_type = 1;
+               if ($l == 1) {
+                  if (substr($oneline,0,2) eq "en") {
+                     $ip_aix = 1;
+                     $got_type = 1;
+                  } elsif (substr($oneline,0,3) eq "eth") {
+                     $ip_lnx = 1;
+                     $got_type = 1;
+                  }
+                  next;
                }
-               next;
             }
             last if $got_type == 0;
             if ($ip_win == 1) {
@@ -9630,7 +9678,7 @@ if ($opt_kdebi ne "") {
    }
    my @ipwords = split(" ",$opt_kdebi);
    foreach my $ipword (@ipwords) {
-      $ipword =~s/\-\+//g;
+      $ipword =~ s/[\-\+\!]*//g;
       next if $ipword eq "";
       next if defined $ipx{$ipword};
       $advi++;$advonline[$advi] = "KDEB_INTERFACELIST IP Address $ipword missing from system";
@@ -11017,6 +11065,8 @@ exit;
 #2.05000 - Add duration and count of action sequences
 #        - Cross check KDEB_INTERFACELIST with system IP Addresses
 #        - Add count of reporting nodes to situation summary report
+#2.06000 - Detect bad CSV1_PATH and supply resolution
+#        - Correct logic parsing the ipconfig.info file
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -11837,7 +11887,7 @@ Recovery plan:  Work with IBM support to correct the condition.
 ----------------------------------------------------------------
 
 TEMSAUDIT1046W
-Text: MQ/Config or Config should run only on hub TEMS and not a remote TEMS
+Text: MQ/Config or Config should run only on hub TEMS and this TEMS is a remote
 
 Tracing: error
 (58DE3A4E.007A-12:kcfccmmt.cpp,674,"CMConfigMgrThread::indicateBackground") Error in pthread_attr_setschedparam,
@@ -13095,6 +13145,57 @@ https://www.ibm.com/developerworks/community/blogs/jalvord/entry/Sitworld_ITM_6_
 
 Recovery plan: Correct the KDEB_INTERFACELIST to reference an existing
 ip address.
+--------------------------------------------------------------
+
+TEMSAUDIT1114E
+Text: Invalid CSV1_PATH [path]
+
+Tracing: error
+
+Meaning: ITM uses an embedded install of GSKIT - a component which does
+encryption for secure communications. The gskit binary library must come
+first for proper operation.
+
+Here is an example of a problem setup
+
+CSV1_PATH=LD_LIBRARY_PATH=LIBPATH="/lib:/usr/lib:/opt/IBM/ITM/aix536/ms/lib:/opt/IBM/ITM/tmaitm6/aix536/lib:none/lib:/opt/IBM/ITM/aix526/gs/lib64"
+
+Note how the gskit libary /opt/IBM/ITM/aix526/gs/lib64 comes last. That
+must come first and the local libraries [first two elements] must come last.
+
+Recovery plan: The best way is to set up a ms.environment file. Here is
+an example instruction:
+
+1) create a file called ms.environment in the /opt/IBM/ITM/config
+directory and it must have the same owner/group and permissions as the
+ms.ini file. Here is an example showing the user/group and
+permissions of the ms.ini file:
+
+-rw-rw----  1 itm       itmuser       2637 Apr 18  2017 /opt/IBM/ITM/config/ms.ini
+
+2) After creating the ms.environment file, run these commands to set the
+owner/group and permissions to match the ms.ini file (above):
+cd /opt/IBM/ITM/config
+touch ms.environment
+chmod 660 ms.environment
+chown itm ms.environment
+chgrp itmuser ms.environment
+
+
+3) Add these 4 lines to the ms.environment file using the CSV1_PATH from
+above, but move the gskit libarary to the first position and
+the /lib:/usr/lib to the last position:
+
+CSV1_PATH=/opt/IBM/ITM/aix526/gs/lib64:/opt/IBM/ITM/aix536/ms/lib:/opt/IBM/ITM/tmaitm6/aix536/lib:none/lib:/lib:/usr/lib
+LD_LIBRARY_PATH=/opt/IBM/ITM/aix526/gs/lib64:/opt/IBM/ITM/aix536/ms/lib:/opt/IBM/ITM/tmaitm6/aix536/lib:none/lib:/lib:/usr/lib
+LIBPATH=/opt/IBM/ITM/aix526/gs/lib64:/opt/IBM/ITM/aix536/ms/lib:/opt/IBM/ITM/tmaitm6/aix536/lib:none/lib:/lib:/usr/lib
+SHLIB_PATH=/opt/IBM/ITM/aix526/gs/lib64:/opt/IBM/ITM/aix536/ms/lib:/opt/IBM/ITM/tmaitm6/aix536/lib:none/lib:/lib:/usr/lib
+
+4) After adding the lines, recycle the TEMS and monitor for stability.
+
+In real life you need to adapt the instructions to match what
+you see in the diagnostic log.
+
 --------------------------------------------------------------
 
 TEMSREPORT001
