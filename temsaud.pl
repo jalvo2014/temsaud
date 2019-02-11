@@ -119,7 +119,7 @@
 
 ## (5C1B6BA3.0007-162C:kbbssge.c,72,"BSS1_GetEnv") KDEB_INTERFACELIST="10.245.4.7"
 
-my $gVersion = 2.06000;
+my $gVersion = 2.07000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -252,6 +252,7 @@ my $opt_level = 0;                               # build level not found
 my $opt_driver = "";                             # Driver
 my $opt_sum;                                     # Summary text
 my $opt_nodeid = "";                             # TEMS nodeid
+my $opt_disable_http = "";                       # DISABLE_HTTP setting
 my $opt_tems = "";                               # *HUB or *REMOTE
 my $opt_kdcb0 = "";                              # KDCB0_HOSTNAME
 my $opt_kdebi = "";                              # KDEB_INTERFACELIST
@@ -429,7 +430,7 @@ my %advcx = (
               "TEMSAUDIT1033W" => "90",
               "TEMSAUDIT1034W" => "75",
               "TEMSAUDIT1035W" => "80",
-              "TEMSAUDIT1036W" => "60",
+              "TEMSAUDIT1036E" => "100",
               "TEMSAUDIT1037E" => "100",
               "TEMSAUDIT1038W" => "80",
               "TEMSAUDIT1039W" => "85",
@@ -508,6 +509,8 @@ my %advcx = (
               "TEMSAUDIT1112W" => "90",
               "TEMSAUDIT1113E" => "100",
               "TEMSAUDIT1114E" => "100",
+              "TEMSAUDIT1115E" => "96",
+              "TEMSAUDIT1116E" => "100",
             );
 
 
@@ -539,6 +542,7 @@ my %knowntabx = (
                    'K06PERLEX0' => '364',
                    'K06PERLEX1' => '344',
                    'K06PERLEX2' => '1416',
+                   'K06PERLEX3' => '640',
                    'K06PERLEX4' => '444',
                    'K06PERLEX5' => '468',
                    'K06PERLEX6' => '625',
@@ -553,19 +557,24 @@ my %knowntabx = (
                    'K07K07MNT0' => '1712',
                    'K07K07NET0' => '345',
                    'K07K07NTP0' => '334',
+                   'K07K07PAR0' => '600',
                    'K07POBJST'  => '324',
+                   'K07PROCESS' => '468',
                    'K07K07PRO0' => '3979',
+                   'K07K07SUB0' => '288',
                    'K07K07TRA0' => '332',
                    'K07K07URL0' => '384',
                    'K07K07USE0' => '200',
                    'K07K07CUS0' => '988',
                    'K07K07MAI0' => '444',
-                   'K08K08PROC' => '4043',
+                   'K08CLUSTER' => '584',
                    'K08K08CUS0' => '924',
                    'K08K08FIL0' => '988',
                    'K08K08FSA0' => '1712',
                    'K08K08LOG0' => '1416',
                    'K08K08MAI1' => '444',
+                   'K08K08PAR0' => '856',
+                   'K08K08PROC' => '4043',
                    'K08K08SCR0' => '1416',
                    'K08K08URL0' => '640',
                    'K08K08USE0' => '372',
@@ -702,6 +711,11 @@ my %knowntabx = (
                    'KQ7ACTIVES' => '164',
                    'KQ7WEBSERV' => '364',
                    'KQ7WSITDTL' => '628',
+                   'KQITBRKR' => '1620',
+                   'KQITBRKS' => '1156',
+                   'KQITBSEV' => '944',
+                   'KQITMNEV' => '1576',
+                   'KQITSTMF' => '1852',
                    'KQXAVAIL'   => '3244',
                    'KQXPRESSRV' => '432',
                    'KQPAVAIL'   => '3244',
@@ -793,11 +807,13 @@ my %knowntabx = (
                    'KYNAPMONCF'    => '1748',
                    'KYNAPSRV'      => '1560',
                    'KYNAPSST'      => '1692',
+                   'KYNCONTNR'     => '864',
                    'KYNDBCONP'     => '1100',
                    'KYNEJB'        => '1028',
                    'KYNGCACT'      => '720',
                    'KYNGCAF'       => '592',
                    'KYNGCCYC'      => '632',
+                   'KYNLOGANAL'    => '1044',
                    'KYNLPORT'      => '1444',
                    'KYNMSGQUE'     => '1276',
                    'KYNREQUEST'    => '1476',
@@ -860,11 +876,11 @@ my %knowntabx = (
                    'PROCESSIO' => '704',
                    'QMANAGER' => '796',
                    'QMCHAN_ST' => '1592',
-                   'QMCHANS' => '996',
+                   'QMCHANS' => '1632',
                    'QMCURSTAT' => '2108',
                    'QMEVENTC' => '436',
                    'QMEVENTH' => '2756',
-                   'QMLSSTATUS' => '1180',
+                   'QMLSSTATUS' => '1192',
                    'QMQ_DATA' => '932',
                    'QMQ_QU_ST' => '364',
                    'QMQUEUES' => '844',
@@ -909,6 +925,7 @@ my %knowntabx = (
                    'UNIXPING'      => '856',
                    'UNIXPS'        => '2736',
                    'UNIXPVOLUM'    => '552',
+                   'UNIXTCP'       => '104',
                    'UNIXTOPCPU'    => '1832',
                    'UNIXTOPMEM'    => '1840',
                    'UNIXUSER'      => '540',
@@ -2566,6 +2583,21 @@ for(;;)
       }
    }
 
+   # Extract the DISABLE_HTTP value
+   #(5C59FA6A.0A7A-C:kbbssge.c,72,"BSS1_GetEnv") DISABLE_HTTP="YES"
+   if ($opt_disable_http eq "") {
+      if (substr($logunit,0,9) eq "kbbssge.c") {
+         if ($logentry eq "BSS1_GetEnv") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # DISABLE_HTTP="YES"
+            if (substr($rest,1,13) eq "DISABLE_HTTP=") {
+               $rest =~ /DISABLE_HTTP=\"(\S+)\"/;
+               $opt_disable_http = $1;
+            }
+         }
+      }
+   }
+
    # Extract the TEMS type
    #(53EE63EA.000B-165C:kbbssge.c,52,"BSS1_GetEnv") KDS_HUB="*LOCAL"
    if ($opt_tems eq "") {
@@ -2603,7 +2635,10 @@ for(;;)
             $rest = $2;                       # KDEB_INTERFACELIST="158.98.138.32"
             if (substr($rest,1,19) eq "KDEB_INTERFACELIST=") {
                $rest =~ /KDEB_INTERFACELIST=\"(\S+)\"/;
-               $opt_kdebi = $1;
+               my $iptest = $1;
+               my $iptest1 = $iptest;
+               $iptest1 =~ s/[.\d]//g;
+               $opt_kdebi = $iptest if $iptest1 eq "";
             }
          }
       }
@@ -6491,6 +6526,13 @@ if ($itc_ct > 0) {
    $advsit[$advi] = "Comm";
 }
 
+if ($opt_disable_http eq "YES") {
+   $advi++;$advonline[$advi] = "DISABLE_HTTP=YES which is invalid for TEMS";
+   $advcode[$advi] = "TEMSAUDIT1116E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
 if ($toobigi > -1) {
       my $ptoobigi = $toobigi + 1;
       $advi++;$advonline[$advi] = "$ptoobigi Filter object(s) too big situations and/or reports - See Report $rptkey";
@@ -6681,9 +6723,11 @@ if ($syncdist_early > -1) {
 if ($stage2_ct > 2) {
    my $pct = int(($stage2_ct+1)/2);
    $advi++;$advonline[$advi] = "Reconnection from remote TEMS to hub TEMS - $pct times - $stage2";
-   $advcode[$advi] = "TEMSAUDIT1036W";
+   $advcode[$advi] = "TEMSAUDIT1036E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Reconnect";
+   $crit_line = "1,Reconnection from remote TEMS to hub TEMS - $pct times";
+   push @crits,$crit_line;
 }
 
 if ($stage2_ct_err > 0) {
@@ -6691,6 +6735,8 @@ if ($stage2_ct_err > 0) {
    $advcode[$advi] = "TEMSAUDIT1043E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Reconnect_Fail";
+   $crit_line = "1,Failed Reconnection from remote TEMS to hub TEMS - $stage2_ct_err times";
+   push @crits,$crit_line;
 }
 
 if ($portscan > 0) {
@@ -6850,10 +6896,19 @@ if ($login_ct > 0) {
 my $readn_ct = scalar keys %readnextx;
 if ($readn_ct > 0) {
    foreach $f (keys %readnextx) {
-      $advi++;$advonline[$advi] = "TSITSTSH Read Error $f [$readnextx{$f}]";
-      $advcode[$advi] = "TEMSAUDIT1089E";
-      $advimpact[$advi] = $advcx{$advcode[$advi]};
-      $advsit[$advi] = "TEMS";
+      if ($f == 5) {
+         $advi++;$advonline[$advi] = "TSITSTSH Read Error $f [$readnextx{$f}]";
+         $advcode[$advi] = "TEMSAUDIT1115E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TEMS";
+         $crit_line = "6,TSITSTSH wrapping at a high rate and events lost";
+         push @crits,$crit_line;
+      } else {
+         $advi++;$advonline[$advi] = "TSITSTSH Read Error $f [$readnextx{$f}]";
+         $advcode[$advi] = "TEMSAUDIT1089E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TEMS";
+      }
    }
 }
 
@@ -8989,12 +9044,14 @@ if ($svpt_ct > 0) {
       }
    }
 
-   $crit_line = "2,Service Point Duplications [$sp_ct] - see report $rptkey";
-   push @crits,$crit_line;
-   $advi++;$advonline[$advi] = "Service Point Duplications [$sp_ct] - see $rptkey report";
-   $advcode[$advi] = "TEMSAUDIT1111W";
-   $advimpact[$advi] = $advcx{$advcode[$advi]};
-   $advsit[$advi] = "agent";
+   if ($sp_ct > 0) {
+      $crit_line = "2,Service Point Duplications [$sp_ct] - see report $rptkey";
+      push @crits,$crit_line;
+      $advi++;$advonline[$advi] = "Service Point Duplications [$sp_ct] - see $rptkey report";
+      $advcode[$advi] = "TEMSAUDIT1111W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "agent";
+   }
 }
 if ($gsk701 == 1) {
    $advi++;$advonline[$advi] = "Invalid CSV1_PATH [$csv1_path]";
@@ -11067,6 +11124,10 @@ exit;
 #        - Add count of reporting nodes to situation summary report
 #2.06000 - Detect bad CSV1_PATH and supply resolution
 #        - Correct logic parsing the ipconfig.info file
+#2.07000 - Critical Issue if remote TEMS reconnects to hub TEMS
+#        - suppress advisory and critical issue if no service duplications
+#        - Add 1115E for TSITSTSH wrapping case.
+#        - Add 1116E for DISABLE_HTTP=YES which breaks TEMS functionality
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -11706,7 +11767,7 @@ Recovery plan: If you are experiencing symptoms, involve IBM Support. If
 not use your own best judgement.
 --------------------------------------------------------------
 
-TEMSAUDIT1036W
+TEMSAUDIT1036E
 Text: Reconnection from remote TEMS to hub TEMS - count times - times
 
 Tracing: error
@@ -15147,3 +15208,53 @@ ITM 630 FP7 SP1 maintenance.
 Recovery plan: Investigate agents and resolve issues, perhaps with
 IBM Support.
 ----------------------------------------------------------------
+
+TEMSAUDIT1115E
+Text: TSITSTSH Read Error <type> [count]
+
+Tracing: error
+(591C3F9F.0000-A2:kfastins.c,2166,"GetSitLogRecord") ReadNext Error, status = 5
+
+Meaning: For error type 5, that means whatever was going to be read was
+suddenly not present. It probably means the TEMS is experiencing periods
+of very high activity. Sometimes the advisory TEMSAUDIT1057W is
+present where over 1000 events per second arrived at times.
+
+80,TEMSAUDIT1057W,TEMS,Sequence Number Overflow 1605 times - rapid incoming events
+
+You can increase the size of the TSITSTSH table. It defaults to 8192
+rows but can be increased up to 32876. It is a wrap-around table that
+holds situation event data temporary before going to the in-core table
+ISITSTSH that TEPS uses and events sent to event receiver. Add this
+environment variable [linux/unix] to
+<installdir>/tables/<temsnodeid>/KBBENV
+
+SITLOGSIZE=32876
+
+and when that TEMS is recycled its capacity will be increased.
+It can still get overloaded but you do have more leeway.
+
+For a Windows platform use MTEMS, right click on Advanced,
+click on Edit Variables..., click on Add and add the variable name and
+value and OK out. This will trigger a TEMS recycle so it should be
+scheduled.
+
+Best practice would be to determine what is causing the high event rate
+and stop it. Situations should be rare, fixable, and have a working
+process to implement fixes. Typically a super high workload has some
+situations that don't match that best practice.
+
+Recovery plan: Work with IBM Support to eliminate the issue.
+--------------------------------------------------------------
+
+TEMSAUDIT1116E
+Text: DISABLE_HTTP=YES which is invalid for TEMS
+
+Tracing: error
+
+Meaning: The DISABLE_HTTP=YES must not be used on TEMS
+because it prevents essential functionality.
+
+Recovery plan: Reconfigure the TEMS. This also applies to
+TEPS.
+--------------------------------------------------------------
