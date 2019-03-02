@@ -119,7 +119,7 @@
 
 ## (5C1B6BA3.0007-162C:kbbssge.c,72,"BSS1_GetEnv") KDEB_INTERFACELIST="10.245.4.7"
 
-my $gVersion = 2.07000;
+my $gVersion = 2.08000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -511,6 +511,8 @@ my %advcx = (
               "TEMSAUDIT1114E" => "100",
               "TEMSAUDIT1115E" => "96",
               "TEMSAUDIT1116E" => "100",
+              "TEMSAUDIT1117E" => "100",
+              "TEMSAUDIT1118W" => "99",
             );
 
 
@@ -519,10 +521,11 @@ my %newtabx;
 my %newtabszx;
 my %knowntabx = (
                    'ACTSRVPG'   => '376',
-                   'AGGREGATS'     => '3376',
-                   'AIXPAGMEM'     => '208',
-                   'CLACTRMT'   => '7452',
-                   'FILEINFO'   => '6232',
+                   'AGGREGATS'   => '3376',
+                   'AIXPAGMEM'   => '208',
+                   'AIXMPIOSTS'  => '560',
+                   'CLACTRMT'    => '7452',
+                   'FILEINFO'    => '6232',
                    'HLAADRS'     => '116',
                    'HLALCPOL'    => '96',
                    'HLALCPTH'    => '80',
@@ -599,11 +602,21 @@ my %knowntabx = (
                    'K24EVENTLO' => '2864',
                    'K2SQUERYRE' => '212',
                    'K3ZNTDSDCA' => '1836',
+                   'K3ZNTDSDCP' => '420',
                    'K3ZNTDSDAI' => '1140',
+                   'K3ZNTDSDFS' => '384',
+                   'K3ZNTDSDHC' => '348',
                    'K3ZNTDSDNS' => '584',
+                   'K3ZNTDSDRA' => '844',
                    'K3ZNTDSDS'  => '304',
+                   'K3ZNTDSFRS' => '508',
+                   'K3ZNTDSKCC' => '316',
                    'K3ZNTDSLDP' => '272',
+                   'K3ZNTDSRLT' => '936',
+                   'K3ZNTDSRPL' => '1792',
                    'K3ZNTDSSVC' => '1340',
+                   'K3ZNTDSTRS' => '552',
+                   'K3ZSYSRPL' => '180',
                    'K5DK5DSANP' => '372',
                    'K5ECSCRIPT' => '188',
                    'K5IDBCACHE' => '2304',
@@ -614,6 +627,8 @@ my %knowntabx = (
                    'KA4MSG'     => '2304',
                    'KA4PFJOB'   => '324',
                    'KA4SYSTS'   => '188',
+                   'KAGDYST'    => '504',     # kdy remote deploy
+                   'KAGREQT'    => '4096',    # kdy remote deploy
                    'KBNCPUUSAG' => '324',
                    'KBNDATETIM' => '952',
                    'KBNDPCBATS' => '368',
@@ -640,9 +655,17 @@ my %knowntabx = (
                    'KHTAWEBSR'     => '1028',
                    'KHTAWEBST'     => '956',
                    'KHTWSRS'       => '1000',
+                   'KHVGETDIS0'    => '280',
+                   'KHVGETVIR0'    => '792',
+                   'KHVHYPERV'     => '80',
+                   'KHVHYPVRST'    => '188',
+                   'KHVHYRPROC'    => '228',
+                   'KHVHYVPROC'    => '336',
+                   'KINAGT'        => '797',    # kdy remote deploy
                    'KISHSTATS'     => '372',
-                   'KISHTTP'    => '1304',
-                   'KISICMP' => '724',
+                   'KISHTTP'       => '1304',
+                   'KISICMP'       => '724',
+                   'KISLDAP'       => '972',
                    'KISMSTATS'     => '448',
                    'KISSISTATS'    => '984',
                    'KLOLOGEVTS' => '6864',
@@ -660,6 +683,7 @@ my %knowntabx = (
                    'LNXIPADDR' => '548',
                    'KLZNET'        => '368',
                    'KLZPASMGMT'    => '528',
+                   'KLZPASSTAT'    => '1384',
                    'KLZPROC'       => '1620',
                    'KLZPUSR'       => '1572',
                    'KLZSCRPTS'  => '3952',
@@ -708,7 +732,21 @@ my %knowntabx = (
                    'KPX26DISKS' => '432',
                    'KPX30FILES' => '1028',
                    'KPX34NETWO' => '996',
+                   'KQ5B20LOGI' => '624',
+                   'KQ5C20RES' => '696',
+                   'KQ5CLUSUM' => '444',
+                   'KQ5CSVSUMM' => '260',
+                   'KQ5D20NODE' => '756',
+                   'KQ5E20NET' => '460',
+                   'KQ5F20INT' => '756',
                    'KQ7ACTIVES' => '164',
+                   'KQ7APPLWAS' => '312',
+                   'KQ7ASPNET4' => '424',
+                   'KQ7AVAIL'   => '3244',
+                   'KQ7FSITDTL' => '564',
+                   'KQ7FSITDTL' => '564',
+                   'KQ7IISAPPL' => '588',
+                   'KQ7SITECER' => '628',
                    'KQ7WEBSERV' => '364',
                    'KQ7WSITDTL' => '628',
                    'KQITBRKR' => '1620',
@@ -781,6 +819,7 @@ my %knowntabx = (
                    'KUXDEVIC'      => '660',
                    'KUXPASALRT'    => '484',
                    'KUXPASMGMT'    => '512',
+                   'KUXPASSTAT' => '1384',
                    'KUXSCRPTS' => '3952',
                    'KUXSCRTSM' => '3544',
                    'KVA21PAGIN' => '76',
@@ -850,6 +889,18 @@ my %knowntabx = (
                    'LTCNETTOUT'    => '216',
                    'LTCRRT'        => '748',
                    'LTCWRT'        => '748',
+                   'MSEASYNC' => '344',
+                   'MSEAVSERV' => '136',
+                   'MSEDB' => '592',
+                   'MSEIS' => '384',
+                   'MSEISCLI' => '184',
+                   'MSEISSTR' => '2920',
+                   'MSENLBS' => '152',
+                   'MSEPRXY' => '116',
+                   'MSEREPL' => '148',
+                   'MSERPCCA' => '152',
+                   'MSESTOINT' => '760',
+                   'MSETRQUE' => '616',
                    'NETWRKIN' => '476',
                    'NLTSCPUTIL'    => '316',
                    'NLTSDSKUTL'    => '284',
@@ -890,6 +941,7 @@ my %knowntabx = (
                    'T3FILEDPT' => '3704',
                    'T3FILEXFER' => '5200',
                    'T3PBSTAT' => '948',
+                   'T3ISMPROFS' => '552',
                    'T3SNAPPL' => '500',
                    'T3SNCLIENT' => '628',
                    'T3SNSERVER' => '628',
@@ -902,10 +954,12 @@ my %knowntabx = (
                    'T6PBEVENT'     => '2752',
                    'T6PBSTAT'      => '916',
                    'T6REALMS'      => '432',
+                   'T6SUBTXCS'     => '684',
                    'T6TXCS'        => '752',
                    'T6TXSM'        => '752',
                    'TCPSTATS'      => '252',
                    'TOINTSIT'      => '1508',
+                   'TUPERIODS'     => '92',
                    'ULLOGENT'      => '2864',
                    'ULMONLOG'      => '1988',
                    'UNIXCPU'       => '348',
@@ -1527,6 +1581,8 @@ my %dtablex = ();
 my $dtable;
 my %itablex = ();
 my $itable;
+my %otablex = ();
+my $otable;
 my %derrorx = ();
 my $derror;
 my %rtablex = ();
@@ -1734,6 +1790,9 @@ my $syncdist_time = ();     # count of sync. dist.
 my $soapi = -1;             # count of soap SQLa
 my @soap = ();              # indexed array to SOAP SQLs
 my %soapx = ();             # associative array to SOAP SQLs
+my %soapipx = ();           # Soaps from targets
+my $soap_start = 0;
+my $soap_end = 0;
 my @soapct;                 # count of soap SQLs
 my @soapip;                 # last ip address seen in header
 my $soapip_lag = "";        # last ip address spotted
@@ -3840,6 +3899,33 @@ for(;;)
          }
       }
    }
+
+   # (5C70AF6F.0004-1:kglkyof.c,257,"OpenKeyedFile") Open failed for QA1CDSCA, status = 5
+   if (substr($logunit,0,9) eq "kglkyof.c") {
+      if ($logentry eq "OpenKeyedFile") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Open failed for QA1CDSCA, status = 5
+         if (substr($rest,1,11) eq "Open failed") {
+            $rest =~ /for (\S+), status = (\d+)/;
+            $otable = $1;
+            my $istatus = $2;
+            next if !defined $otable;
+            my $otable_ref = $otablex{$otable};
+            if (!defined $otable_ref) {
+               my %otableref = (
+                                  count => 0,
+                                  statusx => {},
+                               );
+               $otablex{$otable} = \%otableref;
+               $otable_ref = \%otableref;
+            }
+            $otable_ref->{count} += 1;
+            $otable_ref->{statusx}{$istatus} += 1;
+            next;
+         }
+      }
+   }
+
    #(5ACBD347.0002-4:kfastslg.c,316,"KO4ST_SetupLog") RelRec mismatch: logfile = 'QA1CSTSH', count = 2280
    if (substr($logunit,0,10) eq "kfastslg.c") {
       if ($logentry eq "KO4ST_SetupLog") {
@@ -5215,6 +5301,17 @@ for(;;)
          $soapct[$sx] += 1;
          $soapct_tot += 1;
          $soapip[$sx] = $soapip_lag;
+         $soapip_lag =~ /(\S+):/;
+         my $soap_sys = $1;
+         my $soap_ref = $soapipx{$soap_sys};
+         if (!defined $soap_ref) {
+            my %soapref = (
+                             count => 0,
+                          );
+           $soap_ref = \%soapref;
+           $soapipx{$soap_sys} = \%soapref;
+         }
+         $soap_ref->{count} += 1;
          if ($soap_burst_start == 0) {   # first time recording burst
              $soap_burst_start = $logtime;
              $soap_burst_next = $soap_burst_start + 60; # start of next at 60 seconds
@@ -6506,12 +6603,20 @@ if ($toobigi != -1) {
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
    $cnt++;$oline[$cnt]="\n";
+   my $dtable_ref = $dtablex{"QA1CCOBJ"};
+   if (defined $dtable_ref) {
+      $advi++;$advonline[$advi] = "Possible QA1CCOBJ damage caused by Too Big Situations or TEPS queries";
+      $advcode[$advi] = "TEMSAUDIT1118W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+      $crit_line = "1,TEMS database table QA1CCOBJ with errors - see TEMS Audit Report";
+      push @crits,$crit_line;
+   }
 }
 
 my $hist_corrupted_ct = scalar keys %hist_corruptedx;
 if ($hist_corrupted_ct > 0) {
    foreach $f (keys %hist_corruptedx) {
-
       $advi++;$advonline[$advi] = "$hist_corruptedx{$f} corrupted rows in Short Term History table $f";
       $advcode[$advi] = "TEMSAUDIT1084W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
@@ -6896,7 +7001,7 @@ if ($login_ct > 0) {
 my $readn_ct = scalar keys %readnextx;
 if ($readn_ct > 0) {
    foreach $f (keys %readnextx) {
-      if ($f == 5) {
+      if ($f eq "status = 5") {
          $advi++;$advonline[$advi] = "TSITSTSH Read Error $f [$readnextx{$f}]";
          $advcode[$advi] = "TEMSAUDIT1115E";
          $advimpact[$advi] = $advcx{$advcode[$advi]};
@@ -7076,6 +7181,29 @@ if ($et > 0) {
    if ($et_tab ne "") {
       chop $et_tab;
       $crit_line = "1,TEMS database tables[$et_tab] with errors - see TEMS Audit Report";
+      push @crits,$crit_line;
+   }
+}
+
+my $ot = scalar keys %otablex;
+if ($ot > 0) {
+   my $ot_tab = "";
+   foreach $f (keys %otablex) {
+      my $otct = $otablex{$f}->{count};
+      my $pstat = "";
+      for $g (sort {$a <=> $b} keys %{$otablex{$f}->{statusx}}) {
+         $pstat .= $g . '[' . $otablex{$f}->{statusx}{$g} . "] ";
+      }
+      chop $pstat;
+      $advi++;$advonline[$advi] = "TEMS database table with $otct open errors status $pstat";
+      $advcode[$advi] = "TEMSAUDIT1117E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = $f;
+      $ot_tab .= $f . " ";
+   }
+   if ($ot_tab ne "") {
+      chop $ot_tab;
+      $crit_line = "1,TEMS database tables[$ot_tab] with open errors - see TEMS Audit Report";
       push @crits,$crit_line;
    }
 }
@@ -7636,7 +7764,7 @@ if ($soapi != -1) {
    $rptkey = "TEMSREPORT008";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: SOAP SQL Summary Report\n";
-   $cnt++;$oline[$cnt]="IP,Count,SQL\n";
+   $cnt++;$oline[$cnt]="IP,Count,SQL,\n";
    foreach $f ( sort { $soapct[$soapx{$b}] <=> $soapct[$soapx{$a}] || $a cmp $b } keys %soapx ) {
       $i = $soapx{$f};
       $outl = $soapip[$i] . ",";
@@ -7648,6 +7776,7 @@ if ($soapi != -1) {
    }
    $outl = "*total" . ",";
    $outl .= $soapct_tot . ",";
+   $outl .= $dur . ",";
    $cnt++;$oline[$cnt]=$outl . "\n";
    my $soap_rate = $soapct_tot / ($dur / 60);
    if ($soap_rate > $opt_nominal_soap) {
@@ -7665,6 +7794,15 @@ if ($soapi != -1) {
       $advcode[$advi] = "TEMSAUDIT1015W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "SOAP";
+   }
+   $rptkey = "TEMSREPORT075";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: SOAP Source Summary Report\n";
+   $cnt++;$oline[$cnt]="IP,Count,\n";
+   foreach $f ( sort { $soapipx{$b}->{count} <=> $soapipx{$a}->{count}} keys %soapipx ) {
+      $outl = $f . ",";
+      $outl .= $soapipx{$f}->{count} . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
    }
 }
 
@@ -10271,11 +10409,13 @@ if ($newtabct > 0) {
       $cnt++;$oline[$cnt]="$outl\n";
    }
    foreach $f ( sort { $a cmp $b} keys %newtabszx) {
-      $outl = "   \"" . $f . "\" => \"";
-      $outl .= $newtabszx{$f} . "\",";
-      $outl .= "was" . ",";
-      $outl .= $knowntabx{$f} . "\",";
-      $cnt++;$oline[$cnt]="$outl\n";
+      if ($newtabszx{$f} > $knowntabx{$f}) {
+         $outl = "   \"" . $f . "\" => \"";
+         $outl .= $newtabszx{$f} . "\",";
+         $outl .= "was" . ",";
+         $outl .= $knowntabx{$f} . "\",";
+         $cnt++;$oline[$cnt]="$outl\n";
+      }
    }
 }
 
@@ -11128,6 +11268,9 @@ exit;
 #        - suppress advisory and critical issue if no service duplications
 #        - Add 1115E for TSITSTSH wrapping case.
 #        - Add 1116E for DISABLE_HTTP=YES which breaks TEMS functionality
+#2.08000 - Table Size, ignore cases where old > new size
+#        - Add 1117E for TEMS database open failure(s)
+#        - Add 1118W for APAR IJ10652 issue
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -13256,7 +13399,99 @@ SHLIB_PATH=/opt/IBM/ITM/aix526/gs/lib64:/opt/IBM/ITM/aix536/ms/lib:/opt/IBM/ITM/
 
 In real life you need to adapt the instructions to match what
 you see in the diagnostic log.
+--------------------------------------------------------------
 
+TEMSAUDIT1115E
+Text: TSITSTSH Read Error <type> [count]
+
+Tracing: error
+(591C3F9F.0000-A2:kfastins.c,2166,"GetSitLogRecord") ReadNext Error, status = 5
+
+Meaning: For error type 5, that means whatever was going to be read was
+suddenly not present. It probably means the TEMS is experiencing periods
+of very high activity. Sometimes the advisory TEMSAUDIT1057W is
+present where over 1000 events per second arrived at times.
+
+80,TEMSAUDIT1057W,TEMS,Sequence Number Overflow 1605 times - rapid incoming events
+
+You can increase the size of the TSITSTSH table. It defaults to 8192
+rows but can be increased up to 32876. It is a wrap-around table that
+holds situation event data temporary before going to the in-core table
+ISITSTSH that TEPS uses and events sent to event receiver. Add this
+environment variable [linux/unix] to
+<installdir>/tables/<temsnodeid>/KBBENV
+
+SITLOGSIZE=32876
+
+and when that TEMS is recycled its capacity will be increased.
+It can still get overloaded but you do have more leeway.
+
+For a Windows platform use MTEMS, right click on Advanced,
+click on Edit Variables..., click on Add and add the variable name and
+value and OK out. This will trigger a TEMS recycle so it should be
+scheduled.
+
+Best practice would be to determine what is causing the high event rate
+and stop it. Situations should be rare, fixable, and have a working
+process to implement fixes. Typically a super high workload has some
+situations that don't match that best practice.
+
+Recovery plan: Work with IBM Support to eliminate the issue.
+--------------------------------------------------------------
+
+TEMSAUDIT1116E
+Text: DISABLE_HTTP=YES which is invalid for TEMS
+
+Tracing: error
+
+Meaning: The DISABLE_HTTP=YES must not be used on TEMS
+because it prevents essential functionality.
+
+Recovery plan: Reconfigure the TEMS. This also applies to
+TEPS.
+--------------------------------------------------------------
+
+TEMSAUDIT1117E
+Text: TEMS database table with count open errors status [types]
+
+Tracing: error
+
+Meaning: The tables involved experienced open failure(s). This
+is usually very server and needs IBM Support involvement to
+restore normal operating conditions,
+
+The diagnostic log will contain additional details.
+
+Recovery plan: Work with IBM Support to resolve the issue.
+--------------------------------------------------------------
+
+TEMSAUDIT1118W
+Text: Possible QA1CCOBJ damage caused by Too Big Situations or TEPS queries
+
+Tracing: error
+
+Meaning: This could be the APAR IJ10652 condition where a too
+big TEP query or Situation can cause TEMS database damage. After
+such damage situations may not run as expected.
+
+At this writing there is a provisional fix available. It is
+also expected to be included in the upcoming ITM 630 FP7 SP1.
+
+The QA1CCOBJ.DB/IDX and QA1CRULD.DB/IDX database files will
+need to be replaced with emptytable files. The data in those
+files are naturally rebuilt during normal TEMS operations.
+They can be replaced on any hub or remote TEMS. See the following
+document on how to access the needed emptytable files.
+
+Sitworld: TEMS Database Repair `
+https://www.ibm.com/developerworks/community/blogs/jalvord/entry/Sitworld_TEMS_Database_Repair?lang=en
+
+Until the APAR fix is installed, the TEPS workspace view
+should not be used. If a situation is causing the issue,
+which could theoretically happen, that situation should
+be stopped.
+
+Recovery plan: Work with IBM Support to resolve the issue.
 --------------------------------------------------------------
 
 TEMSREPORT001
@@ -15208,53 +15443,3 @@ ITM 630 FP7 SP1 maintenance.
 Recovery plan: Investigate agents and resolve issues, perhaps with
 IBM Support.
 ----------------------------------------------------------------
-
-TEMSAUDIT1115E
-Text: TSITSTSH Read Error <type> [count]
-
-Tracing: error
-(591C3F9F.0000-A2:kfastins.c,2166,"GetSitLogRecord") ReadNext Error, status = 5
-
-Meaning: For error type 5, that means whatever was going to be read was
-suddenly not present. It probably means the TEMS is experiencing periods
-of very high activity. Sometimes the advisory TEMSAUDIT1057W is
-present where over 1000 events per second arrived at times.
-
-80,TEMSAUDIT1057W,TEMS,Sequence Number Overflow 1605 times - rapid incoming events
-
-You can increase the size of the TSITSTSH table. It defaults to 8192
-rows but can be increased up to 32876. It is a wrap-around table that
-holds situation event data temporary before going to the in-core table
-ISITSTSH that TEPS uses and events sent to event receiver. Add this
-environment variable [linux/unix] to
-<installdir>/tables/<temsnodeid>/KBBENV
-
-SITLOGSIZE=32876
-
-and when that TEMS is recycled its capacity will be increased.
-It can still get overloaded but you do have more leeway.
-
-For a Windows platform use MTEMS, right click on Advanced,
-click on Edit Variables..., click on Add and add the variable name and
-value and OK out. This will trigger a TEMS recycle so it should be
-scheduled.
-
-Best practice would be to determine what is causing the high event rate
-and stop it. Situations should be rare, fixable, and have a working
-process to implement fixes. Typically a super high workload has some
-situations that don't match that best practice.
-
-Recovery plan: Work with IBM Support to eliminate the issue.
---------------------------------------------------------------
-
-TEMSAUDIT1116E
-Text: DISABLE_HTTP=YES which is invalid for TEMS
-
-Tracing: error
-
-Meaning: The DISABLE_HTTP=YES must not be used on TEMS
-because it prevents essential functionality.
-
-Recovery plan: Reconfigure the TEMS. This also applies to
-TEPS.
---------------------------------------------------------------
