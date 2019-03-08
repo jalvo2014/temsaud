@@ -119,7 +119,7 @@
 
 ## (5C1B6BA3.0007-162C:kbbssge.c,72,"BSS1_GetEnv") KDEB_INTERFACELIST="10.245.4.7"
 
-my $gVersion = 2.08000;
+my $gVersion = 2.09000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -292,6 +292,8 @@ my $gsk701 = 0;
 my $csv1_path = "";
 
 
+my %segx;
+my $seg_ref;
 my @seg = ();
 my $segcurr;
 my $i;
@@ -513,6 +515,7 @@ my %advcx = (
               "TEMSAUDIT1116E" => "100",
               "TEMSAUDIT1117E" => "100",
               "TEMSAUDIT1118W" => "99",
+              "TEMSAUDIT1119I" => "0",
             );
 
 
@@ -2622,6 +2625,8 @@ for(;;)
       }
    }
    $log_ref->{count} += 1;
+   $seg_ref->{start} = $logtime if $logtime < $seg_ref->{start};
+   $seg_ref->{end} = $logtime if $logtime > $seg_ref->{end};
 
 
 
@@ -10524,8 +10529,33 @@ if ($opt_nohdr == 0) {
    for (my $i=0; $i<=$hdri; $i++) {
       print OH $hdr[$i] . "\n";
    }
-   print OH "\n";
 }
+print OH "\n";
+print OH "Elapsed Time in Diagnostic Log Segments\n";
+print OH "Gap,Elapsed,Logname,\n";
+my $lag_gap = 0;
+my $gapdur = 0;
+my $wrap_time = 0;
+my $wrap_ct = 0;
+foreach $f ( sort { $segx{$a}->{start} <=> $segx{$b}->{start}} keys %segx) {
+   $seg_ref = $segx{$f};
+   $lag_gap = $seg_ref->{start} if $lag_gap == 0;
+   my $segdur = $seg_ref->{end} - $seg_ref->{start};
+   $gapdur = $seg_ref->{start} - $lag_gap;
+   $wrap_time = 0 if $gapdur > 3600;
+   $wrap_ct = 0 if $gapdur > 3600;
+   $wrap_time += $segdur;
+   $wrap_ct += 1;
+   print OH "$gapdur,$segdur,$f,\n";
+   $lag_gap = $seg_ref->{end};
+}
+
+
+$advi++;$advonline[$advi] = "Diagnostic Wrap segments[$wrap_ct] elapsed seconds[$wrap_time]";
+$advcode[$advi] = "TEMSAUDIT1119I";
+$advimpact[$advi] = $advcx{$advcode[$advi]};
+$advsit[$advi] = "TEMS";
+
 
 if ($advi != -1) {
    print OH "\n";
@@ -10943,11 +10973,27 @@ sub open_kib {
          $segi += 1;
          $seg[$segi] = $f;
          $seg_time[$segi] = $todo{$f};
+         $seg_ref = $segx{$f};
+         if (!defined $seg_ref) {
+            my %segref = (
+                            start => $todo{$f},
+                            end   => 0,
+                         );
+            $segx{$f} = \%segref;
+         }
       }
    } else {
          $segi += 1;
          $seg[$segi] = $logfn;
          $segmax = 0;
+         $seg_ref = $segx{$logfn};
+         if (!defined $seg_ref) {
+            my %segref = (
+                            start => 0,
+                            end   => 0,
+                         );
+            $segx{$logfn} = \%segref;
+         }
    }
    # Search for TEMS operations log
 
@@ -10965,6 +11011,7 @@ sub read_kib {
       open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
       print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
       $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"';
+      $seg_ref = $segx{$segcurr};
       $segline = 0;
    }
    $segline ++;
@@ -10979,6 +11026,7 @@ sub read_kib {
    open(KIB, "<$segcurr") || die("Could not open log segment $segp $segcurr\n");
    print STDERR "working on $segp $segcurr\n" if $opt_v == 1;
    $hdri++;$hdr[$hdri] = '"' . "working on $segp $segcurr" . '"';
+   $seg_ref = $segx{$segcurr};
    $segline = 1;
    $inline = <KIB>;
 }
@@ -11271,6 +11319,7 @@ exit;
 #2.08000 - Table Size, ignore cases where old > new size
 #        - Add 1117E for TEMS database open failure(s)
 #        - Add 1118W for APAR IJ10652 issue
+#2.09000 - Add diagnostic log segment elapsed time and informational advisory
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -13492,6 +13541,26 @@ which could theoretically happen, that situation should
 be stopped.
 
 Recovery plan: Work with IBM Support to resolve the issue.
+--------------------------------------------------------------
+
+TEMSAUDIT1119I
+Text: Diagnostic Wrap segments[count] elapsed seconds[secs]
+
+Tracing: error
+
+Meaning: This is an informational only advisory which reports
+how fast the diagnostic log segments are wrapping - how much
+time the data represents. The last segment will be only
+partially filled so the time can not be calculated exactly.
+
+The log segments can be increased in size and count using
+KBB_RAS1_LOG environment variable. With that more data will
+be captured as documented here:
+
+Sitworld: The Encyclopedia of ITM Tracing and Trace Related Controls
+https://www.ibm.com/developerworks/community/blogs/jalvord/entry/Sitworld_The_Encyclopedia_of_ITM_Tracing_and_Trace_Related_Controls?lang=en
+
+Recovery plan: If needed increase the log segment count and size.
 --------------------------------------------------------------
 
 TEMSREPORT001
