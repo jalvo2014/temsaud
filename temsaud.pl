@@ -119,7 +119,9 @@
 
 ## (5C1B6BA3.0007-162C:kbbssge.c,72,"BSS1_GetEnv") KDEB_INTERFACELIST="10.245.4.7"
 
-my $gVersion = 2.09000;
+## (5C93B537.0000-129:kpxndmgr.cpp,189,"UpdateStatusForFailedRequest") *INFO: Setting node <rvnlprbwap1:LZ> off-line due to failure to start req <>
+
+my $gVersion = 2.11000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -292,6 +294,7 @@ my $gsk701 = 0;
 my $csv1_path = "";
 
 
+my %nodethx;
 my %segx;
 my $seg_ref;
 my @seg = ();
@@ -516,6 +519,9 @@ my %advcx = (
               "TEMSAUDIT1117E" => "100",
               "TEMSAUDIT1118W" => "99",
               "TEMSAUDIT1119I" => "0",
+              "TEMSAUDIT1120E" => "100",
+              "TEMSAUDIT1121W" => "95",
+              "TEMSAUDIT1122E" => "103",
             );
 
 
@@ -696,6 +702,9 @@ my %knowntabx = (
                    'KLZVM'         => '268',
                    'KMCPRCA'     => '1236',
                    'KNOAVAIL'   => '3244',
+                   'KNPAVAIL' => '3244',
+                   'KNPCAPPACT' => '52',
+                   'KNPTOTENT' => '52',
                    'KNTPASCAP' => '3000',
                    'KNTPASSTAT' => '1392',
                    'KNTSCRRTM'  => '3544',
@@ -752,6 +761,10 @@ my %knowntabx = (
                    'KQ7SITECER' => '628',
                    'KQ7WEBSERV' => '364',
                    'KQ7WSITDTL' => '628',
+                   'KQBEVTLOG' => '2212',
+                   'KQBHOSTTHR' => '1054',
+                   'KQBMSBTRLS' => '3982',
+                   'KQBMSBTSPS' => '2508',
                    'KQITBRKR' => '1620',
                    'KQITBRKS' => '1156',
                    'KQITBSEV' => '944',
@@ -982,6 +995,7 @@ my %knowntabx = (
                    'UNIXPING'      => '856',
                    'UNIXPS'        => '2736',
                    'UNIXPVOLUM'    => '552',
+                   'UNIXSOLZON'    => '564',
                    'UNIXTCP'       => '104',
                    'UNIXTOPCPU'    => '1832',
                    'UNIXTOPMEM'    => '1840',
@@ -1060,6 +1074,7 @@ my %rxrunx = ();         # receive XID running capture by thread
 my $rxrun_def;
 
 my %physicalx = ();
+my %physicalgx = ();       # track type of gateway
 my %pipex = ();
 
 my %prtx;      # Process table capture
@@ -1861,6 +1876,7 @@ my $pt_total_total = 0;
 
 my $nmr_total = 0;          # no matching request count
 my $anic_total = 0;         # Activity not in call count
+my $xactivity = 0;          # Unable to allocate communication activity
 my $fsync_enabled = 1;      # assume fsync is enabled
 my $kds_writenos = "";      # assume kds_writenos not specified
 my $gmm_total = 0;          # count out of storage messages
@@ -2943,6 +2959,17 @@ for(;;)
       }
    }
 
+   # (5C574A08.16DA-10856:kdcsdrq.c,944,"KDCS_DispatchRequest") unable to allocate activity: aHint=0511, Last=FFCC, Limit=FFCC
+   if (substr($logunit,0,9) eq "kdcsdrq.c") {
+      if ($logentry eq "KDCS_DispatchRequest") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # unable to allocate activity: aHint=0511, Last=FFCC, Limit=FFCC
+         if (substr($rest,1,28) eq "unable to allocate activity:") {
+            $xactivity += 1;
+         }
+      }
+   }
+
    # Following seen when KDC_DEBUG=Y - more details about ANIC
    # (58CC5929.0001-1579:kdcc1sr.c,924,"rpc__sar") Conversation timeout: "ip.spipe:#129.39.23.114:3660", 1C010008:00000000, 0, 121(0), FFFF/1, D140831.1:1.1.1.13, tms_ctbs630fp5:d5135a
    # (588789D2.0000-2B2:kdcc1sr.c,642,"rpc__sar") Endpoint unresponsive: "ip.spipe:#0.0.1.41:7757", 1C010001:1DE0000F, 210, 131(0), FFFF/181, D140831.1:1.1.1.13, tms_ctbs630fp5:d5135a
@@ -3911,7 +3938,7 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Open failed for QA1CDSCA, status = 5
          if (substr($rest,1,11) eq "Open failed") {
-            $rest =~ /for (\S+), status = (\d+)/;
+            $rest =~ /for (\S+)\s*, status = (\d+)/;
             $otable = $1;
             my $istatus = $2;
             next if !defined $otable;
@@ -4637,6 +4664,7 @@ for(;;)
 
       # (58A7347F.0051-2B:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
       # (58A73630.0253-DB:kfaprpst.c,2419,"UpdateNodeStatus") Node: 'gto_it06qam020xjbxm:07          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'N', expiryInterval: '-1', online: '  ', hostAddr: 'ip.spipe:#158.98.138.32[7757]<NM>gto_it06qam020xjbxm</NM>   '
+      # (5C854135.0002-20:kfaprpst.c,3222,"UpdateNodeStatus") Updating node status: record node <TEMS                            > thrunode <TEMS                            > o4online <Y> flags <0x00000402>
       if ($logentry eq "UpdateNodeStatus") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Node: 'REMOTE_it01qam020xjbxm          ', thrunode: 'REMOTE_it01qam020xjbxm          ', flags: '0x00000000', curOnline: ' ', newOnline: 'Y', expiryInterval: '3', online: 'S ', hostAddr: '<IP.SPIPE>#158.98.138.35[3660]</IP.SPIPE><IP.PIPE>#158.98.13'
@@ -4806,6 +4834,30 @@ for(;;)
                }
             }
             $rbdup_ref->{lasttime} = $logtime;         # always record last time
+            next;
+
+         # (5C854135.0002-20:kfaprpst.c,3222,"UpdateNodeStatus") Updating node status: record node <TEMS                            > thrunode <TEMS                            > o4online <Y> flags <0x00000402>
+         } elsif (substr($rest,1,21) eq "Updating node status:") {
+            $rest =~ /status: record node \<([^>]*)\> thrunode \<([^>]*)\> o4online \<([^>]*)\> flags \<([^>]*)\>/;
+            $inode = $1;
+            $ithrunode = $2;
+            my $io4online = $3;
+            my $iflags = $4;
+            $inode =~ s/\s+$//;   #trim trailing whitespace
+            $ithrunode =~ s/\s+$//;   #trim trailing whitespace
+            if ($io4online eq "Y") {
+               my $nodeth_ref = $nodethx{$inode};
+               if (!defined $nodeth_ref) {
+                  my %nodethref = (
+                                     count => 0,
+                                     thrunodes => {},
+                                  );
+                  $nodeth_ref = \%nodethref;
+                  $nodethx{$inode} = \%nodethref;
+               }
+               $nodeth_ref->{count} += 1;
+               $nodeth_ref->{thrunodes}{$ithrunode} += 1;
+            }
             next;
          }
       }
@@ -6946,6 +6998,15 @@ if ($anic_total > 0) {
    $advsit[$advi] = "ANIC";
 }
 
+if ($xactivity > 0) {
+   $advi++;$advonline[$advi] = "$xactivity \"unable to allocate activity\" reports";
+   $advcode[$advi] = "TEMSAUDIT1122E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "ACTY";
+   $crit_line = "8,$xactivity \"unable to allocate activity\" reports";
+   push @crits,$crit_line;
+}
+
 if ($gmm_total > 0) {
    $advi++;$advonline[$advi] = "Storage allocation [$gmm_total] failure(s)";
    $advcode[$advi] = "TEMSAUDIT1048E";
@@ -8442,6 +8503,16 @@ if ($eph_ct > 0) {
             $ephem_ref->{gate} = $ivirtpeer if $iephemeral & 2;
             $pipe_peer{$ipipeaddr} = $ephem_ref->{gate};
          }
+
+         my $physical_gate_ref = $physicalgx{$isystem};
+         if (!defined $physical_gate_ref) {
+            my %physical_gateref = (
+                                      ephem => {},
+                                   );
+            $physical_gate_ref = \%physical_gateref;
+            $physicalgx{$isystem} = \%physical_gateref;
+         }
+         $physical_gate_ref->{ephem}{$ephemkey} += 1;
       }
    }
 }
@@ -9384,6 +9455,36 @@ if ($ct_rbdup > 0 ) {
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
    }
+   my $nodeth_ct = scalar keys %nodethx;
+   if ($nodeth_ct > 0) {
+      my $thru_mult = 0;
+      foreach $f (keys %nodethx) {
+         my $nodeth_ref = $nodethx{$f};
+         $thru_mult += 1 if $nodeth_ref->{count} != 1;
+      }
+      if ($thru_mult > 0) {
+         $rptkey = "TEMSREPORT077";$advrptx{$rptkey} = 1;         # record report key
+         $cnt++;$oline[$cnt]="\n";
+         $cnt++;$oline[$cnt]="$rptkey: RB Nodes[$thru_mult] with multiple thrunode updates,\n";
+         $cnt++;$oline[$cnt]="Node,Count,Thrunodes,,\n";
+         foreach $f (keys %nodethx) {
+            my $nodeth_ref = $nodethx{$f};
+            next if $nodeth_ref->{count} == 1;
+            my $pthru = "";
+            foreach my $g ( keys %{$nodeth_ref->{thrunodes}}) {
+               $pthru .= $g . "[" . $nodeth_ref->{thrunodes}{$g} . "] ";
+            }
+            chomp($pthru) if $pthru ne "";
+            $cnt++;$oline[$cnt]= $f . "," . $nodeth_ref->{count} . "," . $pthru . ",\n";
+         }
+         $advi++;$advonline[$advi] = "Nodes[$thru_mult] showing multiple thrunode updates - See $rptkey report";
+         $advcode[$advi] = "TEMSAUDIT1121W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TEMS";
+         $crit_line = "2,$thru_mult nodes with multiple thrunode updates - see TEMS Audit $rptkey Report";
+         push @crits,$crit_line;
+      }
+   }
    if ($ct_rbdup_system > 0) {
       $rptkey = "TEMSREPORT032";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
@@ -9556,10 +9657,11 @@ if ($eph_ct > 0) {
       }
    }
 
+   my %physusex;
    $rptkey = "TEMSREPORT040";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Detail Receive Vector Report\n";
-   $cnt++;$oline[$cnt]="temsnodeid,phys_addr,phys_count,pipe_addr,pipe_count,xlate,xlate_count,gateway,service_point,service_type,driver,build_date,build_target,process_time,\n";
+   $cnt++;$oline[$cnt]="temsnodeid,phys_addr,phys_count,pipe_addr,pipe_count,xlate,xlate_count,gateway,Ports,service_point,service_type,driver,build_date,build_target,process_time,\n";
    foreach $f ( sort { $a cmp $b } keys %physicalx) {
       my $phys_ref = $physicalx{$f};
       foreach $g ( sort { $a cmp $b } keys %{$phys_ref->{pipes}}) {
@@ -9574,6 +9676,18 @@ if ($eph_ct > 0) {
             $outl .= $h . ",";
             $outl .= $ephem_ref->{count} . ",";
             $outl .= $ephem_ref->{gate} . ",";
+            my $pport = "";
+            my $pport_ex = 0;
+            foreach my $j (keys %{$phys_ref->{ports}}) {
+               $pport_ex += 1;
+               $pport .= $j . " " if $pport_ex < 4;
+                           }
+            if ($pport ne "") {
+               chop($pport) if $pport ne "";
+               $pport_ex -= 3 if $pport_ex > 3;
+               $pport .= " +" . $pport_ex if $pport_ex > 0;
+            }
+            $outl .= $pport . ",";
             $outl .= $phys_ref->{service_point} . ",";
             $outl .= $phys_ref->{service_type} . ",";
             $outl .= $phys_ref->{driver} . ",";
@@ -9584,6 +9698,39 @@ if ($eph_ct > 0) {
          }
       }
    }
+}
+my $gate_dbl = 0;
+foreach $f ( sort { $a cmp $b } keys %physicalgx) {
+   my $igate_ref = $physicalgx{$f};
+   my $ephem_ct = scalar keys %{$igate_ref->{ephem}};
+   $gate_dbl += 1 if $ephem_ct > 1;
+}
+
+if ($gate_dbl > 0) {
+   $rptkey = "TEMSREPORT076";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Systems with Multiple Gateways\n";
+   $cnt++;$oline[$cnt]="System,Count,Gateways,\n";
+   foreach $f ( sort { $a cmp $b } keys %physicalgx) {
+      my $igate_ref = $physicalgx{$f};
+      my $ephem_ct = scalar keys %{$igate_ref->{ephem}};
+      next if $ephem_ct < 2;
+      $outl = $f . ",";
+      $outl .= $ephem_ct . ",";
+      my $pgate = "";
+      foreach my $j (keys %{$igate_ref->{ephem}}) {
+         my $ikey = $j;
+         $ikey = "TCP_Socket" if $ikey eq "";
+         $pgate .= $ikey . "[" . $igate_ref->{ephem}{$j} . "] ";
+      }
+      chop($pgate) if $pgate ne "";
+      $outl .= $pgate . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   $advi++;$advonline[$advi] = "Multiple Gateway Systems[$gate_dbl] - See $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1120E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
 }
 
 
@@ -9835,6 +9982,7 @@ if ($opt_kdebi ne "") {
          my $ip_win = 0;
          my $ip_aix = 0;
          my $ip_lnx = 0;
+         my $ip_sol = 0;
          my $got_type = 0;
          my $ipconfig_state = 0;                 # seaching for "Active Internet connections"
          foreach my $oneline (@ipc) {
@@ -9856,6 +10004,9 @@ if ($opt_kdebi ne "") {
                   } elsif (substr($oneline,0,3) eq "eth") {
                      $ip_lnx = 1;
                      $got_type = 1;
+                  } elsif (substr($oneline,0,3) eq "lo0") {
+                     $ip_sol = 1;
+                     $got_type = 1;
                   }
                   next;
                }
@@ -9870,6 +10021,9 @@ if ($opt_kdebi ne "") {
                $oneline =~ /inet addr:(\d+\.\d+\.\d+\.\d+)/;
                $ipx{$1} = 1 if defined $1;
             } elsif ($ip_aix == 1) {
+               $oneline =~ /inet (\d+\.\d+\.\d+\.\d+)/;
+               $ipx{$1} = 1 if defined $1;
+            } elsif ($ip_sol == 1) {
                $oneline =~ /inet (\d+\.\d+\.\d+\.\d+)/;
                $ipx{$1} = 1 if defined $1;
             }
@@ -11320,6 +11474,12 @@ exit;
 #        - Add 1117E for TEMS database open failure(s)
 #        - Add 1118W for APAR IJ10652 issue
 #2.09000 - Add diagnostic log segment elapsed time and informational advisory
+#2.10000 - Add report076 for multi-gateway agent systems
+#        - Add report077 for agent thrunode change counting
+#2.11000 - report076 correct +nn display in report
+#        - handle ipconfig.info for Solaris
+#        - Handle variant of open database error
+#        - Advisory 1122E for communication activity allocation failures
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -13563,6 +13723,38 @@ https://www.ibm.com/developerworks/community/blogs/jalvord/entry/Sitworld_The_En
 Recovery plan: If needed increase the log segment count and size.
 --------------------------------------------------------------
 
+TEMSAUDIT1120E
+Text: Multiple Gateway Systems[count]
+
+Tracing: error
+
+Meaning: See TEMSREPORT076 for details.
+
+Recovery plan: Follow recovery plan in report.
+--------------------------------------------------------------
+
+TEMSAUDIT1121W
+Text: Nodes[$thru_mult] showing multiple thrunode updates
+
+Tracing: error
+
+Meaning: See TEMSREPORT077 for details.
+
+Recovery plan: Follow recovery plan in report.
+--------------------------------------------------------------
+
+TEMSAUDIT1122E
+Text: count "unable to allocate activity" reports
+
+Tracing: KDC_DEBUG=Y
+
+Meaning: A basic communications level, ITM communications does not
+have the resources to continue processing new work.
+
+Recovery plan: Capture a pdcollect, recycle the TEMS and open
+a case with IBM ITM Support.
+--------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -15511,4 +15703,81 @@ ITM 630 FP7 SP1 maintenance.
 
 Recovery plan: Investigate agents and resolve issues, perhaps with
 IBM Support.
+----------------------------------------------------------------
+
+TEMSREPORT075
+Text: SOAP Source Summary Report
+
+Sample Report
+to be added
+IP,Count
+
+Trace needed
+Tracing: error (unit:kshdhtp,Entry="getHeaderValue"  all) (unit:kshreq,Entry="buildSQL" all)
+
+Meaning: If there are floods of SOAP calls being processed, this
+report will identify the source.
+
+Recovery plan: Investigate SOAP usage and validate usefulness.
+----------------------------------------------------------------
+
+TEMSREPORT076
+Text: Systems with Multiple Gateways
+
+Sample Report
+System,Count,Gateways,
+10.171.81.160,2,ephemeral[1] TCP_Socket[866],
+10.239.153.19,2,ephemeral[1] TCP_Socket[960],
+10.239.153.21,2,ephemeral[1] TCP_Socket[963],
+
+Trace needed
+KBB_RAS1=error (comp:kde,unit:kdebp0r,Entry="receive_vectors" all er)(comp:kde,unit:kdeprxi,Entry="KDEP_ReceiveXID" all er)
+
+Meaning: These are systems which record that connections are being
+made via different gateways. The null gateway "" means a direct
+socket connection. "ephemeral" means a connection with an agent
+configured with EPHEMERAL:Y.
+
+ITM communications does not work relialbly when multiple gateways
+are used from the same system. The rule is that if you use something
+like EPHEMERAL:Y on one ITM agent, you should use it on all.
+
+This report is not totally reliable. For example when a KDE_Gateway type
+connection, you can have two processes apparently connecting from the
+same ip address. However the KDE_Gateway could be configured from two
+different network segements that do not route between them selves. This
+you could have the same IP Address appearing twice. It could theoretically
+be normal. Investigate closely.
+
+
+It will also be availabel if the diagnostic IV85368 APAR fix is
+installed. This is expected to be including in the upcoming
+ITM 630 FP7 SP1 maintenance.
+
+Recovery plan: Investigate agents and make sure there is no conflict
+in gateway useage.
+----------------------------------------------------------------
+
+TEMSREPORT077
+Text: RB Nodes[count] with multiple thrunode updates
+
+Sample Report
+Node,Count,Thrunodes,,
+10_20_9_63_80:rvnl-emsgw:KT3A,35,rvnl-emsgw:T3[35] ,
+GIS:rvnl-emsgw:KT3S,137,rvnl-emsgw:T3[137] ,
+
+Trace needed
+Tracing: error (UNIT:kfaprpst ER ST) (UNIT:kfastinh,ENTRY:"KFA_InsertNodests" ALL)
+
+Meaning: Sometimes agents keep going online. Sometimes it is on
+the same thrunode and sometimes on multiple. This usually means
+that the agent configuration is faulty or it can be an indicator
+of duplicate agent name cases. Either way, monitoring at the agent
+is defective and information is being lost.
+
+The thrunode is often a remote TEMS but it can also be a managing
+node - which controls subnode agents.
+
+Recovery plan: Investigate agents and resolve configurations. If
+needed work with IBM to resolve issue.
 ----------------------------------------------------------------
