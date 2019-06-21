@@ -38,7 +38,6 @@
 ## (56CF3C07.0000-8:kdspmou2.c,3077,"PM1_VPM2_AllocateLiteral") Literal Pool Boundary Violated (61/7/64304)
 ## (56CF3C07.0001-8:kdspmou1.c,721,"PM1_CompilerOutput") Cannot build table object, status = 201
 ## (56CF3C07.0002-8:kdspmcv.c,1063,"CreateTable") VPM1_Output Failed status: 201
-## (56CF3C07.0003-8:kdspmcv.c,1064,"CreateTable") Compiler output error, status = 201
 ## (56CF3C07.0004-8:kdsvws1.c,1371,"CreateServerView") Bad status from VPM1_CreateTable, 201
 ## (56CF3C07.0005-8:kdspac1.c,2011,"VPA1_CreateRequest") Create request failed with return code 201
 ## (56CF3C07.0006-8:kdsruc1.c,5815,"CreateRequest") Cannot create request, status = 201
@@ -47,7 +46,7 @@
 ## (56CF3C07.0009-8:kdssnc1.c,967,"CreateSituation") Cannot create the RULE tree
 ## (56CF3C07.000A-8:kdspmou1.c,716,"PM1_CompilerOutput") Cannot set root table, status = 201
 ## (56CF3C07.000B-8:kdspmcv.c,1063,"CreateTable") VPM1_Output Failed status: 201
-## (56CF3C07.000C-8:kdspmcv.c,1064,"CreateTable") Compiler output error, status = 201
+## (5CD9417C.0034-6:kdspmcv.c,367,"CreateViewPlan") Catalog information error, status = 209
 ## (56CF3C07.000D-8:kdsvws1.c,1371,"CreateServerView") Bad status from VPM1_CreateTable, 201
 ## (56CF3C07.000E-8:kdspac1.c,2011,"VPA1_CreateRequest") Create request failed with return code 201
 ## (56CF3C07.000F-8:ko4async.cpp,2685,"IBInterface::sendAsyncRequest") createRequest failure prepare <12D9A1B70>
@@ -121,7 +120,18 @@
 
 ## (5C93B537.0000-129:kpxndmgr.cpp,189,"UpdateStatusForFailedRequest") *INFO: Setting node <rvnlprbwap1:LZ> off-line due to failure to start req <>
 
-my $gVersion = 2.11000;
+## (5CAE2178.06D4-179B:kpxreqi.cpp,977,"UseRequestImp") RequestImp RES1 Use handle 407914353: obj@119C3B3D0
+## (5CAE2178.06D5-179B:kpxrpcx.cpp,66,"IRA_NCS_Sample_Data_t_from_xmit_rep") Rcvd sz 364 less than requested sz 366 zero filling difference.
+## (5CAE2178.06D6-179B:kpxrpcrq.cpp,545,"IRA_NCS_TranslateSample") Entry
+## (5CAE2178.06D7-179B:kpxrpcrq.cpp,691,"IRA_NCS_TranslateSample") Insufficient remote data for .TYPE. Possible inconsistent definiton between agent and tems.
+## (5CAE2178.06D8-179B:kpxrpcrq.cpp,760,"IRA_NCS_TranslateSample") Exit
+## (5CAE2178.06D9-179B:kpxreqi.cpp,993,"BaseDrop") RequestImp RES1 Drop handle 407914353: obj@119C3B3D0
+## (5CAE2178.06DA-179B:kpxrpcrq.cpp,828,"IRA_NCS_Sample") Entry
+## (5CAE2178.06DB-179B:kpxrpcrq.cpp,833,"IRA_NCS_Sample") Calling UseRequestImp from IRA_NCS_Sample
+## (5CAE2178.06DC-179B:kpxreqi.cpp,977,"UseRequestImp") RequestImp RES1 Use handle 407914353: obj@119C3B3D0
+## (5CAE2178.06DD-179B:kpxrpcrq.cpp,847,"IRA_NCS_Sample") Rcvd 1 rows sz 366 tbl *.KA4MISC req UADVISOR_KA4_KA4MISC <407914353,638583257> node <ESBRMT1:KA4>
+
+my $gVersion = 2.12000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -238,6 +248,7 @@ my $opt_inplace = 1;
 my $opt_work    = 0;
 my $opt_nofile = 0;                              # number of file descriptors, zero means not found
 my $opt_stack = 0;                               # Stack limit zero means not found
+my $opt_systype = "";                            # System Type
 my $opt_kbb_ras1 = "";                           # KBB_RAS1 setting
 my $opt_kdc_debug = "";                          # KDC_DEBUG setting
 my $opt_kde_debug = "";                          # KDE_DEBUG setting
@@ -276,6 +287,152 @@ my $start_date = "";
 my $start_time = "";
 my $local_diff = -1;
 
+my %errnox = (
+                "1" => ["EPERM","Operation not permitted"],
+                "2" => ["ENOENT","No such file or directory"],
+                "3" => ["ESRCH","No such process"],
+                "4" => ["EINTR","Interrupted system call"],
+                "5" => ["EIO","I/O error"],
+                "6" => ["ENXIO","No such device or address"],
+                "7" => ["E2BIG","Argument list too long"],
+                "8" => ["ENOEXEC","Exec format error"],
+                "9" => ["EBADF","Bad file number"],
+                "10" => ["ECHILD","No child processes"],
+                "11" => ["EAGAIN","Try again"],
+                "12" => ["ENOMEM","Out of memory"],
+                "13" => ["EACCES","Permission denied"],
+                "14" => ["EFAULT","Bad address"],
+                "15" => ["ENOTBLK","Block device required"],
+                "16" => ["EBUSY","Device or resource busy"],
+                "17" => ["EEXIST","File exists"],
+                "18" => ["EXDEV","Cross-device link"],
+                "19" => ["ENODEV","No such device"],
+                "20" => ["ENOTDIR","Not a directory"],
+                "21" => ["EISDIR","Is a directory"],
+                "22" => ["EINVAL","Invalid argument"],
+                "23" => ["ENFILE","File table overflow"],
+                "24" => ["EMFILE","Too many open files"],
+                "25" => ["ENOTTY","Not a typewriter"],
+                "26" => ["ETXTBSY","Text file busy"],
+                "27" => ["EFBIG","File too large"],
+                "28" => ["ENOSPC","No space left on device"],
+                "29" => ["ESPIPE","Illegal seek"],
+                "30" => ["EROFS","Read-only file system"],
+                "31" => ["EMLINK","Too many links"],
+                "32" => ["EPIPE","Broken pipe"],
+                "33" => ["EDOM","Math argument out of domain of func"],
+                "34" => ["ERANGE","Math result not representable"],
+                "35" => ["EDEADLK","Resource deadlock would occur"],
+                "36" => ["ENAMETOOLONG","File name too long"],
+                "37" => ["ENOLCK","No record locks available"],
+                "38" => ["ENOSYS","Function not implemented"],
+                "39" => ["ENOTEMPTY","Directory not empty"],
+                "40" => ["ELOOP","Too many symbolic links encountered"],
+                "42" => ["ENOMSG","No message of desired type"],
+                "43" => ["EIDRM","Identifier removed"],
+                "44" => ["ECHRNG","Channel number out of range"],
+                "45" => ["EL2NSYNC","Level 2 not synchronized"],
+                "46" => ["EL3HLT","Level 3 halted"],
+                "47" => ["EL3RST","Level 3 reset"],
+                "48" => ["ELNRNG","Link number out of range"],
+                "49" => ["EUNATCH","Protocol driver not attached"],
+                "50" => ["ENOCSI","No CSI structure available"],
+                "51" => ["EL2HLT","Level 2 halted"],
+                "52" => ["EBADE","Invalid exchange"],
+                "53" => ["EBADR","Invalid request descriptor"],
+                "54" => ["EXFULL","Exchange full"],
+                "55" => ["ENOANO","No anode"],
+                "56" => ["EBADRQC","Invalid request code"],
+                "57" => ["EBADSLT","Invalid slot"],
+                "59" => ["EBFONT","Bad font file format"],
+                "60" => ["ENOSTR","Device not a stream"],
+                "61" => ["ENODATA","No data available"],
+                "62" => ["ETIME","Timer expired"],
+                "63" => ["ENOSR","Out of streams resources"],
+                "64" => ["ENONET","Machine is not on the network"],
+                "65" => ["ENOPKG","Package not installed"],
+                "66" => ["EREMOTE","Object is remote"],
+                "67" => ["ENOLINK","Link has been severed"],
+                "68" => ["EADV","Advertise error"],
+                "69" => ["ESRMNT","Srmount error"],
+                "70" => ["ECOMM","Communication error on send"],
+                "71" => ["EPROTO","Protocol error"],
+                "72" => ["EMULTIHOP","Multihop attempted"],
+                "73" => ["EDOTDOT","RFS specific error"],
+                "74" => ["EBADMSG","Not a data message"],
+                "75" => ["EOVERFLOW","Value too large for defined data type"],
+                "76" => ["ENOTUNIQ","Name not unique on network"],
+                "77" => ["EBADFD","File descriptor in bad state"],
+                "78" => ["EREMCHG","Remote address changed"],
+                "79" => ["ELIBACC","Can not access a needed shared library"],
+                "80" => ["ELIBBAD","Accessing a corrupted shared library"],
+                "81" => ["ELIBSCN",".lib section in a.out corrupted"],
+                "82" => ["ELIBMAX","Attempting to link in too many shared libraries"],
+                "83" => ["ELIBEXEC","Cannot exec a shared library directly"],
+                "84" => ["EILSEQ","Illegal byte sequence"],
+                "85" => ["ERESTART","Interrupted system call should be restarted"],
+                "86" => ["ESTRPIPE","Streams pipe error"],
+                "87" => ["EUSERS","Too many users"],
+                "88" => ["ENOTSOCK","Socket operation on non-socket"],
+                "89" => ["EDESTADDRREQ","Destination address required"],
+                "90" => ["EMSGSIZE","Message too long"],
+                "91" => ["EPROTOTYPE","Protocol wrong type for socket"],
+                "92" => ["ENOPROTOOPT","Protocol not available"],
+                "93" => ["EPROTONOSUPPORT","Protocol not supported"],
+                "94" => ["ESOCKTNOSUPPORT","Socket type not supported"],
+                "95" => ["EOPNOTSUPP","Operation not supported on transport endpoint"],
+                "96" => ["EPFNOSUPPORT","Protocol family not supported"],
+                "97" => ["EAFNOSUPPORT","Address family not supported by protocol"],
+                "98" => ["EADDRINUSE","Address already in use"],
+                "99" => ["EADDRNOTAVAIL","Cannot assign requested address"],
+                "100" => ["ENETDOWN","Network is down"],
+                "101" => ["ENETUNREACH","Network is unreachable"],
+                "102" => ["ENETRESET","Network dropped connection because of reset"],
+                "103" => ["ECONNABORTED","Software caused connection abort"],
+                "104" => ["ECONNRESET","Connection reset by peer"],
+                "105" => ["ENOBUFS","No buffer space available"],
+                "106" => ["EISCONN","Transport endpoint is already connected"],
+                "107" => ["ENOTCONN","Transport endpoint is not connected"],
+                "108" => ["ESHUTDOWN","Cannot send after transport endpoint shutdown"],
+                "109" => ["ETOOMANYREFS","Too many references: cannot splice"],
+                "110" => ["ETIMEDOUT","Connection timed out"],
+                "111" => ["ECONNREFUSED","Connection refused"],
+                "112" => ["EHOSTDOWN","Host is down"],
+                "113" => ["EHOSTUNREACH","No route to host"],
+                "114" => ["EALREADY","Operation already in progress"],
+                "115" => ["EINPROGRESS","Operation now in progress"],
+                "116" => ["ESTALE","Stale NFS file handle"],
+                "117" => ["EUCLEAN","Structure needs cleaning"],
+                "118" => ["ENOTNAM","Not a XENIX named type file"],
+                "119" => ["ENAVAIL","No XENIX semaphores available"],
+                "120" => ["EISNAM","Is a named type file"],
+                "121" => ["EREMOTEIO","Remote I/O error"],
+                "122" => ["EDQUOT","Quota exceeded"],
+                "123" => ["ENOMEDIUM","No medium found"],
+                "124" => ["EMEDIUMTYPE","Wrong medium type"],
+                "125" => ["ECANCELED","Operation Canceled"],
+                "126" => ["ENOKEY","Required key not available"],
+                "127" => ["EKEYEXPIRED","Key has expired"],
+                "128" => ["EKEYREVOKED","Key has been revoked"],
+                "129" => ["EKEYREJECTED","Key was rejected by service"],
+                "130" => ["EOWNERDEAD","Owner died"],
+                "131" => ["ENOTRECOVERABLE","State not recoverable"],
+             );
+
+# virtual hub table update tables
+my %hSP2OS = (
+   UADVISOR_OMUNX_SP2OS => 'UX',
+   UADVISOR_KOQ_VKOQDBMIR => 'OQ',
+   UADVISOR_KOQ_VKOQLSDBD => 'OQ',
+   UADVISOR_KOQ_VKOQSRVR => 'OQ',
+   UADVISOR_KOQ_VKOQSRVRE => 'OQ',
+   UADVISOR_KOR_VKORSRVRE => 'OR',
+   UADVISOR_KOR_VKORSTATE => 'OR',
+   UADVISOR_KOY_VKOYSRVR => 'OY',
+   UADVISOR_KOY_VKOYSRVRE => 'OY',
+   UADVISOR_KQ5_VKQ5CLUSUM => 'Q5',
+   UADVISOR_KHV_VKHVHYPERV => 'HV',
+);
 
 my $test_logfn;
 my $invfile;
@@ -294,6 +451,7 @@ my $gsk701 = 0;
 my $csv1_path = "";
 
 
+my %caterrorx;
 my %nodethx;
 my %segx;
 my $seg_ref;
@@ -302,6 +460,7 @@ my $segcurr;
 my $i;
 my $l;
 my $respermin;
+my $invPlanLength = 0;
 my $dur;
 my $tdur;
 my @syncdist_time;
@@ -522,6 +681,11 @@ my %advcx = (
               "TEMSAUDIT1120E" => "100",
               "TEMSAUDIT1121W" => "95",
               "TEMSAUDIT1122E" => "103",
+              "TEMSAUDIT1123I" => "0",
+              "TEMSAUDIT1124W" => "98",
+              "TEMSAUDIT1125E" => "100",
+              "TEMSAUDIT1126E" => "95",
+              "TEMSAUDIT1127E" => "95",
             );
 
 
@@ -629,12 +793,17 @@ my %knowntabx = (
                    'K5DK5DSANP' => '372',
                    'K5ECSCRIPT' => '188',
                    'K5IDBCACHE' => '2304',
+                   'KA4ASP'     => '124',
                    'KA4CTLD'    => '88',
                    'KA4DISK'    => '176',
+                   'KA4DISKI5'  => '144',
                    'KA4IFSOBJ'  => '3232',
                    'KA4LIND'    => '88',
+                   'KA4MISC'    => '368',
                    'KA4MSG'     => '2304',
                    'KA4PFJOB'   => '324',
+                   'KA4POOL'    => '144',
+                   'KA4SBS'     => '124',
                    'KA4SYSTS'   => '188',
                    'KAGDYST'    => '504',     # kdy remote deploy
                    'KAGREQT'    => '4096',    # kdy remote deploy
@@ -698,6 +867,7 @@ my %knowntabx = (
                    'KLZSCRPTS'  => '3952',
                    'KLZSCRRTM'  => '3544',
                    'KLZSOCKD' => '296',
+                   'KLZSWPRT'      => '128',
                    'KLZSYS'        => '288',
                    'KLZVM'         => '268',
                    'KMCPRCA'     => '1236',
@@ -830,6 +1000,7 @@ my %knowntabx = (
                    'KUDLOG'        => '4932',
                    'KUDSQLSTAT'    => '420',
                    'KUDSYSINFO'    => '1716',
+                   'KUDTABLE'      => '304',
                    'KUDTABSPC'     => '1812',
                    'KUDTBLSPC'     => '1756',
                    'KUXDEVIC'      => '660',
@@ -838,11 +1009,16 @@ my %knowntabx = (
                    'KUXPASSTAT' => '1384',
                    'KUXSCRPTS' => '3952',
                    'KUXSCRTSM' => '3544',
+                   'KVA16CPUSU' => '240',
                    'KVA21PAGIN' => '76',
                    'KVA22LOGIC' => '1076',
+                   'KVA34DISKS' => '432',
+                   'KVA35PHYSI' => '396',
                    'KVA37LOGIC' => '1204',
                    'KVA38FILES' => '1028',
+                   'KVA40NETWO' => '1527',
                    'KVA42NETWO' => '996',
+                   'KVA51MPIOS' => '528',
                    'KVMAEVENTS' => '192',
                    'KVMCLUSTRT' => '872',
                    'KVMDSTORES'    => '1276',
@@ -858,6 +1034,23 @@ my %knowntabx = (
                    'KVMVM_GEN'  => '1752',
                    'KVMVM_MEM' => '632',
                    'KVMVMDSUTL'  => '588',
+                   'KYJAPHLTH' => '980',
+                   'KYJAPMONCF' => '1748',
+                   'KYJAPSRV' => '1132',
+                   'KYJAPSST' => '1516',
+                   'KYJGCACT' => '712',
+                   'KYJJDKJVM' => '1704',
+                   'KYJJDKOS' => '1456',
+                   'KYJJMSSUM' => '952',
+                   'KYJLOGANAL' => '1040',
+                   'KYJPREV' => '676',
+                   'KYJREQUEST' => '1568',
+                   'KYJWLCCPL' => '856',
+                   'KYJWLDBCON' => '872',
+                   'KYJWLEJBC' => '940',
+                   'KYJWLJMSS' => '1060',
+                   'KYJWLJTA' => '872',
+                   'KYJWLWEBAP' => '1268',
                    'KYNAPHLTH'     => '1124',
                    'KYNAPMONCF'    => '1748',
                    'KYNAPSRV'      => '1560',
@@ -943,8 +1136,10 @@ my %knowntabx = (
                    'PROCESSIO' => '704',
                    'QMANAGER' => '796',
                    'QMCHAN_ST' => '1592',
+                   'QMCHANNEL' => '1044',
                    'QMCHANS' => '1632',
                    'QMCURSTAT' => '2108',
+                   'QMERRLOG'  => '3916',
                    'QMEVENTC' => '436',
                    'QMEVENTH' => '2756',
                    'QMLSSTATUS' => '1192',
@@ -1764,6 +1959,7 @@ my $sitct_tot = 0;          # total results
 my $sitrows_tot = 0;        # total rows
 my $sitres_tot = 0;         # total size
 my $uadvisor_bytes = 0;     # Uadvisor size
+my $uadvisor_vtbl_bytes = 0;# Uadvisor size - virtual hub Table updates
 my $sitstime = 0;           # smallest time seen - distributed
 my $sitetime = 0;           # largest time seen  - distributed
 my $trcstime = 0;           # trace smallest time seen - distributed
@@ -2278,6 +2474,14 @@ for(;;)
          if (index($oneline,"Start Time:") != -1) {
             $oneline =~ /Start Time: (\d{2}:\d{2}:\d{2})/;
             $start_time = $1 if defined $1;
+         }
+      }
+    }
+   if ($opt_systype eq "") {
+      if (substr($oneline,0,1) eq "+") {
+         if (index($oneline,"System Type:") != -1) {
+            $oneline =~ /System Type: (\S+)/;
+            $opt_systype = $1 if defined $1;
          }
       }
     }
@@ -3649,6 +3853,17 @@ for(;;)
             }
             $atrf_ref->{count} += 1;
             $atrwx_ct += 1;
+         }
+         next;
+      }
+   }
+   # (5B055C7F.0001-62:kdssfc3.c,1815,"VSF3_InitFilterPlan") Invalid Plan length. plan 9952 output 9952. status 58
+   if (substr($logunit,0,9) eq "kdssfc3.c") {
+      if ($logentry eq "VSF3_InitFilterPlan") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Invalid Plan length. plan 9952 output 9952. status 58
+         if (substr($rest,1,20) eq "Invalid Plan length.") {
+            $invPlanLength += 1;
          }
          next;
       }
@@ -5751,6 +5966,19 @@ for(;;)
       }
       next;
    }
+
+   # (5CD9417C.0034-6:kdspmcv.c,367,"CreateViewPlan") Catalog information error, status = 209
+   if (substr($logunit,0,9) eq "kdspmcv.c") {
+      if ($logentry eq "CreateViewPlan") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Catalog information error, status = 209
+         next if substr($rest,1,19) ne "Catalog information";
+         $rest =~ / = (\d+)/;
+         my $istatus = $1;
+         $caterrorx{$istatus} += 1 if defined $istatus;
+      }
+      next;
+   }
    if (substr($logunit,0,12) eq "khdxcpub.cpp") {
        # (50229EBA.0002-A:khdxcpub.cpp,1383,"KHD_ValidateHistoryFile") History file /opt/Tivoli/ITM61/aix533/to/hist/INTERACTN row length is 4152, size is 132232896.
        if ($logentry eq "KHD_ValidateHistoryFile") {
@@ -6451,6 +6679,7 @@ for(;;)
             $sitres[$sx] += $insize;
             $sitres_tot  += $insize;
             $uadvisor_bytes += $insize if substr($isit,0,8) eq "UADVISOR";
+            $uadvisor_vtbl_bytes += $insize if defined $hSP2OS{$isit};
             if ($opt_ri == 1) {
                my $res_stamp = $res_stampx{$logtime};
                my $logstime;
@@ -6760,6 +6989,13 @@ if ($opt_stack > 0) {
    }
 }
 
+if ($opt_systype ne "") {
+   $advi++;$advonline[$advi] = "System Type [$opt_systype]";
+   $advcode[$advi] = "TEMSAUDIT1123I";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
 if ($opt_kbb_ras1 ne "") {
    my $test_ras1 = lc $opt_kbb_ras1;
    $test_ras1 =~ s/^\s+|\s+$//;     # strip leading/trailing white space
@@ -6804,6 +7040,18 @@ if ($uadvisor_bytes>0) {
    $cnt++;$oline[$cnt]="Total UADVISOR (percent),,,$res_pc\n";
    my $turespermin = int($uadvisor_bytes / ($dur / 60));
    $cnt++;$oline[$cnt]="Total UADVISOR per minute,,,$turespermin\n";
+}
+if ($uadvisor_vtbl_bytes>0) {
+   $cnt++;$oline[$cnt]="Total Virtual Hub Table Updates (bytes),,,$uadvisor_vtbl_bytes\n";
+   my $res_pc = int(($uadvisor_vtbl_bytes*100)/$sitres_tot);
+   my $ppc = sprintf '%.0f%%', $res_pc;
+   $cnt++;$oline[$cnt]="Total Virtual Hub Table Updates (percent),,,$res_pc\n";
+   my $turespermin = int($uadvisor_vtbl_bytes / ($dur / 60));
+   $cnt++;$oline[$cnt]="Total Total Virtual Hub Table Updates bytes per minute,,,$turespermin\n";
+   $advi++;$advonline[$advi] = "Virtual Hub Table Updates $turespermin/min";
+   $advcode[$advi] = "TEMSAUDIT1124W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Trace";
 }
 
 if ($trespermin > $opt_nominal_results) {
@@ -7258,7 +7506,12 @@ if ($ot > 0) {
       my $otct = $otablex{$f}->{count};
       my $pstat = "";
       for $g (sort {$a <=> $b} keys %{$otablex{$f}->{statusx}}) {
-         $pstat .= $g . '[' . $otablex{$f}->{statusx}{$g} . "] ";
+         my $errno_code = "";
+         my $errno_descript = "";
+         my @ierrno = $errnox{$g};
+         $errno_code = $ierrno[0][0] if defined $errnox{$g};
+         $errno_descript = $ierrno[0][1] if defined $errnox{$g};
+         $pstat .= $g . '[' . $otablex{$f}->{statusx}{$g} . "," . $errno_code . "," . $errno_descript . "] ";
       }
       chop $pstat;
       $advi++;$advonline[$advi] = "TEMS database table with $otct open errors status $pstat";
@@ -9989,6 +10242,7 @@ if ($opt_kdebi ne "") {
             $l++;
             chomp($oneline);
             next if $oneline eq "";
+            $oneline .= " " x 50;
             if ($got_type == 0) {
                if ($l == 2) {
                   if (substr($oneline,0,24) eq "Windows IP Configuration") {
@@ -10002,6 +10256,9 @@ if ($opt_kdebi ne "") {
                      $ip_aix = 1;
                      $got_type = 1;
                   } elsif (substr($oneline,0,3) eq "eth") {
+                     $ip_lnx = 1;
+                     $got_type = 1;
+                  } elsif (substr($oneline,0,4) eq "bond") {
                      $ip_lnx = 1;
                      $got_type = 1;
                   } elsif (substr($oneline,0,3) eq "lo0") {
@@ -10463,6 +10720,7 @@ if ($planfail_ct > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Filter plan Failure Report\n";
    $cnt++;$oline[$cnt]="Table,Count,Codes,\n";
+   my $pfct = 0;
    foreach $f ( sort { $a cmp $b} keys %planfailx) {
       my $planfail_ref = $planfailx{$f};
       $outl = $f . ",";
@@ -10470,11 +10728,23 @@ if ($planfail_ct > 0) {
       my $pcodes = "";
       foreach $g (keys %{$planfail_ref->{codes}}) {
          $pcodes .= $g . "[" . $planfail_ref->{codes}{$g} . "] ";
+         $pfct += $planfail_ref->{codes}{$g};
       }
       chop($pcodes) if $pcodes ne "";
       $outl .= $pcodes . ",";
       $cnt++;$oline[$cnt]="$outl\n";
    }
+   $advi++;$advonline[$advi] = "Filter Plan Failures [$planfail_ct,$pfct] - See $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1126E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+if ($invPlanLength > 0) {
+   $advi++;$advonline[$advi] = "Invalid Plan Length [$invPlanLength]";
+   $advcode[$advi] = "TEMSAUDIT1127E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
 }
 
 my $missapp_ct = scalar keys %missappx;
@@ -10492,6 +10762,27 @@ if ($missapp_ct > 0) {
    $advcode[$advi] = "TEMSAUDIT1098E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
+}
+
+my $caterror_ct = scalar keys %caterrorx;
+if ($caterror_ct > 0) {
+   my $cat_error_total = 0;
+   $rptkey = "TEMSREPORT078";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Catalog Information Errors\n";
+   $cnt++;$oline[$cnt]="Status,Count,\n";
+   foreach $f ( sort { $a <=> $b} keys %caterrorx) {
+      $outl = $f . ",";
+      $outl .= $caterrorx{$f} . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+      $cat_error_total += $caterrorx{$f};
+   }
+   $advi++;$advonline[$advi] = "Catalog Information Errors [$cat_error_total] - See $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1125E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "1,TEMS Catalog Information Errors [$cat_error_total] - See $rptkey report";
+   push @crits,$crit_line;
 }
 
 my $mismatch_ct = scalar keys %mismatchx;
@@ -11480,6 +11771,11 @@ exit;
 #        - handle ipconfig.info for Solaris
 #        - Handle variant of open database error
 #        - Advisory 1122E for communication activity allocation failures
+#2.12000 - Report on Virtual Hub Table updates
+#        - Enhance advisory 1117E to show what errno means
+#        - Add platform type if available
+#        - Count catalog errors
+#        - Count invalid plan length
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -13667,7 +13963,15 @@ Tracing: error
 
 Meaning: The tables involved experienced open failure(s). This
 is usually very server and needs IBM Support involvement to
-restore normal operating conditions,
+restore normal operating conditions, The text shows the errno
+the count, the errno symbol and the description like this:
+
+1 open errors status 5[1,EIO,I/O error]
+
+An I/O error means something is really wrong. One case was
+a customer would was resetting a file to emptytable status
+and the file involved was ftp'd from Linux to Windows
+in ASCII mode instead of binary.
 
 The diagnostic log will contain additional details.
 
@@ -13755,6 +14059,84 @@ Recovery plan: Capture a pdcollect, recycle the TEMS and open
 a case with IBM ITM Support.
 --------------------------------------------------------------
 
+TEMSAUDIT1123I
+Text: System Type [value]
+
+Tracing: error
+
+Meaning: TEMS identified platform type.
+
+Recovery plan: Information only for context.
+--------------------------------------------------------------
+
+TEMSAUDIT1124W
+Text: Virtual Hub Table Updates bytes/min
+
+Tracing: error (unit:kpxrpcrq,Entry="IRA_NCS_Sample" state er)
+
+Meaning: Virtual hub table updates a now unused but in high
+volumes can result in severe remote and hub TEMS overhead. Bursts
+of them arrive and can overwhelm ITM communications. The bursts
+are more damaging then the result data volume.
+
+Recovery plan: see this document for details and a recovery plan.
+
+Sitworld: ITM Virtual Table Termite Control Project
+https://www.ibm.com/developerworks/community/blogs/jalvord/entry/sitworld_itm_virtual_table_termite_control_project?lang=en
+--------------------------------------------------------------
+
+TEMSAUDIT1125E
+Text: Catalog Information Errors [count] - See TEMESREPORT078
+
+Tracing: error
+
+Meaning: Count of TEMS Catalog Information Errors. See
+REPORT078 for recovery action.
+
+Recovery plan:  Work with IBM Support.
+--------------------------------------------------------------
+
+TEMSAUDIT1126E
+Text: Filter Plan Failures [atr,count] - See TEMESREPORT056
+
+Tracing: error
+(5CF53864.0001-2AC:kpxreqds.cpp,1798,"buildThresholdsFilterObject") Can't initialize filter plan, PRB1_InitFilterPlan status 58, [UNIXOS 2530262136]
+
+Meaning: The situation formula could not be compiled. This can
+cause TEMS instability until ITM 630 FP7 SP1.
+
+The first number atr is the number of attributes involved. The
+second number count is the total number of instances.
+
+If this comes from a TEP workspace view SQL, that Query might
+start using the Nodelist query source to avoid the issue. See
+this document for an example:
+
+ITM Portal Client Summary Workspace Views with many Agents
+http://www.ibm.com/support/docview.wss?uid=swg21444688
+
+Recovery plan:  Update TEMS to ITM 630 FP7 SP1.
+--------------------------------------------------------------
+
+TEMSAUDIT1127E
+Text: Invalid Plan Length [count]
+
+Tracing: error
+(5CF53864.0000-2AC:kdssfc3.c,1815,"VSF3_InitFilterPlan") Invalid Plan length. plan 31264 output 31264. status 58
+
+Meaning: The situation formula could not be compiled. This can
+cause TEMS instability until ITM 630 FP7 SP1.
+
+If this comes from a TEP workspace view SQL, that Query might
+start using the Nodelist query source to avoid the issue. See
+this document for an example:
+
+ITM Portal Client Summary Workspace Views with many Agents
+http://www.ibm.com/support/docview.wss?uid=swg21444688
+
+Recovery plan:  Update TEMS to ITM 630 FP7 SP1.
+--------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -13779,7 +14161,7 @@ situation event will be seen.
 
 This condition is often surprising. That is mostly because the
 situation editor shows a per cent full. However that is just the
-first of 5 different situation limit. The Filter Object too
+first of 5 different situation limits. The Filter Object too
 big is the 4th.
 
 Recovery plan:  The situation should be divided into multiple
@@ -15780,4 +16162,29 @@ node - which controls subnode agents.
 
 Recovery plan: Investigate agents and resolve configurations. If
 needed work with IBM to resolve issue.
+----------------------------------------------------------------
+
+TEMSREPORT078
+Text: TEMS Catalog Information Errors [count]
+
+Sample Report
+Status,Count,
+209,41,
+
+Trace needed
+Tracing: error
+
+Meaning: This strongly suggests that the combined catalog file
+QA1CDSCA.DB/IDX is broken. This can be replaced by emptytable
+DB/IDX file while the TEMS is stopped and it will be rebuilt
+naturally. See this document:
+
+A symptom of the issue is many situation events in "reset" or "Problem"
+mode - sometimes seen as status X in the TEP display.
+
+Sitworld: TEMS Database Repair `
+https://www.ibm.com/developerworks/community/blogs/jalvord/entry/Sitworld_TEMS_Database_Repair?lang=en
+
+Recovery plan: Repair the QA1CDSCA file and work with IBM support
+if that does not correct the issue.
 ----------------------------------------------------------------
