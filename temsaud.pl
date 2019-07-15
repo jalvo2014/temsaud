@@ -131,7 +131,8 @@
 ## (5CAE2178.06DC-179B:kpxreqi.cpp,977,"UseRequestImp") RequestImp RES1 Use handle 407914353: obj@119C3B3D0
 ## (5CAE2178.06DD-179B:kpxrpcrq.cpp,847,"IRA_NCS_Sample") Rcvd 1 rows sz 366 tbl *.KA4MISC req UADVISOR_KA4_KA4MISC <407914353,638583257> node <ESBRMT1:KA4>
 
-my $gVersion = 2.12000;
+
+my $gVersion = 2.13000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -228,7 +229,7 @@ my $ccsid1047 =
 
 my $opt_z;
 my $opt_zop;
-my $opt_gap;
+my $opt_gap = 60;
 my $opt_ri;
 my $opt_ri_sec;
 my $opt_expslot;
@@ -451,6 +452,11 @@ my $gsk701 = 0;
 my $csv1_path = "";
 
 
+my $resume_ct;
+my $glb_lag = "";
+my %nodeipx;
+my %nodeipdx;
+my %nodeippx;
 my %caterrorx;
 my %nodethx;
 my %segx;
@@ -661,7 +667,7 @@ my %advcx = (
               "TEMSAUDIT1100E" => "100",
               "TEMSAUDIT1101E" => "100",
               "TEMSAUDIT1102W" => "99",
-              "TEMSAUDIT1103W" => "95",
+              "TEMSAUDIT1103W" => "75",
               "TEMSAUDIT1104E" => "100",
               "TEMSAUDIT1105E" => "102",
               "TEMSAUDIT1106W" => "95",
@@ -686,6 +692,7 @@ my %advcx = (
               "TEMSAUDIT1125E" => "100",
               "TEMSAUDIT1126E" => "95",
               "TEMSAUDIT1127E" => "95",
+              "TEMSAUDIT1128E" => "102",
             );
 
 
@@ -948,11 +955,15 @@ my %knowntabx = (
                    'KRZACTINSR' => '216',
                    'KRZAGINF'      => '828',
                    'KRZAGTLSNR' => '1292',
+                   'KRZARCDEST' => '716',
                    'KRZASMDKGP' => '420',
                    'KRZDAFCOUT' => '172',
                    'KRZDAFOVEW' => '840',
                    'KRZDBINF'      => '258',
                    'KRZDBINFO' => '804',
+                   'KRZDGDKSP' => '692',
+                   'KRZDGMGSTS' => '168',
+                   'KRZDGSTATU' => '480',
                    'KRZGCSBLO' => '188',
                    'KRZINSTINF' => '312',
                    'KRZLIBCART' => '188',
@@ -1345,7 +1356,6 @@ my $tec_classname_ct = 0;
 my %changex;
 my $changex_ct = 0;
 my $change_ref;
-my $change_slot_ref;
 my $change_node_ref;
 my $change_instance_ref;
 my %changetx;
@@ -1559,7 +1569,7 @@ while (@ARGV) {
       }
    } elsif ($ARGV[0] eq "-gap") {
       shift(@ARGV);
-      $opt_gap = 30;
+      $opt_gap = 60;
       if (defined $ARGV[0]) {
          if (substr($ARGV[0],0,1) ne "-") {
             $opt_gap = $ARGV[0];
@@ -3125,7 +3135,7 @@ for(;;)
             my $iaddrport = $2;
             my $ierror = $3 . ":" . $4;
             my $addrkey = $1 . ":" . $2;
-            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT019","Connection Lost $addrkey $ierror");
+            set_timeline($logtime,$l,$logtimehex,"TEMSREPORT019","Connection Lost $addrkey $ierror");
             my $error_ref = $commex{$ierror};
             if (!defined $error_ref) {
                my %errorref = (
@@ -3226,6 +3236,24 @@ for(;;)
                $listen_ref->{timeout} += 1;
                $listen_ref->{level}{$ilevel} += 1;
                $listen_ref->{toport}{$iport} += 1 ;
+            }
+         }
+      }
+   }
+
+   # (5D19C015.0000-8:kdcgbin.c,118,"KDCG_Bind") Using GLB at ip.spipe:#129.39.126.21[3660]
+   if (substr($logunit,0,9) eq "kdcgbin.c") {
+      if ($logentry eq "KDCG_Bind") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,12) eq "Using GLB at"){
+            my $iglb = $rest;
+            if ($iglb ne $glb_lag) {
+               my $mkey = $logtimehex . "|" . $l;
+               $mhmx{$mkey} = $rest;
+               set_timeline($logtime,$l,$logtimehex,"TEMSREPORT019",$rest);
+               $glb_lag = $iglb;
+               next;
             }
          }
       }
@@ -3604,12 +3632,12 @@ for(;;)
          $rest = $2;                       # Unsupported request method "NESSUS"
          my @scantype;
          if (substr($rest,1,26) eq "Unsupported request method") {
-            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT042",$rest);
+            set_timeline($logtime,$l,$logtimehex,"TEMSREPORT042",$rest);
             $portscan++;
             $portscan_Unsupported++;
             push (@{$portscan_timex{$logtimehex}},"unsupported");
          } elsif (substr($rest,1,21) eq "error in HTTP request") {
-            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT042",$rest);
+            set_timeline($logtime,$l,$logtimehex,"TEMSREPORT042",$rest);
             $portscan++ if index($rest,"unknown method in request") != -1;
             $portscan_HTTP++;
             push (@{$portscan_timex{$logtimehex}},"http");
@@ -3624,7 +3652,7 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # DATASTREAMINTEGRITYLOST
          if (substr($rest,1,48) eq "Status 1DE00074=KDE1_STC_DATASTREAMINTEGRITYLOST") {
-            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT042",$rest);
+            set_timeline($logtime,$l,$logtimehex,"TEMSREPORT042",$rest);
             $portscan++;
             $portscan_integrity++;
             push (@{$portscan_timex{$logtimehex}},"integrity");
@@ -3639,7 +3667,7 @@ for(;;)
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # suspending new connections
          if (index($rest,"suspending new connections") != -1) {
-            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT042",$rest);
+            set_timeline($logtime,$l,$logtimehex,"TEMSREPORT042",$rest);
             $portscan++;
             $portscan_suspend++;
             push (@{$portscan_timex{$logtimehex}},"suspend");
@@ -3696,7 +3724,7 @@ for(;;)
           $oneline =~ /^\((\S+)\)(.+)$/;
           $rest = $2;                       # Status 1DE0000D=KDE1_STC_IOERROR=72: NULL
           if (index($rest,"KDE1_STC_IOERROR=72") != -1) {
-             set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT042",$rest);
+             set_timeline($logtime,$l,$logtimehex,"TEMSREPORT042",$rest);
              $portscan++;
              $portscan_72++;
              push (@{$portscan_timex{$logtimehex}},"error72");
@@ -5114,39 +5142,31 @@ for(;;)
                $ioldthrunode =~ s/\s+$//;   #trim trailing whitespace
                $ihostaddr =~ s/\s+$//;   #trim trailing whitespace
                my $islot = sec2slot($logtime,60);
+               $lastslot = $islot;
                $change_ref = $changex{$idesc};
                $changex_ct += 1;
                if (!defined $change_ref) {
                   my %changeref = (
                                      count => 0,
-                                     slots => {},
+                                     nodes => {},
                                      nodesum => {},
                                   );
                   $change_ref = \%changeref;
                   $changex{$idesc} = \%changeref;
                }
                $change_ref->{count} += 1;
-               $change_slot_ref = $change_ref->{slots}{$islot};
-               if (!defined $change_slot_ref) {
-                  my %changeslotref = (
-                                         count => 0,
-                                         nodes => {},
-                                      );
-                  $change_slot_ref = \%changeslotref;
-                  $change_ref->{slots}{$islot} = \%changeslotref;
-                  $lastslot = $islot;
-               }
-               $change_slot_ref->{count} += 1;
-               $change_node_ref = $change_slot_ref->{nodes}{$inode};
+               $change_node_ref = $change_ref->{nodes}{$inode};
                if (!defined $change_node_ref) {
                   my %changenoderef = (
                                          count => 0,
                                          instances => {},
+                                         systems => {},
                                       );
                   $change_node_ref = \%changenoderef;
-                  $change_slot_ref->{nodes}{$inode} = \%changenoderef;
+                  $change_ref->{nodes}{$inode} = \%changenoderef;
                }
                $change_node_ref->{count} += 1;
+               $change_node_ref->{systems}{$ihostaddr} = 1 if $ihostaddr ne "";
                my $changekey = $ithrunode . "|" . $ihostaddr;
                $change_instance_ref = $change_node_ref->{instances}{$changekey};
                if (!defined $change_instance_ref) {
@@ -5654,7 +5674,7 @@ for(;;)
          } elsif (substr($rest,1,7) eq "Client:") {
             $rest =~ /: (.*):/;
             $soaperror_client = $1 if defined $1;
-            set_timeline($logtime,$l,$logtimehex,"TEMSAREPORT027","SOAP error $soaperror_fault from $soaperror_client");
+            set_timeline($logtime,$l,$logtimehex,"TEMSREPORT027","SOAP error $soaperror_fault from $soaperror_client");
             if ($soaperror_fault ne "") {
                 my $soaperror_ref = $soaperror{$soaperror_fault};
                 if (!defined $soaperror_ref) {
@@ -7048,7 +7068,7 @@ if ($uadvisor_vtbl_bytes>0) {
    $cnt++;$oline[$cnt]="Total Virtual Hub Table Updates (percent),,,$res_pc\n";
    my $turespermin = int($uadvisor_vtbl_bytes / ($dur / 60));
    $cnt++;$oline[$cnt]="Total Total Virtual Hub Table Updates bytes per minute,,,$turespermin\n";
-   $advi++;$advonline[$advi] = "Virtual Hub Table Updates $turespermin/min";
+   $advi++;$advonline[$advi] = "Virtual Hub Table Updates $turespermin bytes/min";
    $advcode[$advi] = "TEMSAUDIT1124W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Trace";
@@ -7336,13 +7356,10 @@ my $change_real = 0;
 if ($changex_ct > 0) {
    foreach $f ( sort { $a cmp $b } keys %changex) {
       $change_ref = $changex{$f};
-      foreach $g (keys %{$change_ref->{slots}}) {
-         $change_slot_ref = $change_ref->{slots}{$g};
-         foreach $h (keys %{$change_slot_ref->{nodes}}) {
-            $change_node_ref = $change_slot_ref->{nodes}{$h};
-            next if $change_ref->{nodesum}{$h} < 2;
-            $change_real += 1;
-         }
+      foreach $g (keys %{$change_ref->{nodes}}) {
+         $change_node_ref = $change_ref->{nodes}{$g};
+         next if $change_ref->{nodesum}{$g} < 2;
+         $change_real += 1;
       }
    }
    if ($change_real > 0) {
@@ -9074,6 +9091,7 @@ if ($pti_ct > 0) {
    $cnt++;$oline[$cnt]="$outl\n";
 }
 
+my $fdup_ct = 0;
 if ($change_real > 0) {
    $rptkey = "TEMSREPORT028";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
@@ -9081,168 +9099,145 @@ if ($change_real > 0) {
    $cnt++;$oline[$cnt]="Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,\n";
    foreach $f ( sort { $a cmp $b } keys %changex) {
       $change_ref = $changex{$f};
-      foreach $g (keys %{$change_ref->{slots}}) {
-         $change_slot_ref = $change_ref->{slots}{$g};
-         foreach $h (keys %{$change_slot_ref->{nodes}}) {
-            $change_node_ref = $change_slot_ref->{nodes}{$h};
-            next if $change_ref->{nodesum}{$h} < 2;
-            foreach $i (keys %{$change_node_ref->{instances}}) {
-               $change_instance_ref = $change_node_ref->{instances}{$i};
-               $outl = $f . ",";
-               $outl .= $change_node_ref->{count} . "," . $h . ",";
-               $outl .= $change_instance_ref->{count} . ",";
-               $outl .= $change_instance_ref->{thrunode} . ",";
-               $outl .= $change_instance_ref->{hostaddr} . ",";
-               my $pports = "";
-               foreach my $j (keys %{$change_instance_ref->{ports}}) {
-                  $pports .= $j . "[" . $change_instance_ref->{ports}{$j} . "] ";
-               }
-               chop($pports) if $pports ne "";
-               $outl .= $pports . ",";
-               $outl .= $change_instance_ref->{oldthrunode} . ",";
-               $cnt++;$oline[$cnt]="$outl\n";
+      foreach $g (keys %{$change_ref->{nodes}}) {
+         $change_node_ref = $change_ref->{nodes}{$g};
+         next if $change_node_ref->{count} == 1;
+         foreach $h (keys %{$change_node_ref->{instances}}) {
+            $change_instance_ref = $change_node_ref->{instances}{$h};
+            $outl = $f . ",";
+            $outl .= $change_node_ref->{count} . "," . $g . ",";
+            $outl .= $change_instance_ref->{count} . ",";
+            $outl .= $change_instance_ref->{thrunode} . ",";
+            $outl .= $change_instance_ref->{hostaddr} . ",";
+            my $pports = "";
+            foreach my $i (keys %{$change_instance_ref->{ports}}) {
+               $pports .= $i . "[" . $change_instance_ref->{ports}{$i} . "] ";
             }
+            chop($pports) if $pports ne "";
+            $outl .= $pports . ",";
+            $outl .= $change_instance_ref->{oldthrunode} . ",";
+            $cnt++;$oline[$cnt]="$outl\n";
          }
       }
    }
-   my %nodeipx;
-   my %nodeipdx;
-   my %nodeippx;
-   my $last_time = time2sec($lastslot);
-   $last_time -= 86400;
-   my $last_day = sec2time($last_time);
-   $rptkey = "TEMSREPORT067";$advrptx{$rptkey} = 1;         # record report key
+   $rptkey = "TEMSREPORT079";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - last 24 hours\n";
+   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Duplicate Agent Report\n";
    $cnt++;$oline[$cnt]="Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,\n";
    foreach $f ( sort { $a cmp $b } keys %changex) {
       $change_ref = $changex{$f};
-      foreach $g (keys %{$change_ref->{slots}}) {
-      next if $g le $last_day;
-         $change_slot_ref = $change_ref->{slots}{$g};
-         foreach $h (keys %{$change_slot_ref->{nodes}}) {
-            $change_node_ref = $change_slot_ref->{nodes}{$h};
-            next if $change_ref->{nodesum}{$h} < 2;
-            foreach $i (keys %{$change_node_ref->{instances}}) {
-               $change_instance_ref = $change_node_ref->{instances}{$i};
-               $outl = $f . ",";
-               $outl .= $change_node_ref->{count} . "," . $h . ",";
-               $outl .= $change_instance_ref->{count} . ",";
-               $outl .= $change_instance_ref->{thrunode} . ",";
-               $outl .= $change_instance_ref->{hostaddr} . ",";
-               my $pports = "";
-               foreach my $j (keys %{$change_instance_ref->{ports}}) {
-                  $pports .= $j . "[" . $change_instance_ref->{ports}{$j} . "] ";
-               }
-               chop($pports) if $pports ne "";
-               $outl .= $pports . ",";
-               $outl .= $change_instance_ref->{oldthrunode} . ",";
-               $cnt++;$oline[$cnt]="$outl\n";
-               my $node_ip = $h . "|" . $change_instance_ref->{hostaddr};
-               my $node_ip_ref = $nodeipx{$node_ip};
-               if (!defined $node_ip_ref) {
-                  my %node_ipref = (
-                                      node => $h,
-                                      hostaddr => $change_instance_ref->{hostaddr},
-                                      count => 0,
-                                      thrunodes => {},
-                                      desc => {},
-                                      ports => {},
-                                   );
-                  $node_ip_ref = \%node_ipref;
-                  $nodeipx{$node_ip} = \%node_ipref;
-               }
-               $node_ip_ref->{count} += 1;
-               $node_ip_ref->{thrunodes}{$change_instance_ref->{thrunode}} += 1;
-               $node_ip_ref->{desc}{$f} += 1;
-               foreach my $j (keys %{$change_instance_ref->{ports}}) {
-                  $node_ip_ref->{ports}{$j} += 1;
-               }
-               my $node_ipd_ref = $nodeipdx{$h};
-               if (!defined $node_ipd_ref) {
-                  my %node_ipdref = (
-                                      hostaddr => {},
-                                    );
-                  $node_ipd_ref = \%node_ipdref;
-                  $nodeipdx{$h} = \%node_ipdref;
-               }
-               $node_ipd_ref->{hostaddr}{$change_instance_ref->{hostaddr}} += 1 if !defined $node_ipd_ref->{hostaddr}{$change_instance_ref->{hostaddr}};
-               my $node_ipp_ref = $nodeippx{$h};
-               if (!defined $node_ipp_ref) {
-                  my %node_ippref = (
-                                      hostaddr1 => "",
-                                      ports => {},
-                                    );
-                  $node_ipp_ref = \%node_ippref;
-                  $nodeippx{$h} = \%node_ippref;
-               }
-               $node_ipp_ref->{hostaddr1} = $change_instance_ref->{hostaddr};
-               foreach my $j (keys %{$change_instance_ref->{ports}}) {
-                  $node_ipp_ref->{ports}{$j} += 1 if !defined $node_ipp_ref->{ports}{$j};
-               }
+      foreach $g (keys %{$change_ref->{nodes}}) {
+         $change_node_ref = $change_ref->{nodes}{$g};
+         next if $change_node_ref->{count} == 1;
+         my $systems_ct = scalar keys %{$change_node_ref->{systems}};
+         next if $systems_ct == 1;
+         $fdup_ct += 1;
+         foreach $h (keys %{$change_node_ref->{instances}}) {
+            $change_instance_ref = $change_node_ref->{instances}{$h};
+            $outl = $f . ",";
+            $outl .= $change_node_ref->{count} . "," . $g . ",";
+            $outl .= $change_instance_ref->{count} . ",";
+            $outl .= $change_instance_ref->{thrunode} . ",";
+            $outl .= $change_instance_ref->{hostaddr} . ",";
+            my $pports = "";
+            foreach my $i (keys %{$change_instance_ref->{ports}}) {
+               $pports .= $i . "[" . $change_instance_ref->{ports}{$i} . "] ";
+            }
+            chop($pports) if $pports ne "";
+            $outl .= $pports . ",";
+            $outl .= $change_instance_ref->{oldthrunode} . ",";
+            $cnt++;$oline[$cnt]="$outl\n";
+         }
+      }
+   }
+   if ($fdup_ct > 0) {
+      $advi++;$advonline[$advi] = "Duplicate Agents [$fdup_ct] seen - See $rptkey";
+      $advcode[$advi] = "TEMSAUDIT1128E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+      $crit_line = "2,$fdup_ct duplicate agent name cases seen in $rptkey Report";
+      push @crits,$crit_line;
+   }
+   foreach $f ( sort { $a cmp $b } keys %changex) {
+      $change_ref = $changex{$f};
+      foreach $g (keys %{$change_ref->{nodes}}) {
+         $change_node_ref = $change_ref->{nodes}{$g};
+         foreach $h (keys %{$change_node_ref->{instances}}) {
+            $change_instance_ref = $change_node_ref->{instances}{$h};
+            my $node_ip = $change_instance_ref->{hostaddr};
+            my $node_ip_ref = $nodeipx{$node_ip};
+            if (!defined $node_ip_ref) {
+               my %node_ipref = (
+                                   node => $g,
+                                   hostaddr => $change_instance_ref->{hostaddr},
+                                   count => 0,
+                                   thrunodes => {},
+                                   desc => {},
+                                   ports => {},
+                                );
+               $node_ip_ref = \%node_ipref;
+               $nodeipx{$node_ip} = \%node_ipref;
+            }
+            $node_ip_ref->{count} += 1;
+            $node_ip_ref->{thrunodes}{$change_instance_ref->{thrunode}} += 1;
+            $node_ip_ref->{desc}{$f} += 1;
+            foreach my $j (keys %{$change_instance_ref->{ports}}) {
+               $node_ip_ref->{ports}{$j} += 1;
+            }
+            my $node_ipd_ref = $nodeipdx{$h};
+            if (!defined $node_ipd_ref) {
+               my %node_ipdref = (
+                                   hostaddr => {},
+                                 );
+               $node_ipd_ref = \%node_ipdref;
+               $nodeipdx{$h} = \%node_ipdref;
+            }
+            $node_ipd_ref->{hostaddr}{$change_instance_ref->{hostaddr}} += 1 if !defined $node_ipd_ref->{hostaddr}{$change_instance_ref->{hostaddr}};
+            my $node_ipp_ref = $nodeippx{$change_instance_ref->{hostaddr}};
+            if (!defined $node_ipp_ref) {
+               my %node_ippref = (
+                                   hostaddr1 => "",
+                                   ports => {},
+                                   nodes => {},
+                                 );
+               $node_ipp_ref = \%node_ippref;
+               $nodeippx{$change_instance_ref->{hostaddr}} = \%node_ippref;
+            }
+            $node_ipp_ref->{hostaddr1} = $change_instance_ref->{hostaddr};
+            $node_ipp_ref->{nodes}{$g} = 1;
+            foreach my $j (keys %{$change_instance_ref->{ports}}) {
+               $node_ipp_ref->{ports}{$j} += 1 if !defined $node_ipp_ref->{ports}{$j};
             }
          }
       }
    }
 
-   $rptkey = "TEMSREPORT069";$advrptx{$rptkey} = 1;         # record report key
-   $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - Duplicate Agent Names from last 24 hours\n";
-   $cnt++;$oline[$cnt]="Node,Count,Hostaddrs,\n";
-   my $idupcnt = 0;
-   foreach $f (sort { $a cmp $b} keys %nodeipdx) {
-      my $node_ipd_ref = $nodeipdx{$f};
-      my $ip_ct = scalar keys %{$node_ipd_ref->{hostaddr}};
-      next if $ip_ct < 2;
-      $idupcnt += 1;
-      $outl = $f . ",";
-      $outl .= $ip_ct . ",";
-      my $paddr = "";
-      foreach my $j (keys %{$node_ipd_ref->{hostaddr}}) {
-         $paddr .= $j . " ";
-      }
-      chop($paddr) if $paddr ne "";
-      $outl .= $paddr . ",";
-      $cnt++;$oline[$cnt]="$outl\n";
-      $dupfi++;$dupf[$dupfi] = $outl;
-   }
-   if ($idupcnt > 0 ) {
-      $advi++;$advonline[$advi] = "$idupcnt duplicate agent name cases - see $rptkey report";
-      $advcode[$advi] = "TEMSAUDIT1105E";
-      $advimpact[$advi] = $advcx{$advcode[$advi]};
-      $advsit[$advi] = "diagnostic";
-      $crit_line = "2,$idupcnt duplicate agent name cases - see TEMSREPORT069 Report";
-      push @crits,$crit_line;
-      if ($opt_dupfile == 1) {
-         my $dupfn = "dupagent.csv";
-         open DUPFILE, ">$dupfn" or die "Unable to open Duplicate Agent output file $dupfn\n";
-         print DUPFILE "*Potential Duplicate Agent Name Cases - $opt_nodeid\n";
-         print DUPFILE "*Node,Count,Hostaddrs,\n";
-         for ($i=0;$i<=$dupfi;$i++) {
-            print DUPFILE "$dupf[$i]\n";
-         }
-         close(DUPFILE);
-      }
-   }
 
    $rptkey = "TEMSREPORT070";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - Multi Listening Ports from last 24 hours\n";
-   $cnt++;$oline[$cnt]="Node,Count,Hostaddr1,Ports,\n";
+   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - Multi Listening Ports\n";
+   $cnt++;$oline[$cnt]="Hostaddr,Port_Count,Nodes,Ports,\n";
    my $iportcnt = 0;
-   foreach $f (sort { $a cmp $b} keys %nodeippx) {
+   foreach $f ( keys %nodeippx) {
       my $node_ipp_ref = $nodeippx{$f};
-      my $ip_ct = scalar keys %{$node_ipp_ref->{ports}};
-      next if $ip_ct < 2;
+      $node_ipp_ref->{count} = scalar keys %{$node_ipp_ref->{ports}};
+   }
+   foreach $f ( sort { $nodeippx{$b}->{count} <=> $nodeippx{$a}->{count}} keys %nodeippx) {
+      my $node_ipp_ref = $nodeippx{$f};
+      next if $node_ipp_ref->{count} < 3;
       $iportcnt += 1;
-      $outl = $f . ",";
-      $outl .= $ip_ct . ",";
-      $outl .= $node_ipp_ref->{hostaddr1} . ",";
+      $outl = $node_ipp_ref->{count} . ",";
+      $outl .= $f . ",";
+      my $pnode = "";
+      foreach my $j (keys %{$node_ipp_ref->{nodes}}) {
+         $pnode .= $j . " ";
+      }
+      chop($pnode) if $pnode ne "";
+      $outl .= $pnode . ",";
       my $pport = "";
       foreach my $j (keys %{$node_ipp_ref->{ports}}) {
          $pport .= $j . " ";
       }
-      chop($pport) if $pport ne "";
       $outl .= $pport . ",";
       $cnt++;$oline[$cnt]="$outl\n";
    }
@@ -9251,39 +9246,6 @@ if ($change_real > 0) {
       $advcode[$advi] = "TEMSAUDIT1106W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "diagnostic";
-   }
-
-   $rptkey = "TEMSREPORT068";$advrptx{$rptkey} = 1;         # record report key
-   $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - last 24 hours Summary\n";
-   $cnt++;$oline[$cnt]="Node,Hostaddr,Count,Desc,Thrunode,Ports,\n";
-
-   foreach $f (sort { $nodeipx{$a}->{node} cmp $nodeipx{$b}->{node} ||
-                      $nodeipx{$a}->{hostaddr} cmp $nodeipx{$b}->{hostaddr}} keys %nodeipx) {
-      my $node_ip_ref = $nodeipx{$f};
-      next if $node_ip_ref->{count} < 2;
-      $outl = $node_ip_ref->{node} . ",";
-      $outl .= $node_ip_ref->{count} . ",";
-      $outl .= $node_ip_ref->{hostaddr} . ",";
-      my $pdesc = "";
-      foreach my $j (keys %{$node_ip_ref->{desc}}) {
-         $pdesc .= $j . "[" . $node_ip_ref->{desc}{$j} . "] ";
-      }
-      chop($pdesc) if $pdesc ne "";
-      $outl .= $pdesc . ",";
-      my $pthru = "";
-      foreach my $j (keys %{$node_ip_ref->{thrunodes}}) {
-         $pthru .= $j . "[" . $node_ip_ref->{thrunodes}{$j} . "] ";
-      }
-      chop($pthru) if $pthru ne "";
-      $outl .= $pthru . ",";
-      my $pports = "";
-      foreach my $j (keys %{$node_ip_ref->{ports}}) {
-         $pports .= $j . " ";
-      }
-      chop($pports) if $pports ne "";
-      $outl .= $pports . ",";
-      $cnt++;$oline[$cnt]="$outl\n";
    }
 
    $rptkey = "TEMSREPORT066";$advrptx{$rptkey} = 1;         # record report key
@@ -9313,7 +9275,7 @@ if ($change_real > 0) {
    }
 }
 
-my $resume_ct = scalar keys %resumex;
+$resume_ct = scalar keys %resumex;
 if ($resume_ct > 0) {
    $rptkey = "TEMSREPORT071";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
@@ -9734,7 +9696,7 @@ if ($ct_rbdup > 0 ) {
          $advcode[$advi] = "TEMSAUDIT1121W";
          $advimpact[$advi] = $advcx{$advcode[$advi]};
          $advsit[$advi] = "TEMS";
-         $crit_line = "2,$thru_mult nodes with multiple thrunode updates - see TEMS Audit $rptkey Report";
+         $crit_line = "2,$thru_mult nodes with multiple thrunode updates - see $rptkey Report";
          push @crits,$crit_line;
       }
    }
@@ -10676,7 +10638,7 @@ if ($prob_initial > 0) {
          die "months table wrong" if !defined $imon;
          my $itime = timelocal( $iss, $imm, $ihh, $iday, $imon, $iyy );
          $itime -= $local_diff;
-         set_timeline($itime,0,"","TEMSAREPORT054","remote TEMS $f initial heartbeat");
+         set_timeline($itime,0,"","TEMSREPORT054","remote TEMS $f initial heartbeat");
       }
    }
 }
@@ -10925,6 +10887,10 @@ if ($opt_gap > 0 ) {
       $advcode[$advi] = "TEMSAUDIT1103W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
+#     if ($gap_ct > 10) {
+#        $crit_line = "6,Diagnostic Log Time Gaps [$gap_ct] of more than $opt_gap seconds - See $rptkey report";
+#        push @crits,$crit_line;
+#     }
    }
 }
 
@@ -11389,10 +11355,14 @@ sub open_kib {
       my $itime;
 
       foreach $f (@dlogfiles) {
+         $dlog = $opt_logpath . $f;
+         if ($gWin == 0) {
+            my $ftype = `file $dlog`;              # found a case where most logs were *.gz'd
+            next if index($ftype,"text") == -1;
+         }
          $f =~ /^.*-(\d+)\.log/;
          $segmax = $1 if $segmax eq "";
          $segmax = $1 if $segmax < $1;
-         $dlog = $opt_logpath . $f;
          open( DIAG, "< $dlog" ) or die "Cannot open Diagnostic file $dlog : $!";
          for ($t=0;$t<$tlimit;$t++) {
             $oneline = <DIAG>;                      # read one line
@@ -11776,6 +11746,9 @@ exit;
 #        - Add platform type if available
 #        - Count catalog errors
 #        - Count invalid plan length
+#2.13000 - Handle case where some logs are not text - compressed
+#        - Identify duplicate agents from flipping messages
+#        - Default on diagnostic log gap report
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -14137,6 +14110,19 @@ http://www.ibm.com/support/docview.wss?uid=swg21444688
 Recovery plan:  Update TEMS to ITM 630 FP7 SP1.
 --------------------------------------------------------------
 
+TEMSAUDIT1128E
+Text: Duplicate Agents [count] seen - See TEMSREPORT079
+
+Tracing: error
+(59103772.0000-C9:kfaprpst.c,3618,"NodeStatusRecordChange") Affinities change detected for node <uuc_scent5010:NT                > thrunode <REMOTE_usitmpl8044              > hostAddr: <ip.spipe:#10.188.5.10[60467]<NM>uuc_scent5010</NM>          >
+
+Meaning: Positive identification of duplicate agents. This
+can cause TEMS instability and bad TEPS performance.
+
+Recovery plan: Configure the agents identified so all agents
+have unique names, as ITM expects.
+--------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -15664,7 +15650,7 @@ Sample Report
 LocalTime,Hextime,Line,Advisory/Report,Notes,
 20180306024212,5A9DD5D4,526,TEMSAUDIT1036W, Begin stage 2 processing. Database and IB Cache synchronization with the hub,
 20180306024303,5A9DD607,1353,TEMSAUDIT1036W, End stage 2 processing. Database and IB Cache synchronization with the hub with return code: 0,
-20180306081714,5A9E245A,9042,TEMSAREPORT019,Connection Lost ip.pipe:#0.0.0.13:6015 1C010001:1DE0004D,
+20180306081714,5A9E245A,9042,TEMSREPORT019,Connection Lost ip.pipe:#0.0.0.13:6015 1C010001:1DE0004D,
 
 Meaning: shows a sequence of events in time order.
 
@@ -15677,7 +15663,7 @@ Text: Timeline of interesting Advisories and Reports Reports by timeslot
 Sample Report
 LocalTime_slot,References,
 20180306024000,TEMSAUDIT1036W[2] ,
-20180306081500,TEMSAREPORT019[1] ,
+20180306081500,TEMSREPORT019[1] ,
 
 Meaning: This shows the reports and how often they occured during
 time slots. Default slot is 5 minutes but can be changed using the
@@ -15748,18 +15734,19 @@ Text: Diagnostic Log Gap Time Gap Report
 
 Sample Report
 LocalTime,Gap,Count,Prev,Hextime,Line,
-20180522023603,294,55,8,5B03E484,33432,
-20180522022948,183,1,9,5B03E30D,33224,
-20180522022600,135,358,13,5B03E229,32640,
-20180522023810,121,1119,8,5B03E503,33702
+20190701234609,2923,3,1,5D1AFDB2,16997,(5D1AFDB2.0000-2:kfaatloc.c,923,"Process") No CLCMD command string found,
+20190701083035,2379,1,2,5D1A271C,15033,(5D1A271C.0000-5B:kfaprpst.c,3582,"NodeStatusRecordChange") Thrunode change detected for node <holp370:CRH_holp370:RZ          > thrunode <REMOTE_rtemsnode01              > Old thrunode <REMOTE_rtemsnode02                AIX~7.1                         ip.spipe:#10.10.3.183[58680]<NM>CRH_holp370</NM>                                                                                                                                                                                                                A=00:aix526;C=06.23.03.00:aix526;G=06.23.03.00:aix526;          > hostAddr: <ip.spipe:#10.10.3.183[54186]<NM>CRH_holp370</NM>            >,
+20190630055056,2113,2,1,5D18B031,12439,(5D18B031.0000-12:kpxrwhpx.cpp,597,"LookupWarehouse") Using TEMS node id HUB_htemnode01 for warehouse proxy registration.,
 
-Meaning: This shows gaps in the diagnostic log messages of thirty
-seconds or more sorted with higher gaps first.
+Meaning: This shows gaps in the diagnostic log messages of sixty
+seconds or more sorted with higher gaps first. This may not be
+important for very lightly loaded TEMSes. No report is shown if
+less than 10 gaps are observed.
 
 For example the first line says
 
-Local Time   20180522023603
-Gap          294
+Local Time   20190701234609
+Gap          2923 (seconds)
 Count        55
 Prev         8
 Hextime      5B03E484
@@ -15768,13 +15755,20 @@ Line         33432
 The Gap means how many seconds elapsed between this diagnostic
 log time and the previous time. Count is the number of log messages
 in the current second. Prev is the number of log messages in the
-previous second.
+previous second. Hextime is the epoch second time in the diagnostic
+log file. Line is the line number seen. Following is a copy of
+the diagnostic line message.
 
 This can be used to identify cases where the TEMS processing is
 being adversely influenced by an outside source. That could be
 another higher priority process or a higher level control such as
 AIX LPAR workload manager or VMWare controls. It has also been seen
-at times after a communications error, such as with port scanning.
+at times after a communications error, such as with port scanning or
+with a high latency TEMS/TEMS connection.
+
+As mentioned this an also be a no trouble found condition, especially
+if the TEMS is lightly loaded. If there are other serious problems
+in a highly loaded environment, this can be a root cause.
 
 Recovery plan: If a problem is being seen, this can point to the
 root cause.
@@ -16187,4 +16181,36 @@ https://www.ibm.com/developerworks/community/blogs/jalvord/entry/Sitworld_TEMS_D
 
 Recovery plan: Repair the QA1CDSCA file and work with IBM support
 if that does not correct the issue.
+----------------------------------------------------------------
+
+TEMSREPORT079
+Text: Agent Flipping Duplicate Agent Report
+
+Trace: error
+Parameter added -noflip to suppress
+
+Meaning
+
+Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,
+Affinities,54,cpw_capella:KUX,2,REMOTE_gbnvplmgt08,ip.spipe:#172.27.4.110,7757[2],,
+Affinities,54,cpw_capella:KUX,26,REMOTE_gbnvplmgt07,ip.spipe:#172.27.4.110,7757[26],,
+Affinities,54,cpw_capella:KUX,26,REMOTE_gbnvplmgt07,ip.spipe:#172.27.4.116,7757[26],,
+Host info/loc/addr,7,SHARED2K12:tmm_ladcscl01:MSS,5,REMOTE_frmpqam001tmmxm,ip.spipe:#10.210.2.75,58948[1] 62600[1] 60813[1] 54921[1] 63251[1],,
+Host info/loc/addr,7,SHARED2K12:tmm_ladcscl01:MSS,2,REMOTE_frmpqam001tmmxm,ip.spipe:#10.210.2.76,7757[2],,
+Thrunode,2,tmm_mmpdscl09:Q5,1,REMOTE_frmpqam001tmmxm,ip.spipe:#10.15.51.15,15949[1],REMOTE_frmpqam002tmmxm,
+Thrunode,2,tmm_mmpdscl09:Q5,1,REMOTE_frmpqam002tmmxm,ip.spipe:#10.15.51.16,11853[1],REMOTE_frmpqam001tmmxm,
+
+This report is like TEMSREPORT028 but the only agents
+listed are those which show at multiple systems.
+
+There can be many reasons. For example, the agents may be
+configured with the same name even though they are on different
+systems. If the OS agent is in the ITM 622 GA to FP2 level, the
+agent can be connected to two different remote TEMS at the same
+time. And there are lots of other potential problems. The impact
+is severe. You can wind up running situations on only part of
+the agents and the TEMS itself can be unstable and crash.
+
+
+Recovery plan: Work with IBM Support to resolve issues.
 ----------------------------------------------------------------
