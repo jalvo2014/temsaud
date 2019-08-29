@@ -131,8 +131,12 @@
 ## (5CAE2178.06DC-179B:kpxreqi.cpp,977,"UseRequestImp") RequestImp RES1 Use handle 407914353: obj@119C3B3D0
 ## (5CAE2178.06DD-179B:kpxrpcrq.cpp,847,"IRA_NCS_Sample") Rcvd 1 rows sz 366 tbl *.KA4MISC req UADVISOR_KA4_KA4MISC <407914353,638583257> node <ESBRMT1:KA4>
 
+## (5D309F63.0000-24:ko4tsmgr.cpp,599,"TaskManager::checkSitmonStatus") Sitmon BUSY.  Process <TaskManager::process#1> in BUSY state since <5d3098bb>, which exceeds <900> seconds.,
 
-my $gVersion = 2.13000;
+## (5D51ECFF.005D-1E:ko4bkgnd.cpp,482,"BackgroundController::nodeStatusUpdate") TEMS heartbeat insert failed with status 155
+
+
+my $gVersion = 2.14000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -452,6 +456,9 @@ my $gsk701 = 0;
 my $csv1_path = "";
 
 
+my %sitsuspx;
+my %kdcx;
+my $sitmon_busy_ct = 0;
 my $resume_ct;
 my $glb_lag = "";
 my %nodeipx;
@@ -693,6 +700,12 @@ my %advcx = (
               "TEMSAUDIT1126E" => "95",
               "TEMSAUDIT1127E" => "95",
               "TEMSAUDIT1128E" => "102",
+              "TEMSAUDIT1129W" => "97",
+              "TEMSAUDIT1130E" => "100",
+              "TEMSAUDIT1131E" => "100",
+              "TEMSAUDIT1132E" => "100",
+              "TEMSAUDIT1133I" => "0",
+              "TEMSAUDIT1134E" => "98",
             );
 
 
@@ -827,10 +840,24 @@ my %knowntabx = (
                    'KBNHTTPCON' => '804',
                    'KBNMEMORYS' => '380',
                    'KBNMQCON' => '352',
-                   'KD43RP'     => '204',
-                   'KD43RQ'     => '148',
-                   'KD43RS'     => '168',
+                   'KD43EM'   => '912',
+                   'KD43RP'     => '456',
+                   'KD43RQ'     => '400',
+                   'KD43RS'     => '420',
+                   'KD43SN'     => '132',
                    'KD43SO'     => '516',
+                   'KD46AB'     => '96',
+                   'KD46AE'     => '764',
+                   'KD46BD'     => '664',
+                   'KD46BP'     => '384',
+                   'KD46BS'     => '1844',
+                   'KD47BA'     => '1080',
+                   'KD47BD'     => '720',
+                   'KD47BE'     => '490',
+                   'KD47BF'     => '2632',
+                   'KD47BG'     => '852',
+                   'KD47BN'     => '852',
+                   'KD47BP'     => '724',
                    'KGBDTASK'   => '448',
                    'KGBDMAIL'    => '236',
                    'KHDDBINFO'     => '1284',
@@ -853,7 +880,7 @@ my %knowntabx = (
                    'KISLDAP'       => '972',
                    'KISMSTATS'     => '448',
                    'KISSISTATS'    => '984',
-                   'KLOLOGEVTS' => '6864',
+                   'KLOLOGEVTS' => '6928',
                    'KLOLOGFRX'     => '772',
                    'KLOLOGFST'  => '916',
                    'KLOPOBJST'     => '324',
@@ -873,6 +900,7 @@ my %knowntabx = (
                    'KLZPUSR'       => '1572',
                    'KLZSCRPTS'  => '3952',
                    'KLZSCRRTM'  => '3544',
+                   'KLZSCRTSM'  => '3544',
                    'KLZSOCKD' => '296',
                    'KLZSWPRT'      => '128',
                    'KLZSYS'        => '288',
@@ -945,7 +973,11 @@ my %knowntabx = (
                    'KQITBRKR' => '1620',
                    'KQITBRKS' => '1156',
                    'KQITBSEV' => '944',
+                   'KQITCOMP' => '852',
+                   'KQITEGRS' => '744',
                    'KQITMNEV' => '1576',
+                   'KQITPREV' => '1176',
+                   'KQITRSJV' => '1008',
                    'KQITSTMF' => '1852',
                    'KQXAVAIL'   => '3244',
                    'KQXPRESSRV' => '432',
@@ -978,6 +1010,7 @@ my %knowntabx = (
                    'KRZRDBSTAT' => '456',
                    'KRZRDBTOPO' => '400',
                    'KRZRDBCUSQ' => '1940',
+                   'KRZRDBOBJS' => '480',
                    'KRZRDBUTS' => '332',
                    'KRZSEGALOC' => '524',
                    'KRZTSNLUE' => '292',
@@ -986,16 +1019,23 @@ my %knowntabx = (
                    'KSAALERTS' => '2416',
                    'KSABUFFER' => '768',
                    'KSACTS' => '864',
+                   'KSABPMDTL' => '664',
                    'KSADMPCNT' => '472',
                    'KSAJOBS' => '944',
+                   'KSALOCKS' => '824',
+                   'KSAOSP' => '644',
                    'KSAPERF' => '672',
                    'KSAPROCESS' => '1052',
                    'KSASERINFO' => '340',
-                   'KSASLOG' => '1004',
+                   'KSASLOG' => '1008',
+                   'KSASLSYALT' => '1456',
+                   'KSASOLALTH' => '788',
+                   'KSASOLEWA'  => '592',
                    'KSASPOOL' => '760',
                    'KSASYS' => '1444',
                    'KSATRANS' => '1056',
                    'KSAUPDATES' => '1288',
+                   'KSAUSERS'   => '832',
                    'KSKSCHEDUL' => '1876',
                    'KSKTAPEVOL' => '1992',
                    'KSYCONNECT'    => '1184',
@@ -1034,13 +1074,15 @@ my %knowntabx = (
                    'KVMCLUSTRT' => '872',
                    'KVMDSTORES'    => '1276',
                    'KVMRSPOOLM' => '612',
-                   'KVMSERVERD' => '564',
+                   'KVMSERVERD' => '568',
                    'KVMSERVERE' => '1876',
                    'KVMSERVERG' => '2288',
                    'KVMSERVERN' => '804',
                    'KVMSERVRDS' => '720',
                    'KVMSRVHBAS' => '644',
+                   'KVMSVRHLTH' => '752',
                    'KVMSRVRSAN' => '460',
+                   'KVMTOPO'    => '798',
                    'KVMVCENTER'    => '416',
                    'KVMVM_GEN'  => '1752',
                    'KVMVM_MEM' => '632',
@@ -1142,14 +1184,15 @@ my %knowntabx = (
                    'NTPROCINFO' => '452',
                    'NTPROCRSUM' => '340',
                    'NTPROCSSR'     => '192',
+                   'NTPRTJOB'      => '1436',
                    'NTSERVICE'     => '1472',
                    'PRINTQ' => '576',
                    'PROCESSIO' => '704',
                    'QMANAGER' => '796',
-                   'QMCHAN_ST' => '1592',
+                   'QMCHAN_ST' => '1608',
                    'QMCHANNEL' => '1044',
                    'QMCHANS' => '1632',
-                   'QMCURSTAT' => '2108',
+                   'QMCURSTAT' => '2416',
                    'QMERRLOG'  => '3916',
                    'QMEVENTC' => '436',
                    'QMEVENTH' => '2756',
@@ -1310,7 +1353,6 @@ my %lociex = (                    # generic loci counter exclusion
                 "kdepnpc.c|KDEP_NewPCB" => 1,
                 "kdebpli.c|KDEBP_Listen" => 1,
                 "kdepdpc.c|KDEP_DeletePCB" => 1,
-                "kpxrwhpx.cpp|LookupWarehouse" => 1,
                 "kfastins.c|KFA_PutSitRecord" => 1,
                 "kfaottev.c|Get_ClassName" => 1,
                 "kfaottev.c|KFAOT_Translate_Event" => 1,
@@ -1352,6 +1394,7 @@ my $soaperror_ct;
 my $soaperror_login_exceeded = 0;
 my $tec_translate_ct = 0;
 my $tec_classname_ct = 0;
+my $kpx_warning_ct = 0;
 
 my %changex;
 my $changex_ct = 0;
@@ -1860,6 +1903,38 @@ if ($#results != -1) {
    }
 }
 $full_logopfn = $opt_logpath . $logopfn if $logopfn ne "";
+
+# if Linux/Unix capture env files
+# look for any that have EPHEMERAL:Y which would destabilize TEMS communications
+
+$pattern = '(\S+)\.env$';
+@results = ();
+opendir(ENVD,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n"); # get list of files
+@results = grep {/$pattern/} readdir(ENVD);
+closedir(ENVD);
+my $env_ct;
+my @envlines;
+my $env_eph = 0;
+if ($#results != -1) {
+   $env_ct = $#results + 1;
+   foreach my $f (@results) {
+      my $full_envfn = $opt_logpath . $f;
+      open(ENV,"< $full_envfn") || die("Could not open inv  $full_envfn\n");
+      my @envl = <ENV>;
+      close(ENV);
+      my $l = 0;
+      next if $#envl == -1;
+      foreach my $inline (@envl) {
+         $l += 1;
+         chop($inline);
+         if (index($inline,"KDC_FAMILIES=") != -1) {
+            my @envdet = ["EPH",$f,$l,$inline];
+            push @envlines,\@envdet;
+            $env_eph += 1 if index($inline,"EPHEMERAL:Y") != -1;
+         }
+      }
+   }
+}
 
 if ($logfn eq "") {
    $pattern = "(_ms|_MS)(_kdsmain)?\.inv";
@@ -2879,18 +2954,18 @@ for(;;)
 
    # Extract the DISABLE_HTTP value
    #(5C59FA6A.0A7A-C:kbbssge.c,72,"BSS1_GetEnv") DISABLE_HTTP="YES"
-   if ($opt_disable_http eq "") {
-      if (substr($logunit,0,9) eq "kbbssge.c") {
-         if ($logentry eq "BSS1_GetEnv") {
-            $oneline =~ /^\((\S+)\)(.+)$/;
-            $rest = $2;                       # DISABLE_HTTP="YES"
-            if (substr($rest,1,13) eq "DISABLE_HTTP=") {
-               $rest =~ /DISABLE_HTTP=\"(\S+)\"/;
-               $opt_disable_http = $1;
-            }
-         }
-      }
-   }
+#   if ($opt_disable_http eq "") {
+#      if (substr($logunit,0,9) eq "kbbssge.c") {
+#         if ($logentry eq "BSS1_GetEnv") {
+#            $oneline =~ /^\((\S+)\)(.+)$/;
+#            $rest = $2;                       # DISABLE_HTTP="YES"
+#            if (substr($rest,1,13) eq "DISABLE_HTTP=") {
+#               $rest =~ /DISABLE_HTTP=\"(\S+)\"/;
+#               $opt_disable_http = $1;
+#            }
+#         }
+#      }
+#   }
 
    # Extract the TEMS type
    #(53EE63EA.000B-165C:kbbssge.c,52,"BSS1_GetEnv") KDS_HUB="*LOCAL"
@@ -3272,6 +3347,7 @@ for(;;)
    }
 
    ## (5A8A7EA7.0000-8:ko4tsmgr.cpp,243,"TaskManager::process") Hub connection lost, attempting to reconnect
+   ## (5D309F63.0000-24:ko4tsmgr.cpp,599,"TaskManager::checkSitmonStatus") Sitmon BUSY.  Process <TaskManager::process#1> in BUSY state since <5d3098bb>, which exceeds <900> seconds.,
    if (substr($logunit,0,12) eq "ko4tsmgr.cpp") {
       if ($logentry eq "TaskManager::process") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -3280,6 +3356,13 @@ for(;;)
          $mhmx{$mkey} = $rest;
          set_timeline($logtime,$l,$logtimehex,"TEMSREPORT044",$rest);
          next;
+      } elsif ($logentry eq "TaskManager::checkSitmonStatus") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,12) eq "Sitmon BUSY.") {
+            $sitmon_busy_ct += 1;
+            next;
+         }
       }
    }
 
@@ -4359,6 +4442,16 @@ for(;;)
          }
       }
    }
+   #(5D49E70F.0009-12:kpxrwhpx.cpp,713,"LookupWarehouse") WARNING for any agent prior ITM 6.1 FP2 only:Ignoring entry for "ip.pipe:#162.3.63.29[63358]". Location buffer too small, 200 bytes!
+   if (substr($logunit,0,12) eq "kpxrwhpx.cpp") {
+      if ($logentry eq "LookupWarehouse") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       #   WARNING for any agent prior ITM 6.1 FP2 only:Ignoring entry for "ip.pipe:#162.3.63.29[63358]". Location buffer too small, 200 bytes!
+         $kpx_warning_ct += 1 if substr($rest,1,39) eq "WARNING for any agent prior ITM 6.1 FP2";
+         next;
+      }
+   }
+
    #(5A32F0B5.0001-31:kfaottev.c,4929,"Get_ClassName") TEC classname cannot be determined for situation <Perf_CPUBusy_65_C>. status <5>
    #(5A32F0B5.0002-31:kfaottev.c,1105,"KFAOT_Translate_Event") Translate TEC event failed. status <1>. Situation <Perf_CPUBusy_65_C> event status <S> not sent
    if (substr($logunit,0,10) eq "kfaottev.c") {
@@ -4476,6 +4569,8 @@ for(;;)
    # (5927EF95.0002-7:ko4eibr.cpp,143,"EibRecord::dump") send id <> origin <>
    # (5927EF95.0003-7:ko4eibr.cpp,144,"EibRecord::dump") timestamp <1170526040407000> user <_FAGEN>
    # (5927EF95.0004-7:ko4eibr.cpp,145,"EibRecord::dump") raw obj <CTXAPP0054VB:51                 REMOTE_USDAD-METVPVL01>
+
+
    if (substr($logunit,0,12) eq "ko4stg3u.cpp") {
       if (($logentry eq "IBInterface::handleNodelistRecord") or
           ($logentry eq "IBInterface::updateIB")) {
@@ -4486,44 +4581,47 @@ for(;;)
          $nodeliste_state = 0;
       }
    }
-   if (substr($logunit,0,11) eq "ko4eibr.cpp") {
-      if ($logentry eq "EibRecord::dump") {
-         $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;
-         $nodeliste_state += 1;
-         if ($nodeliste_state == 1) {        # operation <I> id <5529> obj name <CTXAPP0054VB:51>
-            $rest =~ /operation <(\S*)> id <(\d*)> obj name <(\S*)>/;
-            $nodelist_operation = $1;
-            $nodelist_id = $2;
-            $nodelist_objname = $3;
-         } elsif ($nodeliste_state == 2) {   # send id <> origin <>
-         } elsif ($nodeliste_state == 3) {   # timestamp <1170526040407000> user <_FAGEN>
-         } elsif ($nodeliste_state == 4) {   # raw obj <CTXAPP0054VB:51                 REMOTE_USDAD-METVPVL01>
-            $rest =~ /raw obj <(.*)>/;
-            my $objdata = $1 . ' ' x 64;
-            $nodelist_agent = substr($objdata,0,32);
-            $nodelist_tems = substr($objdata,32,32);
-            $nodelist_agent =~ s/\s+$//;   #trim trailing whitespace
-            $nodelist_tems =~ s/\s+$//;   #trim trailing whitespace
-            my $nodeliste_ref = $nodelistex{$nodelist_agent};
-            if (!defined $nodeliste_ref) {
-               my %nodelisteref = (
-                                     count => 0,
-                                     error => {},
-                                     op => {},
-                                     id => {},
-                                     tems => {},
-                                  );
-              $nodeliste_ref = \%nodelisteref;
-              $nodelistex{$nodelist_agent} = \%nodelisteref;
+   if (defined $nodelist_error) {
+      if (substr($logunit,0,11) eq "ko4eibr.cpp") {
+         if ($logentry eq "EibRecord::dump") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;
+            $nodeliste_state += 1;
+            if ($nodeliste_state == 1) {        # operation <I> id <5529> obj name <CTXAPP0054VB:51>
+               $rest =~ /operation <(\S*)> id <(\d*)> obj name <(\S*)>/;
+               $nodelist_operation = $1;
+               $nodelist_id = $2;
+               $nodelist_objname = $3;
+            } elsif ($nodeliste_state == 2) {   # send id <> origin <>
+            } elsif ($nodeliste_state == 3) {   # timestamp <1170526040407000> user <_FAGEN>
+            } elsif ($nodeliste_state == 4) {   # raw obj <CTXAPP0054VB:51                 REMOTE_USDAD-METVPVL01>
+               $rest =~ /raw obj <(.*)>/;
+               my $objdata = $1 . ' ' x 64;
+               $nodelist_agent = substr($objdata,0,32);
+               $nodelist_tems = substr($objdata,32,32);
+               $nodelist_agent =~ s/\s+$//;   #trim trailing whitespace
+               $nodelist_tems =~ s/\s+$//;   #trim trailing whitespace
+               my $nodeliste_ref = $nodelistex{$nodelist_agent};
+               if (!defined $nodeliste_ref) {
+                  my %nodelisteref = (
+                                        count => 0,
+                                        error => {},
+                                        op => {},
+                                        id => {},
+                                        tems => {},
+                                     );
+                 $nodeliste_ref = \%nodelisteref;
+                 $nodelistex{$nodelist_agent} = \%nodelisteref;
+               }
+               $nodeliste_ref->{count} += 1;
+               $nodeliste_ref->{error}{$nodelist_error} += 1;
+               $nodeliste_ref->{op}{$nodelist_operation} += 1;
+               $nodeliste_ref->{id}{$nodelist_id} += 1;
+               $nodeliste_ref->{tems}{$nodelist_tems} += 1 if $nodelist_tems ne "";
+               $nodeliste_state = 0;
+               $nodeliste_count += 1;
+               undef $nodelist_error;
             }
-            $nodeliste_ref->{count} += 1;
-            $nodeliste_ref->{error}{$nodelist_error} += 1;
-            $nodeliste_ref->{op}{$nodelist_operation} += 1;
-            $nodeliste_ref->{id}{$nodelist_id} += 1;
-            $nodeliste_ref->{tems}{$nodelist_tems} += 1 if $nodelist_tems ne "";
-            $nodeliste_state = 0;
-            $nodeliste_count += 1;
          }
       }
    }
@@ -4937,17 +5035,19 @@ for(;;)
             my $ihostAddr = "";
             my $isystem = "";
             my $iport = "";
-            if (index($rest,"hostAddr") != -1) {
-               if (index($rest,"[") != -1) {
-                  $rest =~ /NM>(\S+)</;
-                  $isystem = $1 if defined $1;
-                  $rest =~ /#(\S+)\[/;
-                  $ihostAddr = $1 if defined $1;
-                  $rest =~ /hostAddr:.*?\[(\d+)\]/;
-                  $iport = $1 if defined $1;
+            if ($inewOnline eq "Y") {  # hostaddr is unreliable if newOnline is "N"
+               if (index($rest,"hostAddr") != -1) {
+                  if (index($rest,"[") != -1) {
+                     $rest =~ /NM>(\S+)</;
+                     $isystem = $1 if defined $1;
+                     $rest =~ /#(\S+)\[/;
+                     $ihostAddr = $1 if defined $1;
+                     $rest =~ /hostAddr:.*?\[(\d+)\]/;
+                     $iport = $1 if defined $1;
+                  }
                }
+               $ihostAddr =~ s/\s+$//;   #trim trailing whitespace
             }
-            $ihostAddr =~ s/\s+$//;   #trim trailing whitespace
             $rbdup_ref = $rbdupx{$inode};
             if (!defined $rbdup_ref) {
                my %rbdupref = (
@@ -5114,7 +5214,7 @@ for(;;)
          if ($opt_flip == 1) {
             $oneline =~ /^\((\S+)\)(.+)$/;
             $rest = $2;                       #  Host info/loc/addr change detected for node <uuc_wtwavwq9:06                 > thrunode <REMOTE_usitmpl8057-itm2         > hostAddr: <ip.spipe:#192.168.10.72[4206]<NM>uuc_wtwavwq9</NM>          >
-            if (index($rest,"detected for node") != -1) {
+            if ((index($rest,"detected for node") != -1) and (substr($rest,1,9) ne "No record")) {
                $rest =~ / (.*?) change detected for node \<(.*?)\>(.+)$/;
                my $idesc = $1;
                my $inode = $2;
@@ -6392,6 +6492,7 @@ for(;;)
       }
    }
    #(578F8F57.0001-6:ko4sit.cpp,1573,"Situation::slice") Error : Sit SAPNP_SAP_BO_Process_Down : reflex emulation command returned 4.
+   #(5D614EE1.0008-6:ko4sit.cpp,1055,"Situation::slice") Situation <ds_Oracle_ListeC7140EBAA0425F> suspended waiting for attribute refresh
    if (substr($logunit,0,10) eq "ko4sit.cpp") {
       if ($logentry eq "Situation::slice") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -6410,6 +6511,10 @@ for(;;)
                $reflexx{$isit} = \%reflexref;
             }
             $reflex_ref->{count} += 1;
+         } elsif (index($rest,"suspended waiting for attribute refresh") != -1) { # Situation <ds_Oracle_ListeC7140EBAA0425F> suspended waiting for attribute refresh
+            $rest =~ /Situation \<(\S+)\>/;
+            my $isit = $1;
+            $sitsuspx{$isit} += 1 if defined $isit;
          }
       }
    }
@@ -7029,6 +7134,11 @@ if ($opt_kbb_ras1 ne "") {
       $advcode[$advi] = "TEMSAUDIT1081E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "Ras1";
+   }  elsif (substr($test_ras1,-1,1) eq "'") {
+      $advi++;$advonline[$advi] = "KBB_RAS1 ends with single quote which prevents expected usage";
+      $advcode[$advi] = "TEMSAUDIT1131E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "Ras1";
    }
 }
 
@@ -7641,9 +7751,35 @@ if ($st > 0) {
    }
 }
 
+my $ss_ct = scalar keys %sitsuspx;
+if ($ss_ct > 0) {
+   $rptkey = "TEMSREPORT081";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Suspended Situations Wwaiting For Attribute Refresh\n";
+   $cnt++;$oline[$cnt]="Situation,Count,\n";
+   foreach $f ( sort { $a cmp $b } keys %sitsuspx) {
+      $outl = $f . ",";
+      $outl .= $sitsuspx{$f} . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+   $cnt++;$oline[$cnt]="\n";
+
+   $advi++;$advonline[$advi] = "Suspended Situations [$ss_ct] Waiting for Attribute Refresh - see $rptkey";
+   $advcode[$advi] = "TEMSAUDIT1134E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
 if ($tec_classname_ct > 0) {
    $advi++;$advonline[$advi] = "Translate TEC Send event failed $tec_classname_ct times - not a problem";
    $advcode[$advi] = "TEMSAUDIT1090I";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+if ($kpx_warning_ct > 0) {
+   $advi++;$advonline[$advi] = "KPX warning on location buffer too small $kpx_warning_ct times - not a problem";
+   $advcode[$advi] = "TEMSAUDIT1133I";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
 }
@@ -8998,6 +9134,15 @@ if ($loci_ct > 0) {
    }
 }
 
+if ($sitmon_busy_ct > 0) {
+   $advi++;$advonline[$advi] = "Sitmon Busy seen [$sitmon_busy_ct] time(s)";
+   $advcode[$advi] = "TEMSAUDIT1130E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "6,Sitmon Busy seen $sitmon_busy_ct time(s)";
+   push @crits,$crit_line;
+}
+
 
 if ($pcb_deletePCB > 0) {
    $rptkey = "TEMSREPORT026";$advrptx{$rptkey} = 1;         # record report key
@@ -9248,15 +9393,19 @@ if ($change_real > 0) {
       $advsit[$advi] = "diagnostic";
    }
 
+   my $flip_hour;
+   my $flip_ct;
    $rptkey = "TEMSREPORT066";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Summary by hour\n";
    $cnt++;$oline[$cnt]="LocalTime,Changes,Nodes,Types,Thrunodes,\n";
    foreach $f ( sort { $a <=> $b } keys %changetx) {
       $changet_ref = $changetx{$f};
+      $flip_hour += 1;
       $outl = $f . ",";
       $outl .= $changet_ref->{count} . ",";
       my $agent_ct = scalar keys %{$changet_ref->{nodes}};
+      $flip_ct += $agent_ct;
       $outl .= $agent_ct . ",";
       my $pdesc = "";
       foreach $g ( sort {$a cmp $b} keys %{$changet_ref->{desc}}) {
@@ -9272,6 +9421,15 @@ if ($change_real > 0) {
       chop($pthru) if $pthru ne "";
       $outl .= $pthru . ",";
       $cnt++;$oline[$cnt]="$outl\n";
+   }
+   my $flip_rate = $flip_ct / $flip_hour;
+   if ($flip_rate > 6) {
+      my $res_pc = ($flip_ct)/$flip_hour;
+      my $ppc = sprintf '%.2f', $res_pc;
+      $advi++;$advonline[$advi] = "Agent Flip Rate $ppc per hour - see $rptkey report";
+      $advcode[$advi] = "TEMSAUDIT1129W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
    }
 }
 
@@ -9757,11 +9915,14 @@ if ($ct_rbdup > 0 ) {
       my $agent_ct = 0;
       foreach $f ( sort { $a cmp $b } keys %physicalx) {
          my $physical_ref = $physicalx{$f};
-         my $port_ct = scalar keys %{$physical_ref->{ports}};
-         next if $port_ct <= 1;
+         $physical_ref->{port_ct} = scalar keys %{$physical_ref->{ports}};
+      }
+      foreach $f ( sort {$physicalx{$b}->{port_ct} <=> $physicalx{$a}->{port_ct}} keys %physicalx) {
+         my $physical_ref = $physicalx{$f};
+         next if $physical_ref->{port_ct} <= 1;
          my @pastring = keys %{$physical_ref->{ports}};
          my $pstring = join(" ",@pastring);
-         $cnt++;$oline[$cnt]= $f . "," . $physical_ref->{thrunode} . "," . $port_ct . "," . $pstring . ",\n";
+         $cnt++;$oline[$cnt]= $f . "," . $physical_ref->{thrunode} . "," . $physical_ref->{port_ct} . "," . $pstring . ",\n";
          $agent_ct += 1;
       }
       if ($agent_ct > 0) {
@@ -10455,6 +10616,28 @@ if ($gotnet == 1) {
    #   }
    #}
 
+}
+
+# check for EPHEMERAL:Y connections alongside TEMS
+if ($env_eph > 0) {
+   $rptkey = "TEMSREPORT080";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: EPHEMERAL:Y Configuration Report\n";
+   $cnt++;$oline[$cnt]="Type,File,LineNum,Line,\n";
+   foreach my $h (@envlines) {
+      my @ah = @{$h};
+      $outl = $ah[0][0] . ",";
+      $outl .= $ah[0][1] . ",";
+      $outl .= $ah[0][2] . ",";
+      $outl .= $ah[0][3] . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   $advi++;$advonline[$advi] = "ITM processes [$env_eph] have EPHEMERAL:Y which can disrupt TEMS communications";
+   $advcode[$advi] = "TEMSAUDIT1132E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "2,ITM processes [$env_eph] have EPHEMERAL:Y which can disrupt TEMS communications";
+   push @crits,$crit_line;
 }
 
 # new report of disk.info if it can be located
@@ -11749,7 +11932,13 @@ exit;
 #2.13000 - Handle case where some logs are not text - compressed
 #        - Identify duplicate agents from flipping messages
 #        - Default on diagnostic log gap report
-
+#2.14000 - Alert on high flipping rate
+#        - Advisory on Sitmon Busy
+#        - Handle trace with EIB object dump without errors
+#        - Advisory when another process uses EPHEMERAL:Y
+#        - add "no problem" advisory for kpxrwhpx.cpp message with explanation
+#        - ignore hostaddr on nodestatus change to offline status
+#        - Add advisory and report on attributes waiting refresh
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
@@ -13925,6 +14114,8 @@ Tracing: error
 Meaning: The DISABLE_HTTP=YES must not be used on TEMS
 because it prevents essential functionality.
 
+*NOTE: Logic removed at 2.14 as not accurate
+
 Recovery plan: Reconfigure the TEMS. This also applies to
 TEPS.
 --------------------------------------------------------------
@@ -14122,6 +14313,96 @@ can cause TEMS instability and bad TEPS performance.
 Recovery plan: Configure the agents identified so all agents
 have unique names, as ITM expects.
 --------------------------------------------------------------
+
+TEMSAUDIT1129W
+Text: Agent Flip Rate <rate> per hour - See TEMSREPORT079
+
+Tracing: error
+
+Meaning: Agent flipping results in TEMS instability and
+bad TEMS performance. See TEMSREPORT079 for details.
+
+Recovery plan: Configure the agents identified so all agents
+have unique names, as ITM expects.
+--------------------------------------------------------------
+
+TEMSAUDIT1130E
+Text: Sitmon Busy seen [count] time(s)
+
+Tracing: error
+
+Meaning: TEMS workload is so high that the SITMON task was
+unable to progress for 900 seconds. A workload study should
+be performed correct this issue because the TEMS is nearly
+comatose;
+
+Recovery plan: Correct the workload issue, perhaps with Support
+assistance.
+--------------------------------------------------------------
+
+TEMSAUDIT1131E
+Text: KBB_RAS1 ends with single quote which prevents expected usage
+
+Tracing: error
+
+Meaning: KBB_RAS1 cannot end with a single quote. This prevents
+normal interpretation and does not get the expected additional
+tracing.
+
+The usual reason in Linux/Unix is that a ms.environemnt file was
+created with the KBB_RAS1= environment variable but the value
+ends with single-quoted which is invalid. The same thing can be seen
+in Windows if the Edit Trace Parms... dialog box, the RAS1 filter
+value is set with and ending single quote.
+
+Recovery plan:  Correct the invalid setting and recycle the TEMS
+to acquire the needed diagnostic tracing.
+----------------------------------------------------------------
+
+TEMSAUDIT1132E
+Text: ITM processes [$env_eph] have EPHEMERAL:Y which can disrupt TEMS communications
+
+Tracing: *.env files
+
+Meaning: See TEMSREPORT080 for explanation.
+
+Recovery plan:  Remove the EPHEMERAL:Y setting on the other ITM
+processes.
+----------------------------------------------------------------
+
+TEMSAUDIT1133I
+Text: KPX warning on location buffer too small [count] times - not a problem
+
+Tracing: error
+5D49F51F.0000-12:kpxrwhpx.cpp,713,"LookupWarehouse") WARNING for any agent prior ITM 6.1 FP2 only:Ignoring entry for "ip.pipe:#162.3.63.29[63358]". Location buffer too small, 200 bytes!
+
+Meaning: This message is a left over message from ITM 6.1 GA and FP1. At that
+time in 2005-2006 the agents were informed of the WPAs they could
+use by a TEMS instruction. There was only 200 bytes for that
+information and the warning is that the agents might not be
+seeing the WPA they would use and be unable to send historical
+data to the WPA and then to TDW.
+
+From ITM 6.1 FP2 onward, the information was delivered as part
+of the ITM communications connection data and there was no
+limitation. Thus this message can be ignored unless the site
+has some very old agents.
+
+
+Recovery plan: Informational only.
+----------------------------------------------------------------
+TEMSAUDIT1134E
+Text: Suspended Situations [count] Waiting for Attribute Refresh
+
+Tracing: error
+(5D614EE1.0008-6:ko4sit.cpp,1055,"Situation::slice") Situation <ds_Oracle_ListeC7140EBAA0425F> suspended waiting for attribute refresh
+
+Meaning: This usually means application support is missing or
+out of date. See REPORT081 following about which situations are
+involved.
+
+Recovery plan: Add or update missing application support.
+----------------------------------------------------------------
 
 TEMSREPORT001
 Text: Too Big Report
@@ -16213,4 +16494,70 @@ the agents and the TEMS itself can be unstable and crash.
 
 
 Recovery plan: Work with IBM Support to resolve issues.
+----------------------------------------------------------------
+
+TEMSREPORT080
+Text: EPHEMERAL:Y Configuration Report
+
+Trace: *.env files
+
+Example report
+Type,File,LineNum,Line,
+EPH,lz.env,50,KDC_FAMILIES=EPHEMERAL:Y HTTP_CONSOLE:N HTTP_SERVER:N HTTP:0 ip.spipe port:3660 ip.pipe use:n sna use:n ip use:n ip6.pipe use:n ip6.spipe use:n ip6 use:n,
+EPH,ms.env,43,KDC_FAMILIES=ip.spipe port:3660 ip.pipe use:n sna use:n ip use:n ip6.pipe use:n ip6.spipe use:n ip6 use:n HTTP:1920,
+EPH,t6.env,47,KDC_FAMILIES=ip.spipe port:3660 ip.pipe use:n sna use:n ip use:n ip6.pipe use:n ip6.spipe use:n ip6 use:n,
+
+Meaning
+EPHEMERAL:Y is a communications control which forces all communication
+through a multiplexed ITM socket from agent to the TEMS. It is very
+useful for avoiding listening ports at agent.
+
+However if one ITM process uses this protocol modifier, all ITM
+processes on that system must also use it. If this is violated
+ITM communications itself becomes unstable.
+
+A TEMS itself can never use EPHEMERAL:Y because it has to reach
+out and communicate with the reporting agents and remote TEMS.
+Therefore no other ITM process on the same system can use that
+control.
+
+The report shows cases where this conflict exists. It must be
+resolved for a stable ITM communications. The report lists the
+environment files which points to the other agents.
+
+Recovery plan: Remove EPHEMERAL:Y from any other ITM processes
+on this system.
+----------------------------------------------------------------
+
+TEMSREPORT081
+Text: Suspended Situations Wwaiting For Attribute Refresh
+
+Trace: error
+
+Example report
+Situation,Count,
+Zctc_ORL_______D8BFADD69FAC4EA8,1,
+av_AOM_Process_Down,1,
+ds_Oracle_Alert_Failed,1,
+
+Meaning
+This usually means application support is missing or out of date
+for the agents involved in the situation. In one closely studied
+case, this caused a TEMS exception and failure.
+
+Best practice is using the Portal Client to evaluate all the catalogs
+in the TEMSes. That is easily viewed in a Portal Client session.
+From the Enterprise navigation node
+
+1) right click on Enterprise navigation node
+2) select Managed Tivoli Enterprise Management Systems
+3) In bottom left view, right Click on workspace link
+   [before hub TEMS entry] and select Installed Catalogs
+4) In the new display on right, right click in table,
+   select Properties, click Return all rows and OK out
+5) Resolve any missing or out of data application data.
+   You can right-click export... the data to a local CSV file for easier tracking.
+
+Recovery plan: Add or Update application support so all attributes
+are known.
 ----------------------------------------------------------------
