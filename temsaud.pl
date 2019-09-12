@@ -136,7 +136,7 @@
 ## (5D51ECFF.005D-1E:ko4bkgnd.cpp,482,"BackgroundController::nodeStatusUpdate") TEMS heartbeat insert failed with status 155
 
 
-my $gVersion = 2.14000;
+my $gVersion = 2.15000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -439,6 +439,143 @@ my %hSP2OS = (
    UADVISOR_KHV_VKHVHYPERV => 'HV',
 );
 
+my %kdemsgx = (
+   '00000000' => ["","KDE1_STC_OK"],
+   '1DE00000' => ["","KDE1_STC_CANTBIND"],
+   '1DE00001' => ["","KDE1_STC_NOMEMORY"],
+   '1DE00002' => ["","KDE1_STC_TOOMANY"],
+   '1DE00003' => ["","KDE1_STC_BADRAWNAME"],
+   '1DE00004' => ["","KDE1_STC_BUFTOOLARGE"],
+   '1DE00005' => ["","KDE1_STC_BUFTOOSMALL"],
+   '1DE00006' => ["","KDE1_STC_ENDPOINTUNAVAILABLE"],
+   '1DE00007' => ["","KDE1_STC_NAMEUNAVAILABLE"],
+   '1DE00008' => ["","KDE1_STC_NAMENOTFOUND"],
+   '1DE00009' => ["","KDE1_STC_CANTGETLOCALNAME"],
+   '1DE0000A' => ["","KDE1_STC_SOCKETOPTIONERROR"],
+   '1DE0000B' => ["","KDE1_STC_DISCONNECTED"],
+   '1DE0000C' => ["","KDE1_STC_INVALIDNAMEFORMAT"],
+   '1DE0000D' => ["","KDE1_STC_IOERROR"],
+   '1DE0000E' => ["","KDE1_STC_NOTLISTENING"],
+   '1DE0000F' => ["","KDE1_STC_NOTREADY"],
+   '1DE00010' => ["","KDE1_STC_INVALIDFAMILY"],
+   '1DE00011' => ["","KDE1_STC_INTERNALERROR"],
+   '1DE00012' => ["","KDE1_STC_NOTEQUAL"],
+   '1DE00013' => ["","KDE1_STC_INVALIDLENGTH"],
+   '1DE00014' => ["","KDE1_STC_FUNCTIONUNAVAILABLE"],
+   '1DE00015' => ["","KDE1_STC_ARGUMENTINCONSISTENCY"],
+   '1DE00016' => ["","KDE1_STC_PROTOCOLERROR"],
+   '1DE00017' => ["","KDE1_STC_MISSINGINFORMATION"],
+   '1DE00018' => ["","KDE1_STC_DUPLICATEINFORMATION"],
+   '1DE00019' => ["","KDE1_STC_ARGUMENTRANGE"],
+   '1DE0001A' => ["","KDE1_STC_THREADSREQUIRED"],
+   '1DE0001B' => ["syntax error",                                                              "KDE1_STC_SYNTAXERROR"],
+   '1DE0001C' => ["KDE1_tvt_t deref member inconsistency",                                     "KDE1_STC_DEREFVALUEINCONSISTENT"],
+   '1DE0001D' => ["protocol-name/protseq inconsistent",                                        "KDE1_STC_PROTSEQINCONSISTENT"],
+   '1DE0001E' => ["cant create sna conversation",                                              "KDE1_STC_CANTCREATECONVERSATION"],
+   '1DE0001F' => ["cant set sna synclevel",                                                    "KDE1_STC_CANTSETSYNCLEVEL"],
+   '1DE00020' => ["cant set sna partner lu name",                                              "KDE1_STC_CANTSETPARTNERLUNAME"],
+   '1DE00021' => ["cant set sna mode name",                                                    "KDE1_STC_CANTSETMODENAME"],
+   '1DE00022' => ["cant set sna tpname",                                                       "KDE1_STC_CANTSETTPNAME"],
+   '1DE00023' => ["cant allocate sna conversation",                                            "KDE1_STC_CANTALLOCATECONVERSATION"],
+   '1DE00024' => ["cant create sna local lu",                                                  "KDE1_STC_CANTCREATELOCALLU"],
+   '1DE00025' => ["cant define sna local tp",                                                  "KDE1_STC_CANTDEFINELOCALTP"],
+   '1DE00026' => ["protocol method limit exceeded",                                            "KDE1_STC_TOOMANYMETHODS"],
+   '1DE00027' => ["interface specification is invalid",                                        "KDE1_STC_PROTSEQINTERFACEINVALID"],
+   '1DE00028' => ["method specification is invalid",                                           "KDE1_STC_PROTSEQMETHODINVALID"],
+   '1DE00029' => ["protocol specification is invalid",                                         "KDE1_STC_PROTSEQPROTOCOLINVALID"],
+   '1DE0002A' => ["family specification is invalid",                                           "KDE1_STC_PROTSEQFAMILYINVALID"],
+   '1DE0002B' => ["side information profile name too long",                                    "KDE1_STC_SIPNAMETOOLONG"],
+   '1DE0002C' => ["no server bindings available",                                              "KDE1_STC_SERVERNOTBOUND"],
+   '1DE0002D' => ["buffer is reserved",                                                        "KDE1_STC_RESERVEDBUFFER"],
+   '1DE0002E' => ["server is not listening",                                                   "KDE1_STC_SERVERNOTLISTENING"],
+   '1DE0002F' => ["buffer is not valid",                                                       "KDE1_STC_INVALIDBUFFER"],
+   '1DE00030' => ["the requested endpoint is in use",                                          "KDE1_STC_ENDPOINTINUSE"],
+   '1DE00031' => ["all endpoints in the pool are in use",                                      "KDE1_STC_ENDPOINTPOOLEXHAUSTED"],
+   '1DE00032' => ["invalid circuit handle",                                                    "KDE1_STC_BADCIRCUITHANDLE"],
+   '1DE00033' => ["circuit handle is not currently in use",                                    "KDE1_STC_HANDLENOTINUSE"],
+   '1DE00034' => ["operation was cancelled",                                                   "KDE1_STC_OPERATIONCANCELLED"],
+   '1DE00035' => ["SNA Network ID doesn't match system definition",                            "KDE1_STC_NETIDMISMATCH"],
+   '1DE00036' => ["Function must be performed prior to bind of setup data",                    "KDE1_STC_SETUPALREADYBOUND"],
+   '1DE00037' => ["No transport providers are registered",                                     "KDE1_STC_NOTRANSPORTSREGISTERED"],
+   '1DE00038' => ["Configuration handle invalid",                                              "KDE1_STC_BADCONFIGHANDLE"],
+   '1DE00039' => ["unable to query local node information",                                    "KDE1_STC_CANTQUERYLOCALNODE"],
+   '1DE0003A' => ["vector count out of range",                                                 "KDE1_STC_VECTORCOUNTINVALID"],
+   '1DE0003B' => ["duplicate vector code encountered",                                         "KDE1_STC_DUPLICATEVECTOR"],
+   '1DE0003C' => ["a required XID buffer was not received successfully",                       "KDE1_STC_RECEIVEXIDFAILURE"],
+   '1DE0003D' => ["invalid XID buffer format",                                                 "KDE1_STC_INVALIDXIDBUFFER"],
+   '1DE0003E' => ["unable to create pipe infrastructure",                                      "KDE1_STC_PIPECREATIONFAILED"],
+   '1DE0003F' => ["target endpoint is not bound","KDE1_STC_ENDPOINTNOTBOUND"],
+   '1DE00040' => ["target endpoint queueing limit reached","KDE1_STC_RECEIVELIMITEXCEEDED"],
+   '1DE00041' => ["configuration keyword not found","KDE1_STC_KEYWORDNOTFOUND"],
+   '1DE00042' => ["endpoint value not supported","KDE1_STC_INVALIDENDPOINT"],
+   '1DE00043' => ["KDE_TRANSPORT error caused some values of this keyword to be ignored","KDE1_STC_KEYWORDVALUEIGNORED"],
+   '1DE00044' => ["streaming packet synchronization lost","KDE1_STC_PACKETSYNCLOST"],
+   '1DE00045' => ["connection procedure failed","KDE1_STC_CONNECTIONFAILURE"],
+   '1DE00046' => ["unable to create any more interfaces","KDE1_STC_INTERFACELIMITREACHED"],
+   '1DE00047' => ["transport provider is unavailable for use","KDE1_STC_TRANSPORTDISABLED"],
+   '1DE00048' => ["transport provider failed to register any interfaces","KDE1_STC_NOINTERFACESREGISTERED"],
+   '1DE00049' => ["transport provider registered too many interfaces","KDE1_STC_INTERFACELIMITEXCEEDED"],
+   '1DE0004A' => ["unable to negotiate a secure connection using SSL","KDE1_STC_SSLFAILURE"],
+   '1DE0004B' => ["unable to contact ephemeral endpoint","KDE1_STC_EPHEMERALENDPOINT"],
+   '1DE0004C' => ["unable to perform request without a transport correlator","KDE1_STC_NEEDTRANSPORTCORRELATOR"],
+   '1DE0004D' => ["transport correlator invalid","KDE1_STC_INVALIDTRANSPORTCORRELATOR"],
+   '1DE0004E' => ["address not accessible","KDE1_STC_ADDRESSINACCESSIBLE"],
+   '1DE0004F' => ["secure endpoint unavailable","KDE1_STC_SECUREENDPOINTUNAVAILABLE"],
+   '1DE00050' => ["ipv6 support unavailable","KDE1_STC_IPV6UNAVAILABLE"],
+   '1DE00051' => ["z/OS TTLS support not available","KDE1_STC_TTLSUNAVAILABLE"],
+   '1DE00052' => ["z/OS TTLS connection not established","KDE1_STC_TTLSNOTESTABLISHED"],
+   '1DE00053' => ["z/OS TTLS connection policy not application controlled","KDE1_STC_TTLSNOTAPPCTRL"],
+   '1DE00054' => ["Send request was incomplete","KDE1_STC_INCOMPLETESEND"],
+   '1DE00055' => ["operating in originate-only ephemeral mode","KDE1_STC_ORIGONLYEPHMODE"],
+   '1DE00056' => ["socket file descriptor out of range of select mask size","KDE1_STC_SOCKETFDTOOLARGE"],
+   '1DE00057' => ["unable to create object of type pthread_mutex_t","KDE1_STC_MUTEXERROR"],
+   '1DE00058' => ["unable to create object of type pthread_cond_t","KDE1_STC_CONDITIONERROR"],
+   '1DE00059' => ["gateway element must have a name attribute","KDE1_STC_GATEWAYNAMEREQUIRED"],
+   '1DE0005A' => ["gateway name already in use","KDE1_STC_GATEWAYNAMEEXISTS"],
+   '1DE0005B' => ["invalid numeric attribute","KDE1_STC_XMLATTRNONNUMERIC"],
+   '1DE0005C' => ["numeric attribute value out of range","KDE1_STC_XMLATTROUTOFRANGE"],
+   '1DE0005D' => ["required attribute not supplied","KDE1_STC_XMLATTRREQUIRED"],
+   '1DE0005E' => ["attribute keyword not recognized","KDE1_STC_XMLATTRKEYWORDINVALID"],
+   '1DE0005F' => ["attribute keyword is ambiguous","KDE1_STC_XMLATTRKEYWORDAMBIG"],
+   '1DE00060' => ["gateway configuration file not found","KDE1_STC_GATEWAYCONFIGFILENOTFOUND"],
+   '1DE00061' => ["syntax error in XML document","KDE1_STC_XMLDOCUMENTERROR"],
+   '1DE00062' => ["listening bindings require an endpoint number","KDE1_STC_ENDPOINTREQUIRED"],
+   '1DE00063' => ["thread creation procedure failed","KDE1_STC_CREATETHREADFAILED"],
+   '1DE00064' => ["nested downstream definitions not supported","KDE1_STC_DOWNSTREAMNESTING"],
+   '1DE00065' => ["upstream interfaces require one or more downstream interfaces","KDE1_STC_NODOWNSTREAMINTERFACES"],
+   '1DE00066' => ["invalid socket option","KDE1_STC_SOCKETOPTIONINVALID"],
+   '1DE00067' => ["Windows event object error","KDE1_STC_WSAEVENTERROR"],
+   '1DE00068' => ["simultaneous per socket wait limit exceeded","KDE1_STC_TOOMANYWAITS"],
+   '1DE00069' => ["XML document did not contain TEP gateway configuration","KDE1_STC_NOGATEWAYDEFINITIONS"],
+   '1DE0006A' => ["Socket monitor handle invalid","KDE1_STC_MONITORHANDLEINVALID"],
+   '1DE0006B' => ["Connection limit reached","KDE1_STC_CONNECTIONLIMITREACHED"],
+   '1DE0006C' => ["Gateway contains no zone elements","KDE1_STC_NOZONESINGATEWAY"],
+   '1DE0006D' => ["Zone contains no interface elements","KDE1_STC_NOINTERFACESINZONE"],
+   '1DE0006E' => ["Connection ID invalid","KDE1_STC_BADCONNECTIONID"],
+   '1DE0006F' => ["Service name invalid","KDE1_STC_BADSERVICENAME"],
+   '1DE00070' => ["Pipe handle invalid","KDE1_STC_BADPIPEHANDLE"],
+   '1DE00071' => ["Connection markup is required","KDE1_STC_NEEDCONNECTIONTAG"],
+   '1DE00072' => ["Monitor close in progress","KDE1_STC_MONITORCLOSING"],
+   '1DE00073' => ["Socket not detached from monitor","KDE1_STC_MONITORDETACHERROR"],
+   '1DE00074' => ["datastream integrity lost","KDE1_STC_DATASTREAMINTEGRITYLOST"],
+   '1DE00075' => ["retry limit exceeded","KDE1_STC_RETRYLIMITEXCEEDED"],
+   '1DE00076' => ["pipe not in required state","KDE1_STC_WRONGPIPESTATE"],
+   '1DE00077' => ["Local binding is not unique","KDE1_STC_DUPLICATELOCALBINDING"],
+   '1DE00078' => ["PIPE packet header missing or invalid","KDE1_STC_PACKETHEADERINVALID"],
+   '1DE00079' => ["XML element inconsistency","KDE1_STC_XMLELEMENTINCONSISTENCY"],
+   '1DE0007A' => ["Endpoint security negotiation failed","KDE1_STC_ENDPOINTNOTSECURE"],
+   '1DE0007B' => ["file descriptor limit reached","KDE1_STC_FILEDESCRIPTORSEXHAUSTED"],
+   '1DE0007C' => ["invalid link handle","KDE1_STC_BADLINKHANDLE"],
+   '1DE0007D' => ["expired link handle","KDE1_STC_EXPIREDLINKHANDLE"],
+   '1DE0007E' => ["RFC1831 record not complete","KDE1_STC_REPLYRECORDSPLIT"],
+   '1DE0007F' => ["RFC1831 record too long","KDE1_STC_REPLYTOOLONG"],
+   '1DE00080' => ["RFC1831 stream contains extra data","KDE1_STC_REPLYSTREAMERROR"],
+   '1DE00081' => ["RFC1831 reply expected","KDE1_STC_REPLYEXPECTED"],
+   '1DE00082' => ["RFC1831 request not accepted","KDE1_STC_REMOTEREQUESTREJECTED"],
+   '1DE00083' => ["RFC1831 request failed","KDE1_STC_REMOTEREQUESTFAILED"],
+   '1DE00084' => ["RFC1833 portmap request error","KDE1_STC_PORTMAPREQUESTERROR"],
+              );
+
 my $test_logfn;
 my $invfile;
 my $invpath;
@@ -456,6 +593,13 @@ my $gsk701 = 0;
 my $csv1_path = "";
 
 
+my %rpcx;
+my %tcprunx;
+my %tcpcontx;
+my $tcpcont_ref;
+my %tcpx;
+my $tcprun_ref;
+my $tcp_ref;
 my %sitsuspx;
 my %kdcx;
 my $sitmon_busy_ct = 0;
@@ -464,6 +608,7 @@ my $glb_lag = "";
 my %nodeipx;
 my %nodeipdx;
 my %nodeippx;
+my %nodeiphx;
 my %caterrorx;
 my %nodethx;
 my %segx;
@@ -706,6 +851,8 @@ my %advcx = (
               "TEMSAUDIT1132E" => "100",
               "TEMSAUDIT1133I" => "0",
               "TEMSAUDIT1134E" => "98",
+              "TEMSAUDIT1135E" => "102",
+              "TEMSAUDIT1136W" => "97",
             );
 
 
@@ -902,6 +1049,7 @@ my %knowntabx = (
                    'KLZSCRRTM'  => '3544',
                    'KLZSCRTSM'  => '3544',
                    'KLZSOCKD' => '296',
+                   'KLZPASCAP' => '3064',
                    'KLZSWPRT'      => '128',
                    'KLZSYS'        => '288',
                    'KLZVM'         => '268',
@@ -930,8 +1078,17 @@ my %knowntabx = (
                    'KOQSRVS'    => '432',
                    'KOQSTATS' => '284',
                    'KORALRTD'   => '708',
+                   'KORARCDD'   => '2624',
+                   'KORDB'      => '320',
+                   'KORJOBS' => '736',
+                   'KORPROCS' => '256',
+                   'KORSESSD' => '2248',
+                   'KORSESSS' => '244',
                    'KORSRVRE' => '324',
                    'KORSTATE' => '368',
+                   'KORSTATS' => '484',
+                   'KORSRVR' => '2692',
+                   'KORTS' => '516',
                    'KORTSX' => '524',
                    'KOYDBD'     => '484',
                    'KOYDBS'     => '244',
@@ -1117,6 +1274,7 @@ my %knowntabx = (
                    'KYNLOGANAL'    => '1044',
                    'KYNLPORT'      => '1444',
                    'KYNMSGQUE'     => '1276',
+                   'KYNREQHIS'     => '964',
                    'KYNREQUEST'    => '1476',
                    'KYNSERVLT'     => '1296',
                    'KYNTHRDP'   => '852',
@@ -2648,6 +2806,7 @@ for(;;)
       $rxrun_def = $rxrunx{$contkey};
       $dnrun_def = $dnrunx{$contkey};
       $soapcap_def = $soapcapx{$contkey};
+      $tcpcont_ref = $tcpcontx{$contkey};
       if (defined $rvrun_def) {
          $rest = substr($oneline,14);
          $rest =~ /^(.*?):(.*?)$/;
@@ -2797,6 +2956,73 @@ for(;;)
          $soaprun_def->{fetch} .= $ifrag;
          if (($ifrag eq "") or ($ifrag eq "</ROW>")) {
             delete $soapcapx{$contkey};
+         }
+
+      # +5D51DF43.0000   activity: 1c3f45353785.42.02.8a.7d.76.40.78.12   started: 5D51DDBD
+      # +5D51DF43.0000  interface: 684152a852f9.02.c6.d2.2d.fd.00.00.00   version: 121
+      # +5D51DF43.0000     object: 000000000000.00.00.00.00.00.00.00.00     opnum: 8
+      # +5D51DF43.0000  srvr-boot: 5D51D636        length: 1270         a/i-hints: FF68/0006
+      # +5D51DF43.0000   sent-req: true         sent-last: true              idem: false
+      # +5D51DF43.0000      maybe: false            large: true          callback: false
+      # +5D51DF43.0000  snd-frags: false        rcv-frags: false            fault: false
+      # +5D51DF43.0000     reject: false          pkts-in: 0             pkts-bad: 0
+      # +5D51DF43.0000    pkts-cb: 0            pkts-wact: 0            pkts-oseq: 0
+      # +5D51DF43.0000    pkts-ok: 0             duration: 390              state: 1
+      # +5D51DF43.0000   interval: 30             retries: 0                pings: 12
+      # +5D51DF43.0000   no-calls: 0              working: 0                facks: 0
+      # +5D51DF43.0000      waits: 14            timeouts: 13            sequence: 215
+      # +5D51DF43.0000     b-size: 32              b-fail: 0               b-hist: 0
+      # +5D51DF43.0000   nextfrag: 2              fragnum: 0
+      # +5D51DF43.0000     w-secs: 390             f-secs: 360             l-secs: 900
+      # +5D51DF43.0000     e-secs: 0                  mtu: 944         KDE1_stc_t: 1DE0000F
+      # +5D51DF43.0000   bld-date: Oct 31 2016   bld-time: 16:12:37      revision: D140831.1:1.1.1.13
+      # +5D51DF43.0000        bsn: 4683097            bsq: 4               driver: tms_ctbs630fp7:d6305a
+      # +5D51DF43.0000      short: 10             contact: 180              reply: 300
+      # +5D51DF43.0000    req-int: 30            frag-int: 30            ping-int: 30
+      # +5D51DF43.0000      limit: 900         work-allow: 60
+      # +5D51DF43.0000  loc-endpt: ip.spipe:#*:3663
+      # +5D51DF43.0000  rmt-endpt: ip.spipe:#131.98.241.63:3660
+      } elsif (defined $tcpcont_ref) {
+         my $pline = substr($oneline,15);  #   srvr-boot: 5A791892        length: 1058         a/i-hints: FFA5/000D
+         $pline =~ s/^\s+|\s+$//;     # strip leading/trailing white space
+         $pline =~ s/: /:/g;
+         my @segs = split("[ ]{2,99}",$pline);
+         my $iattr = "";
+         my $ivalue = "";
+         foreach my $f (@segs) {
+            $f =~  s/^\s+|\s+$//;     # strip leading/trailing white space
+            my @parts = split(":(?!#)",$f);
+            $iattr = $parts[0];
+            $ivalue = $parts[1];
+            $iattr =~ s/^\s+|\s+$//;     # strip leading/trailing white space
+            if ($iattr eq "rmt-endpt") {
+               $f =~ /rmt-endpt:\s*(\S+)/;
+               $ivalue = $1;
+            }
+            $ivalue =~ s/^\s+|\s+$//;     # strip leading/trailing white space
+            $tcpcont_ref->{$iattr} = $ivalue;
+         }
+         if ($iattr eq "rmt-endpt") {
+            my $rpckey = $tcpcont_ref->{started} . "|" . $l;
+            my $rpc_ref = $rpcx{$rpckey};
+            if (!defined $rpc_ref) {
+               my %rpcref = (
+                               started  => $tcpcont_ref->{started},
+                               l        => $l,
+                               time     => $logtime,
+                               target   => $tcpcont_ref->{"rmt-endpt"},
+                               seq      => $tcpcont_ref->{sequence},
+                               error    => $tcpcont_ref->{KDE1_stc_t},
+                               mtu      => $tcpcont_ref->{mtu},
+                               pings    => $tcpcont_ref->{pings},
+                               duration => $tcpcont_ref->{duration},
+                               driver   => $tcpcont_ref->{driver},
+                               length   => $tcpcont_ref->{length},
+                            );
+               $rpc_ref = \%rpcref;
+               $rpcx{$rpckey} = \%rpcref;
+            }
+            delete $tcpcontx{$contkey};
          }
       }
    }
@@ -3200,6 +3426,7 @@ for(;;)
 
    # signal(s) for communication failures
    # (57BE11EA.0006-2:kdcc1sr.c,485,"rpc__sar") Connection lost: "ip.pipe:#172.27.2.10:7025", 1C010001:1DE0004D, 0, 130(0), FFFA/30, D140831.1:1.1.1.13, tms_ctbs630fp5:d5135a
+   # (5D51DF43.0000-23:kdcc1sr.c,642,"rpc__sar") Remote call failure: 1C010001
    if (substr($logunit,0,9) eq "kdcc1sr.c") {
       if ($logentry eq "rpc__sar") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -3232,6 +3459,11 @@ for(;;)
             }
             $addr_ref->{count} += 1;
             next;
+         } elsif (substr($rest,1,19) eq "Remote call failure") {
+            $contkey = substr($oneline,1,13);
+            my %tcpcontref = (
+                             );
+            $tcpcontx{$contkey} = \%tcpcontref;
          }
       }
    }
@@ -4627,6 +4859,99 @@ for(;;)
    }
 
 
+   # (5D51DC57.001D-23:kdcr0se.c,258,"KDCR0_Send") request FF68/21.0 (871): ip.spipe:#131.98.241.63[3660]
+   if (substr($logunit,0,9) eq "kdcr0se.c") {
+      if ($logentry eq "KDCR0_Send") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # request FF68/21.0 (871): ip.spipe:#131.98.241.63[3660]
+         if (substr($rest,1,7) eq "request") {
+            $rest =~ / request (\S+)\/(\d+)\.(\d+) \((\d+)\): (\S+)\[/;
+            my $ithr = $1;
+            my $iseq = $2;
+            my $isegno = $3;
+            my $ilen = $4;
+            my $itarget = $5;
+            my $ithrseg = $ithr . "\/" . $iseq. "." . $isegno;
+            my $ithrbase = $ithr . "\/" . $iseq;
+            $tcprun_ref = $tcprunx{$logthread};
+            if (!defined $tcprun_ref) {
+               my %tcprunref = (
+                                  state => 0,             # Send captured.
+                                  current => "",
+                                  thrseg => "",
+                                  seg => "",
+                                  base => "",
+                                  len => 0,
+                                  target => "",
+                                  send_ct => 0,
+                                  ping_ct => 0,
+                                  l => $l,
+                               );
+               $tcprun_ref = \%tcprunref;
+               $tcprunx{$logthread} = \%tcprunref;
+            }
+            $tcprun_ref->{state} = 1;
+            $tcprun_ref->{thrseg} = $ithrseg;
+            $tcprun_ref->{seq} = $iseq;
+            $tcprun_ref->{base} = $ithrbase;
+            $tcprun_ref->{len} += $ilen;
+            $tcprun_ref->{target} = $itarget;
+            $tcprun_ref->{send_ct} += 1;
+         }
+      # (5D51DDDB.0002-23:kdcr0se.c,258,"KDCR0_Send") ping FF68/215.0 (80): ip.spipe:#131.98.241.63[3660]
+      } elsif (substr($rest,1,4) eq "ping") {
+            $rest =~ / ping (\S+)\/(\d+)\.(\d+) \((\d+)\): (\S+)/;
+            my $ithr = $1;
+            my $iseg = $2;
+            my $isegno = $3;
+            my $ilen = $4;
+            my $itarget = $5;
+            my $ithrseg = $ithr . "\/" . $iseg . "." . $isegno;
+            my $ithrbase = $ithr . "\/" . $iseg;
+            $tcprun_ref = $tcprunx{$logthread};
+            $tcprun_ref->{ping_ct} += 1 if defined $tcprun_ref;
+      }
+
+   }
+   # (5D51DC57.0021-23:kdcr0ip.c,249,"KDCR0_InboundPacket") response FF68/21.0 (88): ip.spipe:#131.98.241.63[3660]
+   if (substr($logunit,0,9) eq "kdcr0ip.c") {
+      if ($logentry eq "KDCR0_InboundPacket") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # response FF68/21.0 (88): ip.spipe:#131.98.241.63[3660]
+         if (substr($rest,1,8) eq "response") {
+            $tcprun_ref = $tcprunx{$logthread};
+            if (defined $tcprun_ref) {
+               $rest =~ / response (\S+)\/(\d+)\.(\d+) \((\d+)\): (\S+)/;
+               my $ithr = $1;
+               my $iseg = $2;
+               my $isegno = $3;
+               my $ilen = $4;
+               my $itarget = $5;
+               my $ithrseg = $ithr . "\/" . $iseg . "." . $isegno;
+               my $ithrbase = $ithr . "\/" . $iseg;
+               if ($tcprun_ref->{target} eq $itarget) {
+                  my $tcp_ref = $tcpx{$itarget};
+                  if (!defined $tcp_ref) {
+                     my %tcpref = (
+                                     sent => 0,
+                                     count => 0,
+                                     error_ct => 0,
+                                     errors => [],
+                                     ping_ct => 0,
+                                     mtu => 0,
+                                  );
+                     $tcp_ref = \%tcpref;
+                     $tcpx{$itarget} = \%tcpref;
+                  }
+                  $tcp_ref->{count} += 1;
+                  $tcp_ref->{sent} += $tcprun_ref->{len};
+
+                  delete $tcprunx{$logthread};
+               }
+            }
+         }
+      }
+   }
 
    next if $skipzero;
 
@@ -9353,9 +9678,57 @@ if ($change_real > 0) {
             foreach my $j (keys %{$change_instance_ref->{ports}}) {
                $node_ipp_ref->{ports}{$j} += 1 if !defined $node_ipp_ref->{ports}{$j};
             }
+            my $node_host_ref = $nodeiphx{$g};
+            if (!defined $node_host_ref) {
+               my %node_hostref = (
+                                     hostaddrs => {},
+                                     hct => 0,
+                                  );
+               $node_host_ref = \%node_hostref;
+               $nodeiphx{$g} = \%node_hostref;
+            }
+            $node_host_ref->{hostaddrs}{$change_instance_ref->{hostaddr}} += 1;
          }
       }
    }
+
+my $nodeiph_ct = scalar keys %nodeiphx;
+if ($nodeiph_ct > 0) {
+   my $dup_ct = 0;
+   foreach $g (keys %nodeiphx) {
+      my $node_host_ref = $nodeiphx{$g};
+      my $host_ct = scalar keys %{$node_host_ref->{hostaddrs}};
+      $node_host_ref->{hct} = $host_ct;
+      next if $host_ct < 2;
+      $dup_ct += 1;
+   }
+   if ($dup_ct > 0) {
+      $rptkey = "TEMSREPORT082";$advrptx{$rptkey} = 1;         # record report key
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - Multiple Systems\n";
+      $cnt++;$oline[$cnt]="Count,Agent,Hostaddrs,\n";
+      foreach $g (sort {$a cmp $b} %nodeiphx) {
+         next if ref($g) eq "HASH";
+         my $node_host_ref = $nodeiphx{$g};
+         next if $node_host_ref->{hct} < 2;
+         $outl = $node_host_ref->{hct} . ",";
+         $outl .= $g . ",";
+         my $phost = "";
+         foreach my $j (keys %{$node_host_ref->{hostaddrs}}) {
+            $phost .= $j . " ";
+         }
+         chop($phost) if $phost ne "";
+         $outl .= $phost . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+      }
+      $crit_line = "2,Agent Name Duplications [$dup_ct] - see report $rptkey";
+      push @crits,$crit_line;
+      $advi++;$advonline[$advi] = "Agent Name Duplications [$dup_ct] - see $rptkey report";
+      $advcode[$advi] = "TEMSAUDIT1135E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "agent";
+   }
+}
 
 
    $rptkey = "TEMSREPORT070";$advrptx{$rptkey} = 1;         # record report key
@@ -11111,6 +11484,36 @@ if ($aping_ct > 0) {
    $advsit[$advi] = "TEMS";
 }
 
+my $rpc_ct = scalar keys %rpcx;
+if ($rpc_ct > 0) {
+   $rptkey = "TEMSREPORT083";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: RPC Failure Report\n";
+   $cnt++;$oline[$cnt]="Target,Started,Time,Duration,Length,Pings,Sequence,MTU,Driver,Line,Error,Desc,\n";
+   foreach my $f (sort {$a cmp $b} keys %rpcx) {
+      my $rpc_ref = $rpcx{$f};
+      $outl = $rpc_ref->{target} . ",";
+      $outl .= sec2ltime(hex($rpc_ref->{started})+$local_diff) . ",";
+      $outl .= sec2ltime($rpc_ref->{time}+$local_diff) . ",";
+      $outl .= $rpc_ref->{duration} . ",";
+      $outl .= $rpc_ref->{length} . ",";
+      $outl .= $rpc_ref->{pings} . ",";
+      $outl .= $rpc_ref->{seq} . ",";
+      $outl .= $rpc_ref->{mtu} . ",";
+      $outl .= $rpc_ref->{driver} . ",";
+      $outl .= $rpc_ref->{l} . ",";
+      $outl .= $rpc_ref->{error} . ",";
+      my @msg_ref = $kdemsgx{$rpc_ref->{error}};
+      my $msg_txt = $msg_ref[0][1] . " \"" . $msg_ref[0][0] . "\"";
+      $outl .= $msg_txt . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   $advi++;$advonline[$advi] = "RPC Failures [$rpc_ct] - See $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1136W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
 
 
 
@@ -11939,6 +12342,8 @@ exit;
 #        - add "no problem" advisory for kpxrwhpx.cpp message with explanation
 #        - ignore hostaddr on nodestatus change to offline status
 #        - Add advisory and report on attributes waiting refresh
+#2.15000 - Add better duplicate agent report082
+#        - Add report about rpc errors
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
@@ -14391,6 +14796,7 @@ has some very old agents.
 
 Recovery plan: Informational only.
 ----------------------------------------------------------------
+
 TEMSAUDIT1134E
 Text: Suspended Situations [count] Waiting for Attribute Refresh
 
@@ -14402,6 +14808,27 @@ out of date. See REPORT081 following about which situations are
 involved.
 
 Recovery plan: Add or update missing application support.
+----------------------------------------------------------------
+
+TEMSAUDIT1135E
+Text: Agent Name Duplications [count]
+
+Tracing: error
+
+Meaning: See REPORT082 for full description and recovery plan.
+
+Recovery plan: Change agent configuration to guarantee unique
+names.
+----------------------------------------------------------------
+
+TEMSAUDIT1136W
+Text: RPC Failures [count]
+
+Tracing: error
+
+Meaning: See REPORT083 for full description and recovery plan.
+
+Recovery plan: Work with IBM Support to understand.
 ----------------------------------------------------------------
 
 TEMSREPORT001
@@ -16560,4 +16987,64 @@ From the Enterprise navigation node
 
 Recovery plan: Add or Update application support so all attributes
 are known.
+----------------------------------------------------------------
+      `
+TEMSREPORT082
+Text: Agent Flipping Report - Multiple Systems
+
+Trace: error
+
+Example report
+Agent,Count,Hostaddrs,
+CRC_PRE:cc0_mrs-cl-00144:MSS,2,ip.spipe:#10.0.152.29 ip.spipe:#10.0.152.30,
+MRS-CL-00144:Q5,2,ip.spipe:#10.0.152.29 ip.spipe:#10.0.152.30,
+
+Meaning
+This list shows the agents which are reporting from different systems
+[or ip addresses] with the same name. This is a strong indication that
+the agents on multiple systems are accidentally configured with the
+same name. This causes severe TEPS performance issues. It causes TEMS
+instability including crashes and should be corrected by reconfiguring
+the agents so they have the unique names as ITM expects.
+
+Recovery plan: Work with IBM Support to resolve these issues.
+----------------------------------------------------------------
+      `
+TEMSREPORT083
+Text: RPC Failure Report
+
+Trace: error
+
+Example report
+Target,Started,Time,Duration,Length,Pings,Error,Sequence,MTU,Driver,Line,
+ip.spipe:#131.98.241.63:3660,20190812164429,20190812165059,390,1270,12,1DE0000F,215,944,tms_ctbs630fp7,43644,
+ip.spipe:#0.0.0.9:7757,20190812164500,20190812165130,390,2652,12,1DE0000F,1,944,tms_ctbs630fp7,43807,
+ip.spipe:#0.0.0.10:7757,20190812164501,20190812165131,390,2656,12,1DE0000F,7,944,tms_ctbs630fp7,43834,
+ip.spipe:#0.0.0.2:7757,20190812164502,20190812165132,390,2654,12,1DE0000F,1,944,tms_ctbs630fp7,43865,
+ip.spipe:#0.0.0.1:7757,20190812164502,20190812165132,390,2654,12,1DE0000F,1,944,tms_ctbs630fp7,43892,
+
+Meaning
+There are times when many communication errors are seen. This report
+summarizes them by starting time.
+
+Target      Where the communication was directed
+Started     The local time when the communication started
+Time        The local time when the error was noted
+Duration    Elapsed time in seconds
+Length      Length as recorded in the error report
+Pings       Number of pings before communication abandoned
+Error       ITM basic services error code
+Sequence    The communication sequence number
+MTU         Maximum Transmission Unit - must conform with network MTU
+Driver      The build level of target basic services
+Line        The line number of log where error was reported
+
+A certain number of communication errors are seen in the best
+running environments. If these are seen at TEMSes which fail,
+for example by going offline, this data can help diagnose what
+is happening. It could be a network failure. However it could
+also be hub or remote TEMS work overload or non ITM processes
+which are starving the TEMS process.
+
+Recovery plan: Work with IBM Support to resolve these issues.
 ----------------------------------------------------------------
