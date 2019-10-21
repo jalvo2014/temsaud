@@ -136,7 +136,7 @@
 ## (5D51ECFF.005D-1E:ko4bkgnd.cpp,482,"BackgroundController::nodeStatusUpdate") TEMS heartbeat insert failed with status 155
 
 
-my $gVersion = 2.15000;
+my $gVersion = 2.16000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -593,6 +593,12 @@ my $gsk701 = 0;
 my $csv1_path = "";
 
 
+my %net8x;
+my %net16x;
+my %net24x;
+
+my %sitpdtx;
+my %pdtloadx;
 my %rpcx;
 my %tcprunx;
 my %tcpcontx;
@@ -848,7 +854,7 @@ my %advcx = (
               "TEMSAUDIT1129W" => "97",
               "TEMSAUDIT1130E" => "100",
               "TEMSAUDIT1131E" => "100",
-              "TEMSAUDIT1132E" => "100",
+              "TEMSAUDIT1132E" => "109",
               "TEMSAUDIT1133I" => "0",
               "TEMSAUDIT1134E" => "98",
               "TEMSAUDIT1135E" => "102",
@@ -1140,6 +1146,7 @@ my %knowntabx = (
                    'KQXPRESSRV' => '432',
                    'KQPAVAIL'   => '3244',
                    'KQPSHAREP0' => '200',
+                   'KRAHIST'    => '332',
                    'KRZACTINS'  => '784',
                    'KRZACTINSR' => '216',
                    'KRZAGINF'      => '828',
@@ -1663,6 +1670,7 @@ my $critical_fn = "temsaud.crit";
 my @crits;
 my $crit_line;
 my $opt_portlim = 5;
+my $opt_sitpdt;
 
 my $dupfi = -1;
 my @dupf = [],
@@ -1813,6 +1821,10 @@ while (@ARGV) {
       shift(@ARGV);
       $opt_logpath = shift(@ARGV);
       die "logpath specified but no path found\n" if !defined $opt_logpath;
+   } elsif ($ARGV[0] eq "-sitpdt") {
+      shift(@ARGV);
+      $opt_sitpdt = shift(@ARGV);
+      die "sitpdt specified but no path found\n" if !defined $opt_sitpdt;
    } elsif ($ARGV[0] eq "-o") {
       shift(@ARGV);
       $opt_o = shift(@ARGV);
@@ -1880,6 +1892,7 @@ if (!defined $opt_prtlim) {$opt_prtlim = 1;}
 if (!defined $opt_hb) {$opt_hb = 600;}
 if (!defined $opt_gap) {$opt_gap = 0;}
 if (!defined $opt_dupfile) {$opt_dupfile = 0;}
+if (!defined $opt_sitpdt) {$opt_sitpdt = "";}
 if (!defined $opt_portlim) {$opt_portlim = 5;}
 $opt_stfn = "eventhist.csv" if $opt_sth == 1;
 $opt_ndfn = "nodehist.csv" if $opt_sth == 1;
@@ -2091,6 +2104,32 @@ if ($#results != -1) {
             $env_eph += 1 if index($inline,"EPHEMERAL:Y") != -1;
          }
       }
+   }
+}
+my $sitpdtfn = "sitaudit_pdt.csv";
+if (-e $sitpdtfn) {
+   open(SITPDT, "< $sitpdtfn") || die("Could not open sitpdt  $sitpdtfn\n");
+   while ($oneline = <SITPDT>){
+      last if !defined $oneline;
+      my @words = split /\t/,$oneline;
+      my $isit = $words[0];
+      my $ifullname = $words[1];
+      my $ireeval = $words[2];
+      my $ipdt = $words[3];
+      my %sitref = (
+                      fullname => $ifullname,
+                      pdt => $ipdt,
+                      reeval => $ireeval,
+                   );
+      $sitpdtx{$isit} = \%sitref;
+
+      my %pdtref = (
+                      sitnames => {},
+                      count => 0,
+                      rows => 0,
+                      results => 0,
+                   );
+      $pdtloadx{$ipdt} =\%pdtref;
    }
 }
 
@@ -8173,6 +8212,18 @@ foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] ||
    $outl .= $nodes_ct . ",";
    $cnt++;$oline[$cnt]=$outl . "\n";
    $lag_fraction = $fraction;
+   my $sit_ref = $sitpdtx{$sit[$i]};
+   if (defined $sit_ref) {
+      my $pdt_ref = $pdtloadx{$sit_ref->{pdt}};
+      if (defined $pdt_ref) {
+         $pdt_ref->{count} += $sitct[$i];
+         $pdt_ref->{rows} += $sitrows[$i];
+         $pdt_ref->{results} += $sitres[$i];
+         $pdt_ref->{sitnames}{$sit[$i]} = 1;
+         $pdt_ref->{reeval} = $sit_ref->{reeval};
+         $pdt_ref->{nodes} += $nodes_ct;
+      }
+   }
 }
 
 
@@ -8203,6 +8254,46 @@ $outl .= $sitres_tot . ",";
 $respermin = int($sitres_tot / ($dur / 60));
 $outl .= $respermin;
 $cnt++;$oline[$cnt]=$outl . "\n";
+
+$cnt++;$oline[$cnt]="\n";
+$cnt++;$oline[$cnt]="Situation Formula Summary Report - non-HEARTBEAT situations\n";
+$cnt++;$oline[$cnt]="Results,Res/Min,Res%,Rows,Count,Reeval,Nodes,Sitcount,PDT\n";
+$cnt++;$oline[$cnt]=",Situation,\n";
+foreach $f ( sort { $pdtloadx{$b}->{results} <=> $pdtloadx{$a}->{results} || $a cmp $b } keys %pdtloadx ) {
+   my $pdt_ref = $pdtloadx{$f};
+   last if $pdt_ref->{results} == 0;
+   $outl = $pdt_ref->{results} . ",";
+   $respermin = int($pdt_ref->{results} / ($dur / 60));
+   $outl .= $respermin . ",";
+   my $fraction = ($respermin*100) / $trespermin;
+   my $pfraction = sprintf "%.2f", $fraction;
+   $outl .= $pfraction . ",";
+   $outl .= $pdt_ref->{rows} . ",";
+   $outl .= $pdt_ref->{count} . ",";
+   $outl .= $pdt_ref->{reeval} . ",";
+   $outl .= $pdt_ref->{nodes} . ",";
+   my $sitcnt = scalar keys %{$pdt_ref->{sitnames}};
+   $outl .= $sitcnt . ",";
+   $outl .= $f . ",";
+   $cnt++;$oline[$cnt]=$outl . "\n";
+   my $psits = "";
+   foreach my $i (keys %{$pdt_ref->{sitnames}}) {
+      my $sit_ref = $sitpdtx{$i};
+      my $isit = $i;
+      if ($sit_ref->{fullname} ne "") {
+         if ($i ne $sit_ref->{fullname}) {
+            $isit = $i . "(" . $sit_ref->{fullname} . ")";
+         }
+      }
+      $psits .= $isit . " ";
+   }
+   chop($psits) if $psits ne "";
+   $outl = "," . $psits . ",";
+   $cnt++;$oline[$cnt]=$outl . "\n";
+}
+
+
+
 
 $rptkey = "TEMSREPORT047";$advrptx{$rptkey} = 1;         # record report key
 my %sitrowsumx;
@@ -9155,6 +9246,8 @@ if ($eph_ct > 0) {
                $svptx{$iservice_point} = \%spdef;
             }
             $sp_def->{count} += 1;
+            $iphyspeer =~ /(.*)\:(.*)/;
+            my $ipsystem = $1;
 
             $ivirtpeer =~ /(.*)\:(.*)/;
             my $ivsystem = $1;
@@ -9167,6 +9260,7 @@ if ($eph_ct > 0) {
                                ports => {},
                                type => $iservice_type,
                                driver => $idriver,
+                               physpeer => $ipsystem,
                                pipes => {},
                                times => [],
                             );
@@ -9704,6 +9798,7 @@ if ($nodeiph_ct > 0) {
    }
    if ($dup_ct > 0) {
       $rptkey = "TEMSREPORT082";$advrptx{$rptkey} = 1;         # record report key
+      my $inst_ct = 0;
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - Multiple Systems\n";
       $cnt++;$oline[$cnt]="Count,Agent,Hostaddrs,\n";
@@ -9716,14 +9811,15 @@ if ($nodeiph_ct > 0) {
          my $phost = "";
          foreach my $j (keys %{$node_host_ref->{hostaddrs}}) {
             $phost .= $j . " ";
+            $inst_ct += 1;
          }
          chop($phost) if $phost ne "";
          $outl .= $phost . ",";
          $cnt++;$oline[$cnt]="$outl\n";
       }
-      $crit_line = "2,Agent Name Duplications [$dup_ct] - see report $rptkey";
+      $crit_line = "2,Agent Name Duplications/Instances [$dup_ct,$inst_ct] - see report $rptkey";
       push @crits,$crit_line;
-      $advi++;$advonline[$advi] = "Agent Name Duplications [$dup_ct] - see $rptkey report";
+      $advi++;$advonline[$advi] = "Agent Name Duplications/Instances [$dup_ct,$inst_ct] - see $rptkey report";
       $advcode[$advi] = "TEMSAUDIT1135E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "agent";
@@ -9943,7 +10039,7 @@ if ($svpt_ct > 0) {
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Service Point Duplicates Report\n";
    $cnt++;$oline[$cnt]="Service_Point,Count,Systems,Thrunode\n";
-   $cnt++;$oline[$cnt]=",VirtPeer,Type,Driver,Port_Count,Pipe_Count,Ports,Pipes,\n";
+   $cnt++;$oline[$cnt]=",VirtPeer,PhysPeer,Type,Driver,Port_Count,Pipe_Count,Ports,Pipes,\n";
    $cnt++;$oline[$cnt]=",,Inter-Arrival-Times,\n";
    my $sp_ct = 0;
    foreach $f (sort {$svptx{$b}->{count_vsys} <=> $svptx{$a}->{count_vsys} ||
@@ -9960,6 +10056,7 @@ if ($svpt_ct > 0) {
       foreach $g (sort {$a cmp $b} keys %{$sp_def->{peers}}) {
          my $spv_def = $sp_def->{peers}{$g};
          $outl = "," . $g . ",";
+         $outl .= $spv_def->{physpeer} . ",";
          $outl .= $spv_def->{type} . ",";
          $outl .= $spv_def->{driver} . ",";
          my $port_cnt = scalar keys %{$spv_def->{ports}};
@@ -10933,6 +11030,76 @@ if ($gotnet == 1) {
                   }
                }
                if (defined $nzero_ports{$localport}) {
+                  if (defined $recvq) {
+                     if (defined $sendq) {
+                        $foreignsystem =~ /(\d+)\.(\d+)\.(\d+)\.(\d+)/;
+                        my $net8 = $1;
+                        my $net16 = $2;
+                        my $net24 = $3;
+                        my $net32 = $4;
+                        if ($net8 ne "*") {
+                           my $netkey = $net8;
+                           my $netrest = $net16 . "." . $net24 . "." . $net32;
+                           my $net_ref = $net8x{$netkey};
+                           if (!defined $net_ref) {
+                              my %netref = (
+                                              recv0 => 0,
+                                              recvp => 0,
+                                              send0 => 0,
+                                              sendp => 0,
+                                              subnets => {},
+                                           );
+                              $net_ref = \%netref;
+                              $net8x{$netkey} = \%netref;
+                           }
+                           $net_ref->{recv0} += 1 if $recvq == 0;
+                           $net_ref->{recvp} += 1 if $recvq > 0;
+                           $net_ref->{send0} += 1 if $sendq == 0;
+                           $net_ref->{sendp} += 1 if $sendq > 0;
+                           $net_ref->{subnets}{$netrest} += $recvq + $sendq;
+                           $netkey = $net8 . "." . $net16;
+                           $netrest = $net24 . "." . $net32;
+                           $net_ref = $net16x{$netkey};
+                           if (!defined $net_ref) {
+                              my %netref = (
+                                              recv0 => 0,
+                                              recvp => 0,
+                                              send0 => 0,
+                                              sendp => 0,
+                                              subnets => {},
+                                           );
+                              $net_ref = \%netref;
+                              $net16x{$netkey} = \%netref;
+                           }
+                           $net_ref->{recv0} += 1 if $recvq == 0;
+                           $net_ref->{recvp} += 1 if $recvq > 0;
+                           $net_ref->{send0} += 1 if $sendq == 0;
+                           $net_ref->{sendp} += 1 if $sendq > 0;
+                           $net_ref->{subnets}{$netrest} += $recvq + $sendq;
+                           $netkey = $net8 . "." . $net16 . "." . $net24;
+                           $netrest = $net32;
+                           $net_ref = $net24x{$netkey};
+                           if (!defined $net_ref) {
+                              my %netref = (
+                                              recv0 => 0,
+                                              recvp => 0,
+                                              send0 => 0,
+                                              sendp => 0,
+                                              subnets => {},
+                                           );
+                              $net_ref = \%netref;
+                              $net24x{$netkey} = \%netref;
+                           }
+                           $net_ref->{recv0} += 1 if $recvq == 0;
+                           $net_ref->{recvp} += 1 if $recvq > 0;
+                           $net_ref->{send0} += 1 if $sendq == 0;
+                           $net_ref->{sendp} += 1 if $sendq > 0;
+                           $net_ref->{subnets}{$netrest} += $recvq + $sendq;
+                        }
+                     }
+                  }
+               }
+               if (defined $nzero_ports{$localport}) {
                   $inbound_ref = $inbound{$localport};
                   if (!defined $inbound_ref) {
                      my %inboundref = (
@@ -10974,6 +11141,70 @@ if ($gotnet == 1) {
        ($recvq_ct > 32767)) {
       $crit_line = "8,Possible TCP Blockage Condition: Recv-Q[$high_recvq,$max_recvq,$recvq_ct] Send-Q[$high_sendq,$max_sendq,$sendq_ct]";
       push @crits,$crit_line;
+   }
+   my $net8_ct = scalar keys %net8x;
+   if ($net8_ct > 0) {
+      $rptkey = "TEMSREPORT084";$advrptx{$rptkey} = 1;         # record report key
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="$rptkey: NETSTAT.INFO Recv-Q and Send-Q Summary\n";
+      $cnt++;$oline[$cnt]="Net,Total-p,Level,SendQ-p,RecvQ-p,SendQ-0,RecvQ-0,Subnets,\n";
+      foreach $f ( sort { $a cmp $b} keys %net8x){
+         my $net_ref = $net8x{$f};
+         $outl = "8" . ",";
+         my $itot = $net_ref->{sendp} +  $net_ref->{recvp};
+         $outl .= $itot . ",";
+         $outl .= $f . ",";
+         $outl .= $net_ref->{sendp} . ",";
+         $outl .= $net_ref->{recvp} . ",";
+         $outl .= $net_ref->{send0} . ",";
+         $outl .= $net_ref->{recv0} . ",";
+         my $pnets = "";
+         foreach my $i (keys %{$net_ref->{subnets}}) {
+            $i .= "*" if $net_ref->{subnets}{$i} > 0;
+            $pnets .= $i . " ";
+         }
+         chop($pnets) if $pnets ne "";
+         $outl .= $pnets . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+      }
+      foreach $f ( sort { $a cmp $b} keys %net16x){
+         my $net_ref = $net16x{$f};
+         $outl = "16" . ",";
+         my $itot = $net_ref->{sendp} +  $net_ref->{recvp};
+         $outl .= $itot . ",";
+         $outl .= $f . ",";
+         $outl .= $net_ref->{sendp} . ",";
+         $outl .= $net_ref->{recvp} . ",";
+         $outl .= $net_ref->{send0} . ",";
+         $outl .= $net_ref->{recv0} . ",";
+         my $pnets = "";
+         foreach my $i (keys %{$net_ref->{subnets}}) {
+            $i .= "*" if $net_ref->{subnets}{$i} > 0;
+            $pnets .= $i . " ";
+         }
+         chop($pnets) if $pnets ne "";
+         $outl .= $pnets . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+      }
+      foreach $f ( sort { $a cmp $b} keys %net24x){
+         my $net_ref = $net24x{$f};
+         $outl = "24" . ",";
+         my $itot = $net_ref->{sendp} +  $net_ref->{recvp};
+         $outl .= $itot . ",";
+         $outl .= $f . ",";
+         $outl .= $net_ref->{sendp} . ",";
+         $outl .= $net_ref->{recvp} . ",";
+         $outl .= $net_ref->{send0} . ",";
+         $outl .= $net_ref->{recv0} . ",";
+         my $pnets = "";
+         foreach my $i (keys %{$net_ref->{subnets}}) {
+            $i .= "*" if $net_ref->{subnets}{$i} > 0;
+            $pnets .= $i . " ";
+         }
+         chop($pnets) if $pnets ne "";
+         $outl .= $pnets . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+      }
    }
 
 
@@ -12344,6 +12575,10 @@ exit;
 #        - Add advisory and report on attributes waiting refresh
 #2.15000 - Add better duplicate agent report082
 #        - Add report about rpc errors
+#2.16000 - Add Netstat summary report084
+#        - Add Situation Formula Summary, needs Situation Audit file
+#        - Add physical peer to several reports
+#        - In 1135E add instance count to agent count
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
@@ -14769,7 +15004,8 @@ Text: ITM processes [$env_eph] have EPHEMERAL:Y which can disrupt TEMS communica
 
 Tracing: *.env files
 
-Meaning: See TEMSREPORT080 for explanation.
+Meaning: See TEMSREPORT080 for explanation. It is marked with a
+high impact because the fallout is severe and hard to diagnose.
 
 Recovery plan:  Remove the EPHEMERAL:Y setting on the other ITM
 processes.
@@ -14811,11 +15047,13 @@ Recovery plan: Add or update missing application support.
 ----------------------------------------------------------------
 
 TEMSAUDIT1135E
-Text: Agent Name Duplications [count]
+Text: Agent Name Duplications [count,instance_count]
 
 Tracing: error
 
 Meaning: See REPORT082 for full description and recovery plan.
+First count is number of agent names, second count is number
+of agent instances.
 
 Recovery plan: Change agent configuration to guarantee unique
 names.
@@ -16952,6 +17190,8 @@ The report shows cases where this conflict exists. It must be
 resolved for a stable ITM communications. The report lists the
 environment files which points to the other agents.
 
+The error is equally true on systems running ITM agents.
+
 Recovery plan: Remove EPHEMERAL:Y from any other ITM processes
 on this system.
 ----------------------------------------------------------------
@@ -17045,6 +17285,38 @@ for example by going offline, this data can help diagnose what
 is happening. It could be a network failure. However it could
 also be hub or remote TEMS work overload or non ITM processes
 which are starving the TEMS process.
+
+Recovery plan: Work with IBM Support to resolve these issues.
+----------------------------------------------------------------
+      `
+TEMSREPORT084
+Text: NETSTAT.INFO Recv-Q and Send-Q Summary
+
+Trace: error
+
+Example report
+Net,Total-p,Level,SendQ-p,RecvQ-p,SendQ-0,SendQ-0,Subnets
+24,3,138.125.103,3,0,12,15,70 21 178 129 187 215 52 224 204* 158 174* 177* 89 229 108,
+24,0,138.125.118,0,0,13,13,43 62 85 59 162 95 63 67 37 161 31 89 35,
+24,0,138.125.175,0,0,3,3,24 50 46,
+24,0,138.125.187,0,0,5,5,120 75 57 122 70,
+
+Meaning
+This is a summary of ITM related communications which are showing
+non-zero Recv-Q and Send-Q values in netcool.info. This condition
+is often associated with netork configuration issues such as
+asymmetric routing controls, MTU/network conflict, and high latency
+links. There are probably other cases currently unknown.
+
+Net        The top 8 or 16 or 24 bits of foreign address summarization
+Total-P    Total sockets with positive Recv-Q and Send-Q values combined.
+Level      The first segment of foreign network address in 1/2/3 hex digits
+SendQ-p    Total positive Send-Q values
+RecvQ-p    Total positive Recv-Q values
+SendQ-0    Total zero Send-Q values
+RecvQ-0    Total zero Recv-Q values
+Subnets    The rest of the network address. A trailing * means an endpoint
+           has a Recv-Q or Send-Q greater than zero.
 
 Recovery plan: Work with IBM Support to resolve these issues.
 ----------------------------------------------------------------
