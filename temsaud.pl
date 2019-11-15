@@ -135,8 +135,10 @@
 
 ## (5D51ECFF.005D-1E:ko4bkgnd.cpp,482,"BackgroundController::nodeStatusUpdate") TEMS heartbeat insert failed with status 155
 
+## (5DAB6600.0019-1:kdsdc.c,4162,"ProcessInstallMember") Number of installed packages exceeds the maximum of 512
 
-my $gVersion = 2.16000;
+
+my $gVersion = 2.17000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -859,6 +861,7 @@ my %advcx = (
               "TEMSAUDIT1134E" => "98",
               "TEMSAUDIT1135E" => "102",
               "TEMSAUDIT1136W" => "97",
+              "TEMSAUDIT1137E" => "109",
             );
 
 
@@ -1011,8 +1014,9 @@ my %knowntabx = (
                    'KD47BG'     => '852',
                    'KD47BN'     => '852',
                    'KD47BP'     => '724',
-                   'KGBDTASK'   => '448',
-                   'KGBDMAIL'    => '236',
+                   'KGBDSRV'       => '584',
+                   'KGBDTASK'      => '448',
+                   'KGBDMAIL'      => '236',
                    'KHDDBINFO'     => '1284',
                    'KHDLASTERR'    => '1584',
                    'KHDLOADST'     => '84',
@@ -1200,6 +1204,9 @@ my %knowntabx = (
                    'KSATRANS' => '1056',
                    'KSAUPDATES' => '1288',
                    'KSAUSERS'   => '832',
+                   'KSEAVAIL' => '3244',
+                   'KSESTATUS' => '240',
+                   'KSKDATABAS' => '552',
                    'KSKSCHEDUL' => '1876',
                    'KSKTAPEVOL' => '1992',
                    'KSYCONNECT'    => '1184',
@@ -1250,6 +1257,8 @@ my %knowntabx = (
                    'KVMVCENTER'    => '416',
                    'KVMVM_GEN'  => '1752',
                    'KVMVM_MEM' => '632',
+                   'KVMVM_NET' => '1072',
+                   'KVMVM_PART' => '576',
                    'KVMVMDSUTL'  => '588',
                    'KYJAPHLTH' => '980',
                    'KYJAPMONCF' => '1748',
@@ -1521,6 +1530,8 @@ my %lociex = (                    # generic loci counter exclusion
                 "kfastins.c|KFA_PutSitRecord" => 1,
                 "kfaottev.c|Get_ClassName" => 1,
                 "kfaottev.c|KFAOT_Translate_Event" => 1,
+                "kdsstc1.c|ProcessTable" => 1,
+                "kdssqprs.c|PRS_ParseSql" => 1,
              );
 
 my %rdx;
@@ -2358,6 +2369,7 @@ my $xactivity = 0;          # Unable to allocate communication activity
 my $fsync_enabled = 1;      # assume fsync is enabled
 my $kds_writenos = "";      # assume kds_writenos not specified
 my $gmm_total = 0;          # count out of storage messages
+my $exceed_packages_total = 0; #count exceed packages warning
 
 my $lp_high = -1;
 my $lp_balance = -1;
@@ -2654,7 +2666,7 @@ for(;;)
       # case 3 - line too short for a locus
       #          Append data to lagline and move on
       elsif (length($inline) < 35 + $offset) {
-         $lagline .= " " . substr($inline,21+$offset);
+         $lagline .= substr($inline,21+$offset);
          $state = 3;
          next;
       }
@@ -6894,6 +6906,17 @@ for(;;)
          }
       }
    }
+   #(5DAB6600.0019-1:kdsdc.c,4162,"ProcessInstallMember") Number of installed packages exceeds the maximum of 512
+   if (substr($logunit,0,8) eq "kdsdc.c") {
+      if ($logentry eq "ProcessInstallMember") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,55) eq "Number of installed packages exceeds the maximum of 512") {             # Number of installed packages exceeds the maximum of 512
+            $exceed_packages_total += 1;
+            next;
+         }
+      }
+   }
 
    #(577D74E2.0000-1A:kfavalid.c,512,"validate") Invalid character discovered.  Integer value:<34> at position 0.
    #(577D74E2.0001-1A:kfavalid.c,575,"ValidateNodeEntry") Validation for node failed.
@@ -7754,6 +7777,15 @@ if ($gmm_total > 0) {
    $advcode[$advi] = "TEMSAUDIT1048E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "GMM";
+}
+
+if ($exceed_packages_total > 0) {
+   $advi++;$advonline[$advi] = "TEMS Catalog Package [cat] files exceed maximum of 512";
+   $advcode[$advi] = "TEMSAUDIT1137E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "1,TEMS Catalog Package [cat] files exceed maximum of 512";
+   push @crits,$crit_line;
 }
 
 if ($kcf_count > 0) {
@@ -9864,6 +9896,7 @@ if ($nodeiph_ct > 0) {
 
    my $flip_hour;
    my $flip_ct;
+   my $change_ct = 0;
    $rptkey = "TEMSREPORT066";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Summary by hour\n";
@@ -9873,6 +9906,7 @@ if ($nodeiph_ct > 0) {
       $flip_hour += 1;
       $outl = $f . ",";
       $outl .= $changet_ref->{count} . ",";
+      $change_ct += $changet_ref->{count};
       my $agent_ct = scalar keys %{$changet_ref->{nodes}};
       $flip_ct += $agent_ct;
       $outl .= $agent_ct . ",";
@@ -9891,14 +9925,16 @@ if ($nodeiph_ct > 0) {
       $outl .= $pthru . ",";
       $cnt++;$oline[$cnt]="$outl\n";
    }
-   my $flip_rate = $flip_ct / $flip_hour;
+   my $flip_rate = $change_ct / $flip_hour;
    if ($flip_rate > 6) {
-      my $res_pc = ($flip_ct)/$flip_hour;
+      my $res_pc = ($change_ct)/$flip_hour;
       my $ppc = sprintf '%.2f', $res_pc;
       $advi++;$advonline[$advi] = "Agent Flip Rate $ppc per hour - see $rptkey report";
       $advcode[$advi] = "TEMSAUDIT1129W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
+      $crit_line = "2,Agent Change Flip Rate $ppc per hour - see $rptkey report";
+      push @crits,$crit_line;
    }
 }
 
@@ -12579,6 +12615,9 @@ exit;
 #        - Add Situation Formula Summary, needs Situation Audit file
 #        - Add physical peer to several reports
 #        - In 1135E add instance count to agent count
+#2.17000 - Correct z/OS RKLVLOG multi-line capture logic
+#        - Add alert for more than 512 package files
+#        - Correct count of agent flips
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
@@ -15067,6 +15106,21 @@ Tracing: error
 Meaning: See REPORT083 for full description and recovery plan.
 
 Recovery plan: Work with IBM Support to understand.
+----------------------------------------------------------------
+
+TEMSAUDIT1137E
+Text: TEMS Catalog Package [cat] files exceed maximum of 512
+
+Tracing: error
+
+Meaning: When there are more than 512 catalog [or package] files
+the TEMS cannot initialize and fails.
+
+The general solution is to identify unused catalog/attribute files
+and delete them. In addition, the combined catalog file QA1CDSCA.DB/IDX
+must be reset to empty.
+
+Recovery plan: Work with IBM Support restore TEMS normal function.
 ----------------------------------------------------------------
 
 TEMSREPORT001
