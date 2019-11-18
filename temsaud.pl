@@ -10857,9 +10857,6 @@ if ($opt_kdebi ne "") {
          # 	inet6 ::1%1/0
          # 	 tcp_sendspace 131072 tcp_recvspace 131072 rfc1323 1
 
-
-
-
          my $l = 0;
          my $ip_win = 0;
          my $ip_aix = 0;
@@ -10905,6 +10902,7 @@ if ($opt_kdebi ne "") {
                }
             } elsif ($ip_lnx == 1) {
                $oneline =~ /inet addr:(\d+\.\d+\.\d+\.\d+)/;
+               $oneline =~ /inet (\d+\.\d+\.\d+\.\d+)/ if !defined $1;
                $ipx{$1} = 1 if defined $1;
             } elsif ($ip_aix == 1) {
                $oneline =~ /inet (\d+\.\d+\.\d+\.\d+)/;
@@ -12618,6 +12616,7 @@ exit;
 #2.17000 - Correct z/OS RKLVLOG multi-line capture logic
 #        - Add alert for more than 512 package files
 #        - Correct count of agent flips
+#        - Correct ipconfig.info logic for some Linux cases
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
