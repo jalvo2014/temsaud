@@ -137,8 +137,14 @@
 
 ## (5DAB6600.0019-1:kdsdc.c,4162,"ProcessInstallMember") Number of installed packages exceeds the maximum of 512
 
+## Thu Nov 14 12:41:13 2019 005D-9:kdebeal.c,20,"ssl_provider_open") Entry
+## Thu Nov 14 12:41:13 2019 005E-9:kdebenc.c,24,"read_gsk") Entry
+## Thu Nov 14 12:41:13 2019 005F-9:kdebbrx.c,26,"KDEB_BaseReceive") Entry
+## The thread never returns from this ssl_provider_open call.
+## So avoiding the call, (by avoiding SSL), may avoid the hang.
 
-my $gVersion = 2.17000;
+
+my $gVersion = 2.18000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -256,6 +262,8 @@ my $opt_work    = 0;
 my $opt_nofile = 0;                              # number of file descriptors, zero means not found
 my $opt_stack = 0;                               # Stack limit zero means not found
 my $opt_systype = "";                            # System Type
+my $opt_username = "";                           # User Name
+my $opt_effectiveusername = "";                  # Effective User Name
 my $opt_kbb_ras1 = "";                           # KBB_RAS1 setting
 my $opt_kdc_debug = "";                          # KDC_DEBUG setting
 my $opt_kde_debug = "";                          # KDE_DEBUG setting
@@ -862,6 +870,8 @@ my %advcx = (
               "TEMSAUDIT1135E" => "102",
               "TEMSAUDIT1136W" => "97",
               "TEMSAUDIT1137E" => "109",
+              "TEMSAUDIT1138E" => "100",
+              "TEMSAUDIT1139I" => "0",
             );
 
 
@@ -873,7 +883,14 @@ my %knowntabx = (
                    'AGGREGATS'   => '3376',
                    'AIXPAGMEM'   => '208',
                    'AIXMPIOSTS'  => '560',
+                   'ASCPUUTIL'   => '316',
+                   'CICSSCR'     => '432',
                    'CLACTRMT'    => '7452',
+                   'DBM1STO'     => '316',
+                   'DB2LKCONF'   => '760',
+                   'DP_SY_EXC'   => '624',
+                   'DP_TH_EXC'   => '1072',
+                   'ENQUEUE'     => '339',
                    'FILEINFO'    => '6232',
                    'HLAADRS'     => '116',
                    'HLALCPOL'    => '96',
@@ -1049,8 +1066,11 @@ my %knowntabx = (
                    'KLZDSKIO'   => '192',
                    'KLZDU' => '408',
                    'KLZIOEXT' => '272',
+                   'LGB_POOL'  => '136',
+                   'LKDP_CF' => '184',
                    'LNXIPADDR' => '548',
                    'KLZNET'        => '368',
+                   'KLZPASALRT'    => '484',
                    'KLZPASMGMT'    => '528',
                    'KLZPASSTAT'    => '1384',
                    'KLZPROC'       => '1620',
@@ -1068,9 +1088,11 @@ my %knowntabx = (
                    'KNPAVAIL' => '3244',
                    'KNPCAPPACT' => '52',
                    'KNPTOTENT' => '52',
+                   'KNPWORKQUE' => '52',
                    'KNTPASCAP' => '3000',
                    'KNTPASSTAT' => '1392',
                    'KNTSCRRTM'  => '3544',
+                   'KNU03VOL'    => '532',
                    'KOQDBD' => '2712',
                    'KOQDBMIR' => '672',
                    'KOQDBS' => '248',
@@ -1082,6 +1104,7 @@ my %knowntabx = (
                    'KOQLSDBD' => '1768',
                    'KOQPRCS' => '276',
                    'KOQPROBS' => '252',
+                   'KOQCSQLR' => '1124',
                    'KOQSRVCD' => '592',
                    'KOQSRVR' => '256',
                    'KOQSRVRE' => '1604',
@@ -1106,7 +1129,11 @@ my %knowntabx = (
                    'KOYPROBS'   => '252',
                    'KOYSEGD'    => '584',
                    'KOYSRVRE'   => '732',
+                   'KOYSRVS'    => '292',
                    'KOYSTATS'   => '260',
+                   'KPH03CPUSU' => '92',
+                   'KPHSVRCPUP' => '540',
+                   'KPHSVRLPAR' => '892',
                    'KPK03PERLP' => '892',
                    'KPX02TOP50' => '2460',
                    'KPX13PAGIN' => '76',
@@ -1116,9 +1143,12 @@ my %knowntabx = (
                    'KPX26DISKS' => '432',
                    'KPX30FILES' => '1028',
                    'KPX34NETWO' => '996',
+                   'KQ5B10RG'   => '280',
                    'KQ5B20LOGI' => '624',
-                   'KQ5C20RES' => '696',
-                   'KQ5CLUSUM' => '444',
+                   'KQ5C20RES'  => '696',
+                   'KQ5CLUSCSV' => '384',
+                   'KQ5CLUSUM'  => '444',
+                   'KQ5CLUSTE0' => '672',
                    'KQ5CSVSUMM' => '260',
                    'KQ5D20NODE' => '756',
                    'KQ5E20NET' => '460',
@@ -1181,6 +1211,7 @@ my %knowntabx = (
                    'KRZRDBOBJS' => '480',
                    'KRZRDBUTS' => '332',
                    'KRZSEGALOC' => '524',
+                   'KRZSESSSMY' => '260',
                    'KRZTSNLUE' => '292',
                    'KRZTSOVEW' => '428',
                    'KRZTSTPUE' => '244',
@@ -1189,9 +1220,13 @@ my %knowntabx = (
                    'KSACTS' => '864',
                    'KSABPMDTL' => '664',
                    'KSADMPCNT' => '472',
+                   'KSAFSYSTEM' => '880',
                    'KSAJOBS' => '944',
                    'KSALOCKS' => '824',
+                   'KSAMTSTATE' => '1352',
+                   'KSAORADTL' => '648',
                    'KSAOSP' => '644',
+                   'KSAORASUM' => '596',
                    'KSAPERF' => '672',
                    'KSAPROCESS' => '1052',
                    'KSASERINFO' => '340',
@@ -1210,6 +1245,7 @@ my %knowntabx = (
                    'KSKSCHEDUL' => '1876',
                    'KSKTAPEVOL' => '1992',
                    'KSYCONNECT'    => '1184',
+                   'KSYSUMMSTA' => '120',
                    'KUD3437600' => '1660',
                    'KUD4238000' => '1600',
                    'KUDAPPL00' => '3804',
@@ -1262,14 +1298,16 @@ my %knowntabx = (
                    'KVMVMDSUTL'  => '588',
                    'KYJAPHLTH' => '980',
                    'KYJAPMONCF' => '1748',
-                   'KYJAPSRV' => '1132',
+                   'KYJAPSRV' => '1148',
                    'KYJAPSST' => '1516',
+                   'KYJDATAS' => '1256',
                    'KYJGCACT' => '712',
                    'KYJJDKJVM' => '1704',
                    'KYJJDKOS' => '1456',
                    'KYJJMSSUM' => '952',
                    'KYJLOGANAL' => '1040',
                    'KYJPREV' => '676',
+                   'KYJREQHIS' => '952',
                    'KYJREQUEST' => '1568',
                    'KYJWLCCPL' => '856',
                    'KYJWLDBCON' => '872',
@@ -1294,6 +1332,7 @@ my %knowntabx = (
                    'KYNREQUEST'    => '1476',
                    'KYNSERVLT'     => '1296',
                    'KYNTHRDP'   => '852',
+                   'KZABPCHECK' => '4192',
                    'LNXCPU' => '156',
                    'LNXCPUAVG' => '180',
                    'LNXCPUCON'  => '300',
@@ -1375,8 +1414,10 @@ my %knowntabx = (
                    'QMQ_QU_ST' => '364',
                    'QMQUEUES' => '844',
                    'READHIST'   => '748',
+                   'REALTHDA'   => '1264',
                    'RNODESTS'      => '220',
                    'SYSHEALTH'     => '132',
+                   'SYSCPUUTIL' => '3890',
                    'T3FILEDPT' => '3704',
                    'T3FILEXFER' => '5200',
                    'T3PBSTAT' => '948',
@@ -1385,8 +1426,16 @@ my %knowntabx = (
                    'T3SNCLIENT' => '628',
                    'T3SNSERVER' => '628',
                    'T3SNTRANS' => '628',
+                   'T5APPCS'       => '480',
+                   'T5APPSM'       => '452',
+                   'T5CLNTCS'      => '720',
+                   'T5DEPOTSTS'    => '64',
+                   'T5SRVCS'       => '648',
                    'T5SSLALRCS'    => '616',
+                   'T5TCPSTAT'     => '1176',
+                   'T5TGAT'        => '1252',
                    'T5TXCS'        => '868',
+                   'T5USRSS'       => '704',
                    'T6CLNTOT'      => '604',
                    'T6DEPOTSTS'    => '64',
                    'T6EVENT'       => '3776',
@@ -1532,6 +1581,7 @@ my %lociex = (                    # generic loci counter exclusion
                 "kfaottev.c|KFAOT_Translate_Event" => 1,
                 "kdsstc1.c|ProcessTable" => 1,
                 "kdssqprs.c|PRS_ParseSql" => 1,
+                "kfastplr.c|KFA_LogRecTimestamp" => 1,
              );
 
 my %rdx;
@@ -1553,6 +1603,7 @@ my $rb_etime = 0;
 my $rb_dur = 0;
 
 my $hublost_total = 0;
+my $hubconn_lost_total = 0;
 my %gskiterrorx = ();
 my $intexp_total = 0;
 my $seq999_total = 0;
@@ -1594,6 +1645,7 @@ my $nodelist_tems;
 my $nodeliste_state = 0;
 my %nodelistex;
 my $nodeliste_count = 0;
+my $ko4ibput_error = 0;
 
 my $stage2 = "";
 my $stage2_ct = 0;
@@ -2779,6 +2831,22 @@ for(;;)
          }
       }
     }
+   if ($opt_username eq "") {
+      if (substr($oneline,0,1) eq "+") {
+         if (index($oneline,"User Name:") != -1) {
+            $oneline =~ /User Name: (\S+)/;
+            $opt_username = $1 if defined $1;
+         }
+      }
+    }
+   if ($opt_effectiveusername eq "") {
+      if (substr($oneline,0,1) eq "+") {
+         if (index($oneline,"Effective User Name:") != -1) {
+            $oneline =~ /Effective User Name: (\S+)/;
+            $opt_effectiveusername = $1 if defined $1;
+         }
+      }
+    }
       # Extract the Stack Limit - a Linux/Unix concern.
       # We recommend a maximum of 10 megabytes for a TEMS
       #+52BE1DCC.0000     Nofile Limit: None                       Stack Limit: 32M
@@ -3628,9 +3696,21 @@ for(;;)
          next;
       }
    }
+   ## (5D0A479E.0025-6:ko4ibput.cpp,4627,"IBInterface::statusPut") Error <1136> in request
+   if (substr($logunit,0,12) eq "ko4ibput.cpp") {
+      if ($logentry eq "IBInterface::statusPut") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,23) eq "Error <1136> in request") {
+            $ko4ibput_error += 1;
+         }
+         next;
+      }
+   }
 
    ## (5A8A7EA7.0000-8:ko4tsmgr.cpp,243,"TaskManager::process") Hub connection lost, attempting to reconnect
    ## (5D309F63.0000-24:ko4tsmgr.cpp,599,"TaskManager::checkSitmonStatus") Sitmon BUSY.  Process <TaskManager::process#1> in BUSY state since <5d3098bb>, which exceeds <900> seconds.,
+   ## (5D376EDD.0014-139C:ko4tsmgr.cpp,243,"TaskManager::process") Hub connection lost, attempting to reconnect
    if (substr($logunit,0,12) eq "ko4tsmgr.cpp") {
       if ($logentry eq "TaskManager::process") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -3638,6 +3718,8 @@ for(;;)
          my $mkey = $logtimehex . "|" . $l;
          $mhmx{$mkey} = $rest;
          set_timeline($logtime,$l,$logtimehex,"TEMSREPORT044",$rest);
+         $rest .= " " x 44;
+         $hubconn_lost_total += 1 if substr($rest,1,44) eq "Hub connection lost, attempting to reconnect";
          next;
       } elsif ($logentry eq "TaskManager::checkSitmonStatus") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -3845,11 +3927,14 @@ for(;;)
    }
 
    # (59199276.0204-39D:kdsxoc2.c,2081,"VXO2_MakeTime") MKTIME result is not a valid timestamp (mktime returned -1)
+   # (5DE95C71.0000-15E:kdsxoc2.c,1934,"VXO2_MakeTime") Non-numeric MKTIME timestamp
    if (substr($logunit,0,9) eq "kdsxoc2.c") {
       if ($logentry eq "VXO2_MakeTime") {
-         $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # MKTIME result is not a valid timestamp (mktime returned -1)   History file T6SUBTXCS corruption found at file position 008F2E18. EndOfFileReached = 0, CurrRowValid = 0, NextRowValid = 1.
          if (substr($rest,1,38) eq "MKTIME result is not a valid timestamp") {
+             $mktime_total += 1;
+             next;
+         } elsif (substr($rest,1,28) eq "Non-numeric MKTIME timestamp") {
              $mktime_total += 1;
              next;
          }
@@ -7811,7 +7896,7 @@ foreach $f (keys %pcbx) {
 $pcb_deletePCB90 = int($pcb_deletePCB_tot*.95);
 
 if ($pcb_deletePCB > 0) {
-   $advi++;$advonline[$advi] = "Agent connection churning on [$pcb_deletePCB] systems total[$pcb_total] - view TEMSREPORT026 report";
+   $advi++;$advonline[$advi] = "Agent connection churning on [$pcb_deletePCB] systems total[$pcb_total] - see TEMSREPORT026 report";
    $advcode[$advi] = "TEMSAUDIT1050W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "PCB";
@@ -7900,6 +7985,15 @@ if ($hublost_total > 0) {
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "HUB";
    }
+}
+
+if ($hubconn_lost_total > 0) {
+   $advi++;$advonline[$advi] = "TEMS has lost connection to HUB $hubconn_lost_total times";
+   $advcode[$advi] = "TEMSAUDIT1138E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "HUB";
+   $crit_line = "1,TEMS has lost connection to HUB $hubconn_lost_total times";
+   push @crits,$crit_line;
 }
 
 if ($intexp_total > 0) {
@@ -8007,6 +8101,8 @@ if ($et > 0) {
    foreach $f (keys %etablex) {
       my $etct = $etablex{$f}->{count};
       my $dtct = $dtablex{$f}->{count};
+      next if !defined $etct;
+      next if !defined $dtct;
       if ($etct != $dtct) {
          $advi++;$advonline[$advi] = "TEMS database table with $etct errors";
          $advcode[$advi] = "TEMSAUDIT1022E";
@@ -8061,6 +8157,7 @@ $et = scalar keys %dtablex;
 if ($et > 0) {
    foreach $f (keys %dtablex) {
       my $etct = $dtablex{$f}->{count};
+      next if !defined $etct;
       $advi++;$advonline[$advi] = "TEMS database table with $etct Duplicate Record errors";
       $advcode[$advi] = "TEMSAUDIT1023W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
@@ -8176,6 +8273,13 @@ if ($tec_classname_ct > 0) {
 if ($kpx_warning_ct > 0) {
    $advi++;$advonline[$advi] = "KPX warning on location buffer too small $kpx_warning_ct times - not a problem";
    $advcode[$advi] = "TEMSAUDIT1133I";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+if ($ko4ibput_error > 0) {
+   $advi++;$advonline[$advi] = "KO4IBPUT warning on missing status $ko4ibput_error times - not a problem";
+   $advcode[$advi] = "TEMSAUDIT1139I";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
 }
@@ -12617,6 +12721,10 @@ exit;
 #        - Add alert for more than 512 package files
 #        - Correct count of agent flips
 #        - Correct ipconfig.info logic for some Linux cases
+#2.18000 - Correct undefined variable error in one path
+#        - Add alert for hub connection lost
+#        - Capture User Name and Effective User Name and alert if second is root
+#        - Count non-numeric MKTIME errors
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
@@ -12650,9 +12758,9 @@ request does no filtering anyway, consider changing the
 request to do filtering. Retrieving thousands of rows for
 personal TEP viewing is rarely very useful or practical.
 
-In addition, the Agent side has a limit and will never send
-more than 16megs of data to any single request. So you may
-be getting far less data than you expect anyway.
+In addition, the Agent side has a hard send limit of 16
+megabytes for any single request. So you may be getting
+less data than you expect anyway.
 --------------------------------------------------------------
 
 TEMSAUDIT1002W
@@ -13808,6 +13916,7 @@ Text: Situation with *TIME returned invalid timestamp [count] times
 
 Tracing: error
 (59199276.0204-39D:kdsxoc2.c,2081,"VXO2_MakeTime") MKTIME result is not a valid timestamp (mktime returned -1)
+(5DE95C71.0000-15E:kdsxoc2.c,1934,"VXO2_MakeTime") Non-numeric MKTIME timestamp
 
 Meaning: This condition needs additional diagnostic tracing to
 determine what situation(s) are involved. One diagnosed case
@@ -14709,7 +14818,7 @@ Here is an example of a problem setup
 
 CSV1_PATH=LD_LIBRARY_PATH=LIBPATH="/lib:/usr/lib:/opt/IBM/ITM/aix536/ms/lib:/opt/IBM/ITM/tmaitm6/aix536/lib:none/lib:/opt/IBM/ITM/aix526/gs/lib64"
 
-Note how the gskit libary /opt/IBM/ITM/aix526/gs/lib64 comes last. That
+Note how the gskit library /opt/IBM/ITM/aix526/gs/lib64 comes last. That
 must come first and the local libraries [first two elements] must come last.
 
 Recovery plan: The best way is to set up a ms.environment file. Here is
@@ -14732,7 +14841,7 @@ chgrp itmuser ms.environment
 
 
 3) Add these 4 lines to the ms.environment file using the CSV1_PATH from
-above, but move the gskit libarary to the first position and
+above, but move the gskit library to the first position and
 the /lib:/usr/lib to the last position:
 
 CSV1_PATH=/opt/IBM/ITM/aix526/gs/lib64:/opt/IBM/ITM/aix536/ms/lib:/opt/IBM/ITM/tmaitm6/aix536/lib:none/lib:/lib:/usr/lib
@@ -15121,6 +15230,33 @@ must be reset to empty.
 
 Recovery plan: Work with IBM Support restore TEMS normal function.
 ----------------------------------------------------------------
+
+TEMSAUDIT1138E
+Text: TEMS has lost connection to HUB count times
+
+Tracing: error
+
+Meaning: A TEMS record that the TEMS has lost contact with the
+hub TEMS. It often means the connection to the hub TEMS
+cannot even start as the location broker running on the target
+system is not aware of a registered hub TEMS. If this occurs
+many times the remote TEMS is not working as expected. This is
+sometimes a network issue and sometimes a configuration issue.
+
+Recovery plan: Work with IBM Support restore TEMS normal function.
+----------------------------------------------------------------
+
+TEMSAUDIT1139I
+Text: KO4IBPUT warning on missing status count times - not a problem
+
+Tracing: error
+(5D0A479E.0025-6:ko4ibput.cpp,4627,"IBInterface::statusPut") Error <1136> in request
+
+Meaning: This message means a situation status was updated but it was not present.
+In this case the situation status is simply created as it should be. This is not
+an actual error, more like a comment to help understant some conditions.
+
+Recovery plan: Informational only.
 
 TEMSREPORT001
 Text: Too Big Report
