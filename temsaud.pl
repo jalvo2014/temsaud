@@ -144,7 +144,7 @@
 ## So avoiding the call, (by avoiding SSL), may avoid the hang.
 
 
-my $gVersion = 2.18000;
+my $gVersion = 2.19000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -301,6 +301,8 @@ my $opt_tlslot = 5;
 my $start_date = "";
 my $start_time = "";
 my $local_diff = -1;
+my $this_hostname = "";
+my $this_installer = "";
 
 my %errnox = (
                 "1" => ["EPERM","Operation not permitted"],
@@ -1568,7 +1570,6 @@ my $loci_ct = 0;
 my $logloci;
 my %lociex = (                    # generic loci counter exclusion
                 "RAS1|CTBLD" => 1,
-                "kdyshdlib.cpp|issueNodeStatusOpenThread" => 1,
                 "kdyshdlib.cpp|issueNodeStatusOpenThread" => 1,
                 "kdyinodests.cpp|selectNodeStatus" => 1,
                 "kdyctrl.cpp|rTEMSSynchThread" => 1,
@@ -11360,6 +11361,64 @@ if ($gotnet == 1) {
 
 }
 
+# new report of netstat.info if it can be located
+
+my $cinfopath;
+my $cinfofn;
+my $gotcin = 0;
+$cinfopath = $opt_logpath;
+if ( -e $cinfopath . "cinfo.info") {
+   $gotcin = 1;
+   $cinfopath = $opt_logpath;
+} elsif ( -e $cinfopath . "../cinfo.info") {
+   $gotcin = 1;
+   $cinfopath = $opt_logpath . "../";
+} elsif ( -e $cinfopath . "../../cinfo.info") {
+   $gotcin = 1;
+   $cinfopath = $opt_logpath . "../../";
+}
+$cinfopath = '"' . $cinfopath . '"';
+if ($gotcin == 1) {
+   if ($gWin == 1) {
+      $pwd = `cd`;
+      chomp($pwd);
+      $cinfopath = `cd $cinfopath & cd`;
+   } else {
+      $pwd = `pwd`;
+      chomp($pwd);
+      $cinfopath = `(cd $cinfopath && pwd)`;
+   }
+   chomp $cinfopath;
+
+   $cinfofn = $cinfopath . "/cinfo.info";
+   $cinfofn =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+
+   chomp($cinfofn);
+   chdir $pwd;
+
+   #*********** Tue Nov 12 19:19:28 BRT 2019 ******************
+   #User: root Groups: root wheel
+   #Host name : brlpx3603	 Installer Lvl:06.30.07.06
+   #CandleHome: /IBM/ITM
+   #Version Format: VV.RM.FF.II (V: Version; R: Release; M: Modification; F: Fix; I: Interim Fix)
+   #***********************************************************
+   open CINFO,"< $cinfofn" or warn " open cinfo.info file $cinfofn -  $!";
+   my @cin = <CINFO>;
+   close CINFO;
+   $l = 0;
+   foreach my $oneline (@cin) {
+      $l++;
+      chomp($oneline);
+      next if index($oneline,"Installer Lvl") == -1;
+      $oneline =~ /Host name :.*?(\S+).*?Installer Lvl:([0-9\.]*)/;
+      $this_hostname = $1 if defined $1;
+      $this_installer = $2 if defined $2;
+      $hdri++;$hdr[$hdri] = "hostname: $this_hostname";
+      $hdri++;$hdr[$hdri] = "Installer: $this_installer";
+      last;
+   }
+}
+
 # check for EPHEMERAL:Y connections alongside TEMS
 if ($env_eph > 0) {
    $rptkey = "TEMSREPORT080";$advrptx{$rptkey} = 1;         # record report key
@@ -12074,6 +12133,8 @@ if ($opt_sum != 0) {
    $sumline .= "$opt_driver ";
    $sumline .= "$trespermin ";
    $sumline .= "$pagto ";
+   $sumline .= "$this_hostname ";
+   $sumline .= "$this_installer";
    my $sumfn = $opt_odir . "temsaud.txt";
    open SUM, ">$sumfn" or die "Unable to open summary output file $sumfn\n";
    print SUM "$sumline\n";
@@ -12725,6 +12786,8 @@ exit;
 #        - Add alert for hub connection lost
 #        - Capture User Name and Effective User Name and alert if second is root
 #        - Count non-numeric MKTIME errors
+#2.19000 - Correct REPORT078 text
+#        - Add hostname and installer level to summary line
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
@@ -17307,9 +17370,6 @@ Meaning: This strongly suggests that the combined catalog file
 QA1CDSCA.DB/IDX is broken. This can be replaced by emptytable
 DB/IDX file while the TEMS is stopped and it will be rebuilt
 naturally. See this document:
-
-A symptom of the issue is many situation events in "reset" or "Problem"
-mode - sometimes seen as status X in the TEP display.
 
 Sitworld: TEMS Database Repair `
 https://www.ibm.com/developerworks/community/blogs/jalvord/entry/Sitworld_TEMS_Database_Repair?lang=en
