@@ -144,7 +144,7 @@
 ## So avoiding the call, (by avoiding SSL), may avoid the hang.
 
 
-my $gVersion = 2.19000;
+my $gVersion = 2.20000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -11396,12 +11396,21 @@ if ($gotcin == 1) {
    chomp($cinfofn);
    chdir $pwd;
 
+   # Linux/Unix Example
    #*********** Tue Nov 12 19:19:28 BRT 2019 ******************
    #User: root Groups: root wheel
    #Host name : brlpx3603	 Installer Lvl:06.30.07.06
    #CandleHome: /IBM/ITM
    #Version Format: VV.RM.FF.II (V: Version; R: Release; M: Modification; F: Fix; I: Interim Fix)
    #***********************************************************
+
+   # Windows Example
+   #************ Friday, March 06, 2020 08:10:45 AM *************
+   #User       : ukc                   Group     : NA
+   #Host Name  : PSC-T-TIV01           Installer : Ver: 063007000
+   #CandleHome : D:\IBM\ITM
+   #Installitm : D:\IBM\ITM\InstallITM
+   #*************************************************************
    open CINFO,"< $cinfofn" or warn " open cinfo.info file $cinfofn -  $!";
    my @cin = <CINFO>;
    close CINFO;
@@ -11409,8 +11418,9 @@ if ($gotcin == 1) {
    foreach my $oneline (@cin) {
       $l++;
       chomp($oneline);
-      next if index($oneline,"Installer Lvl") == -1;
-      $oneline =~ /Host name :.*?(\S+).*?Installer Lvl:([0-9\.]*)/;
+      $oneline =~ /Host name :.*?(\S+).*?Installer Lvl:([0-9\.]*)/ if index($oneline,"Host name") != -1;
+      $oneline =~ /Host Name\s*:\s*(\S+)\s*Installer : Ver:\s*([0-9\.]*)/ if index($oneline,"Host Name") != -1;
+      next if !defined $1;
       $this_hostname = $1 if defined $1;
       $this_installer = $2 if defined $2;
       $hdri++;$hdr[$hdri] = "hostname: $this_hostname";
@@ -12787,7 +12797,8 @@ exit;
 #        - Capture User Name and Effective User Name and alert if second is root
 #        - Count non-numeric MKTIME errors
 #2.19000 - Correct REPORT078 text
-#        - Add hostname and installer level to summary line
+#        - Add hostname and installer level to summary line and report
+#2.20000 - Improve hostname/installer capture for Windows
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
