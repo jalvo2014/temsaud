@@ -144,7 +144,7 @@
 ## So avoiding the call, (by avoiding SSL), may avoid the hang.
 
 
-my $gVersion = 2.20000;
+my $gVersion = 2.21000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -1059,6 +1059,7 @@ my %knowntabx = (
                    'KLOLOGEVTS' => '6928',
                    'KLOLOGFRX'     => '772',
                    'KLOLOGFST'  => '916',
+                   'KLOLOGPEVT' => '6928',
                    'KLOPOBJST'     => '324',
                    'KLOPROPOS'     => '324',
                    'KLOTHPLST'  => '96',
@@ -1087,6 +1088,10 @@ my %knowntabx = (
                    'KLZVM'         => '268',
                    'KMCPRCA'     => '1236',
                    'KNOAVAIL'   => '3244',
+                   'KNONCOECNA' => '132',
+                   'KNONCOECNC' => '152',
+                   'KNONCOECNI' => '352',
+                   'KNONCOEDCF' => '408',
                    'KNPAVAIL' => '3244',
                    'KNPCAPPACT' => '52',
                    'KNPTOTENT' => '52',
@@ -2198,7 +2203,7 @@ if (-e $sitpdtfn) {
 }
 
 if ($logfn eq "") {
-   $pattern = "(_ms|_MS)(_kdsmain)?\.inv";
+   $pattern = "(_ms|_MS|_ms_kdsmain|_MS_KDSMAIN)\.inv";
    @results = ();
    opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n"); # get list of files
    @results = grep {/$pattern/} readdir(DIR);
@@ -12799,6 +12804,7 @@ exit;
 #2.19000 - Correct REPORT078 text
 #        - Add hostname and installer level to summary line and report
 #2.20000 - Improve hostname/installer capture for Windows
+#2.21000 - Handle a different case of inv file form.
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
