@@ -144,7 +144,7 @@
 ## So avoiding the call, (by avoiding SSL), may avoid the hang.
 
 
-my $gVersion = 2.21000;
+my $gVersion = 2.23000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -298,11 +298,17 @@ my $opt_stfn;                                    # event history filename
 my $opt_ndfn;                                    # node history filename
 my $opt_evslot = 1;
 my $opt_tlslot = 5;
+my $opt_dup = 0;                                 # produce duplicate cleanup
 my $start_date = "";
 my $start_time = "";
 my $local_diff = -1;
 my $this_hostname = "";
 my $this_installer = "";
+
+my %agtosx = ( 'NT' => 1,
+               'LZ' => 1,
+               'UX' => 1,
+             );
 
 my %errnox = (
                 "1" => ["EPERM","Operation not permitted"],
@@ -1811,6 +1817,9 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-sth") {
       $opt_sth = 1;
       shift(@ARGV);
+   } elsif ($ARGV[0] eq "-dup") {
+      $opt_dup = 1;
+      shift(@ARGV);
    } elsif ($ARGV[0] eq "-evslot") {
       $opt_evslot = 1;
       shift(@ARGV);
@@ -3111,7 +3120,7 @@ for(;;)
          my $pline = substr($oneline,15);  #   srvr-boot: 5A791892        length: 1058         a/i-hints: FFA5/000D
          $pline =~ s/^\s+|\s+$//;     # strip leading/trailing white space
          $pline =~ s/: /:/g;
-         my @segs = split("[ ]{2,99}",$pline);
+         my @segs = split("[ ]{3,99}",$pline);
          my $iattr = "";
          my $ivalue = "";
          foreach my $f (@segs) {
@@ -9940,6 +9949,9 @@ if ($nodeiph_ct > 0) {
    }
    if ($dup_ct > 0) {
       $rptkey = "TEMSREPORT082";$advrptx{$rptkey} = 1;         # record report key
+      my %osagtx;
+      my $osagt_max = 0;
+      my %temsrx;
       my $inst_ct = 0;
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - Multiple Systems\n";
@@ -9950,10 +9962,25 @@ if ($nodeiph_ct > 0) {
          next if $node_host_ref->{hct} < 2;
          $outl = $node_host_ref->{hct} . ",";
          $outl .= $g . ",";
+         my @pagent = split(":",$g);
+         my $pc = "";
+         $pc = $pagent[$#pagent] if $#pagent > 0;
          my $phost = "";
          foreach my $j (keys %{$node_host_ref->{hostaddrs}}) {
-            $phost .= $j . " ";
+            my $pthru = "";
+            foreach my $k (keys %{$nodeipx{$j}->{thrunodes}}) {
+               $pthru = $k . ",";
+               my $tt = $k;
+               $tt .= "+" if index($j,"0.0.") != -1;
+               $temsrx{$tt} = 1;
+            }
+            chop $pthru if $pthru ne "";
+            $phost .= $j . "[" . $pthru . "] ";
             $inst_ct += 1;
+            if (defined $agtosx{$pc}) {
+               $osagtx{$g} += 1;
+               $osagt_max = $osagtx{$g} if $osagtx{$g} > $osagt_max;
+            }
          }
          chop($phost) if $phost ne "";
          $outl .= $phost . ",";
@@ -9965,6 +9992,52 @@ if ($nodeiph_ct > 0) {
       $advcode[$advi] = "TEMSAUDIT1135E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "agent";
+      my $temsrx_ct = scalar keys %temsrx;
+      if ($temsrx_ct > 0) {
+         $cnt++;$oline[$cnt]="TEMS that need tracing. A trailing + means ephemeral/firewall/kde_gateway connections\n";
+         foreach my $t (keys %temsrx) {
+            $cnt++;$oline[$cnt]="$t,\n";
+         }
+      }
+      if ($opt_dup == 1) {
+         my $opt_dedup_sh;
+         my $opt_dedup_cmd;
+         if ($inst_ct > 0) {
+            $opt_dedup_cmd = "dedup.cmd";
+            $opt_dedup_sh  = "dedup.sh";
+            open DEPSH, ">$opt_dedup_sh" or die "can't open $opt_dedup_sh: $!";
+            binmode(DEPSH);
+            open DEPCMD, ">$opt_dedup_cmd" or die "can't open $opt_dedup_cmd: $!";
+            for (my $i=1;$i<$osagt_max;$i++) {
+               print DEPSH  "# starting Dedup Level $i\n";
+               print DEPCMD "REM starting Dedup Level $i\n";
+               foreach my $j (keys %osagtx) {
+                  my $agt_ct = $osagtx{$j};
+                  next if $i >= $agt_ct;
+$DB::single=2;
+                  my $cpos = rindex($j,":");
+                  my $hostn = substr($j,0,$cpos);
+                  $cpos = rindex($hostn,":");
+                  $hostn = substr($hostn,$cpos) if $cpos != -1;
+                  my $dupname = $hostn . "-DUP" . $i;
+                  my $outsh  = "./tacmd setagentconnection -n $j -a ";
+                  $outsh .= "-e CTIRA_HOSTNAME=" . $dupname . " ";
+                  $outsh .= "CTIRA_SYSTEM_NAME=" . $dupname . " ";
+                  my $outcmd = "tacmd setagentconnection -n $j -a ";
+                  $outcmd .= "-e CTIRA_HOSTNAME=" . $dupname . " ";
+                  $outcmd .= "CTIRA_SYSTEM_NAME=" . $dupname . " ";
+                  print DEPSH  "$outsh\n";
+                  print DEPCMD "$outcmd\n";
+               }
+$DB::single=2;
+            }
+            close(DEPSH);
+            close(DEPCMD);
+         }
+      }
+$DB::single=2;
+my $x = 1;
+
    }
 }
 
@@ -12805,6 +12878,9 @@ exit;
 #        - Add hostname and installer level to summary line and report
 #2.20000 - Improve hostname/installer capture for Windows
 #2.21000 - Handle a different case of inv file form.
+#2.22000 - Correct parsing of rpc__sar, three spaces to delimit segments
+#2.23000 - Extend report082 to include thrunode with the hostaddr
+#        - add -dup option to generate de-duplication .sh/.cmd files
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
