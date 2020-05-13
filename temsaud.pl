@@ -144,7 +144,7 @@
 ## So avoiding the call, (by avoiding SSL), may avoid the hang.
 
 
-my $gVersion = 2.23000;
+my $gVersion = 2.24000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -299,6 +299,9 @@ my $opt_ndfn;                                    # node history filename
 my $opt_evslot = 1;
 my $opt_tlslot = 5;
 my $opt_dup = 0;                                 # produce duplicate cleanup
+my $opt_dupsleep = 0;                            # seconds delay between setagentconnection invocations
+my $opt_dupos = 0;                               # when 1, only work on OS Agents
+my $opt_dupall = 0;                              # when 1, work on all ITM agents on system
 my $start_date = "";
 my $start_time = "";
 my $local_diff = -1;
@@ -1820,6 +1823,20 @@ while (@ARGV) {
    } elsif ($ARGV[0] eq "-dup") {
       $opt_dup = 1;
       shift(@ARGV);
+   } elsif ($ARGV[0] eq "-dupos") {
+      $opt_dupos = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-dupall") {
+      $opt_dupall = 1;
+      shift(@ARGV);
+   } elsif ($ARGV[0] eq "-dupsleep") {
+      shift(@ARGV);
+      if (defined $ARGV[0]) {
+         if (substr($ARGV[0],0,1) ne "-") {
+            $opt_dupsleep = $ARGV[0];
+            shift(@ARGV);
+         }
+      }
    } elsif ($ARGV[0] eq "-evslot") {
       $opt_evslot = 1;
       shift(@ARGV);
@@ -1969,6 +1986,9 @@ if (!defined $opt_sth) {$opt_sth = 0;}
 if (!defined $opt_prtlim) {$opt_prtlim = 1;}
 if (!defined $opt_hb) {$opt_hb = 600;}
 if (!defined $opt_gap) {$opt_gap = 0;}
+if (!defined $opt_dupos) {$opt_dupos = 0;}
+if (!defined $opt_dupall) {$opt_dupall = 0;}
+if (!defined $opt_dupsleep) {$opt_dupsleep = 0;}
 if (!defined $opt_dupfile) {$opt_dupfile = 0;}
 if (!defined $opt_sitpdt) {$opt_sitpdt = "";}
 if (!defined $opt_portlim) {$opt_portlim = 5;}
@@ -10002,42 +10022,60 @@ if ($nodeiph_ct > 0) {
       if ($opt_dup == 1) {
          my $opt_dedup_sh;
          my $opt_dedup_cmd;
+         my $opt_dedup_csv;
+         my $ihostname;
+         my $ipc = "";
          if ($inst_ct > 0) {
             $opt_dedup_cmd = "dedup.cmd";
             $opt_dedup_sh  = "dedup.sh";
+            $opt_dedup_csv  = "dedup.csv";
             open DEPSH, ">$opt_dedup_sh" or die "can't open $opt_dedup_sh: $!";
             binmode(DEPSH);
             open DEPCMD, ">$opt_dedup_cmd" or die "can't open $opt_dedup_cmd: $!";
+            open DEPCSV, ">$opt_dedup_csv" or die "can't open $opt_dedup_csv: $!";
             for (my $i=1;$i<$osagt_max;$i++) {
                print DEPSH  "# starting Dedup Level $i\n";
                print DEPCMD "REM starting Dedup Level $i\n";
                foreach my $j (keys %osagtx) {
                   my $agt_ct = $osagtx{$j};
                   next if $i >= $agt_ct;
-$DB::single=2;
-                  my $cpos = rindex($j,":");
-                  my $hostn = substr($j,0,$cpos);
-                  $cpos = rindex($hostn,":");
-                  $hostn = substr($hostn,$cpos) if $cpos != -1;
-                  my $dupname = $hostn . "-DUP" . $i;
-                  my $outsh  = "./tacmd setagentconnection -n $j -a ";
+                  my $tnode = $j;
+                  $tnode =~ s/[^:]//g;
+                  my $ncolons = length($tnode);
+                  my @wnodes = split(":",$j);
+                  if ($ncolons == 0) {
+                     $ihostname = $j;
+                  } elsif ($ncolons == 1) {
+                     $ihostname = $wnodes[0];
+                     $ipc       = $wnodes[1];
+                  } elsif ($ncolons == 2) {
+                     $ihostname = $wnodes[1];
+                     $ipc       = $wnodes[2];
+                  } elsif ($ncolons >= 3) {
+                     $ihostname = $wnodes[2];
+                     $ipc       = $wnodes[3];
+                  }
+                  my $iscope = "-t $ipc";
+                  $iscope = "-a" if $opt_dupall == 1;
+                  my $dupname = $ihostname . "-DUP" . $i;
+                  my $outsh  = "./tacmd setagentconnection -n $j $iscope ";
                   $outsh .= "-e CTIRA_HOSTNAME=" . $dupname . " ";
                   $outsh .= "CTIRA_SYSTEM_NAME=" . $dupname . " ";
-                  my $outcmd = "tacmd setagentconnection -n $j -a ";
+                  my $outcmd = "tacmd setagentconnection -n $j $iscope ";
                   $outcmd .= "-e CTIRA_HOSTNAME=" . $dupname . " ";
                   $outcmd .= "CTIRA_SYSTEM_NAME=" . $dupname . " ";
                   print DEPSH  "$outsh\n";
                   print DEPCMD "$outcmd\n";
+                  print DEPSH "sleep $opt_dupsleep\n" if $opt_dupsleep != 0;
+                  print DEPCMD "choice /C YNC /D Y /N /T $opt_dupsleep >NUL 2>&1\n" if $opt_dupsleep != 0;
+                  print DEPCSV $j . "," . $dupname , ",,\n";
                }
-$DB::single=2;
             }
             close(DEPSH);
             close(DEPCMD);
+            close(DEPCSV);
          }
       }
-$DB::single=2;
-my $x = 1;
-
    }
 }
 
@@ -12880,7 +12918,7 @@ exit;
 #2.21000 - Handle a different case of inv file form.
 #2.22000 - Correct parsing of rpc__sar, three spaces to delimit segments
 #2.23000 - Extend report082 to include thrunode with the hostaddr
-#        - add -dup option to generate de-duplication .sh/.cmd files
+#2.24000 - add -dup option to generate de-duplication .sh/.cmd files
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
