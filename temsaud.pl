@@ -304,6 +304,8 @@ my $start_time = "";
 my $local_diff = -1;
 my $this_hostname = "";
 my $this_installer = "";
+my $this_gskit64 = "";
+my $this_gskit32 = "";
 
 my %agtosx = ( 'NT' => 1,
                'LZ' => 1,
@@ -1142,6 +1144,7 @@ my %knowntabx = (
                    'KOYPROBS'   => '252',
                    'KOYSEGD'    => '584',
                    'KOYSRVRE'   => '732',
+                   'KOYSRVR'    => '256',
                    'KOYSRVS'    => '292',
                    'KOYSTATS'   => '260',
                    'KPH03CPUSU' => '92',
@@ -1315,6 +1318,7 @@ my %knowntabx = (
                    'KYJAPSST' => '1516',
                    'KYJDATAS' => '1256',
                    'KYJGCACT' => '712',
+                   'KYJGCAF'  => '716',
                    'KYJJDKJVM' => '1704',
                    'KYJJDKOS' => '1456',
                    'KYJJMSSUM' => '952',
@@ -1429,6 +1433,8 @@ my %knowntabx = (
                    'READHIST'   => '748',
                    'REALTHDA'   => '1264',
                    'RNODESTS'      => '220',
+                   'KS7CACHE' => '476',
+                   'KS7CACHE1' => '476',
                    'SYSHEALTH'     => '132',
                    'SYSCPUUTIL' => '3890',
                    'T3FILEDPT' => '3704',
@@ -11422,7 +11428,7 @@ if ($gotnet == 1) {
 
 }
 
-# new report of netstat.info if it can be located
+# new report of cinfo.info if it can be located
 
 my $cinfopath;
 my $cinfofn;
@@ -11476,17 +11482,54 @@ if ($gotcin == 1) {
    my @cin = <CINFO>;
    close CINFO;
    $l = 0;
+   my $d1 = "";
+   my $d2 = "";
    foreach my $oneline (@cin) {
       $l++;
       chomp($oneline);
-      $oneline =~ /Host name :.*?(\S+).*?Installer Lvl:([0-9\.]*)/ if index($oneline,"Host name") != -1;
-      $oneline =~ /Host Name\s*:\s*(\S+)\s*Installer : Ver:\s*([0-9\.]*)/ if index($oneline,"Host Name") != -1;
-      next if !defined $1;
-      $this_hostname = $1 if defined $1;
-      $this_installer = $2 if defined $2;
-      $hdri++;$hdr[$hdri] = "hostname: $this_hostname";
-      $hdri++;$hdr[$hdri] = "Installer: $this_installer";
-      last;
+      if ($this_hostname eq "") {
+         $oneline =~ /Host name :.*?(\S+).*?Installer Lvl:([0-9\.]*)/ if index($oneline,"Host name") != -1;
+         $oneline =~ /Host Name\s*:\s*(\S+)\s*Installer : Ver:\s*([0-9\.]*)/ if index($oneline,"Host Name") != -1;
+         $this_hostname = $1 if defined $1;
+         $this_installer = $2 if defined $2;
+         if ($this_hostname ne "") {
+            $hdri++;$hdr[$hdri] = "hostname: $this_hostname";
+            $hdri++;$hdr[$hdri] = "Installer: $this_installer";
+         }
+
+      # gs   IBM GSKit Security Interface                              li6243  08.00.50.36   d5313a          -               0
+      # gs   IBM GSKit Security Interface                              lx8266  08.00.50.69   d6276a          -               0
+      } elsif (substr($oneline,0,2) eq "gs") {
+         $oneline =~/(3|6)\ .*(\d{2}\.\d{2}\.\d{2}\.\d{2})/;
+         my $ibit = $1;
+         my $iver = $2;
+         if (defined $2) {
+            if ($ibit == 3) {
+               $this_gskit32 = $iver;
+               $hdri++;$hdr[$hdri] = "GSKIT32: $this_gskit32";
+            } else {
+               $this_gskit64 = $iver;
+               $hdri++;$hdr[$hdri] = "GSKIT64: $this_gskit64";
+            }
+            last if ($this_gskit32 ne "") and ($this_gskit64 ne "")
+         }
+      # "GS","KGS(64-bit) GSK/IBM GSKit Security Interface","WIX64","080050690","d6276a","KGS64GSK.ver","0"
+      # "GS","KGS(32-bit) GSK/IBM GSKit Security Interface","WINNT","080050690","d6276a","KGSWIGSK.ver","0"
+      } elsif (substr($oneline,0,2) eq "\"GS\"") {
+         $oneline =~  /(WIX64|WINNT)\"\,\"(\d{9})\"/;
+         my $ibit = $1;
+         my $iver = $2;
+         if (defined $2) {
+            if ($ibit == "WINNT") {
+               $this_gskit32 = $iver;
+               $hdri++;$hdr[$hdri] = "GSKIT32: $this_gskit32";
+            } else {
+               $this_gskit64 = $iver;
+               $hdri++;$hdr[$hdri] = "GSKIT64: $this_gskit64";
+            }
+         }
+         last if ($this_gskit32 ne "") and ($this_gskit64 ne "")
+      }
    }
 }
 
@@ -12204,8 +12247,9 @@ if ($opt_sum != 0) {
    $sumline .= "$opt_driver ";
    $sumline .= "$trespermin ";
    $sumline .= "$pagto ";
-   $sumline .= "$this_hostname ";
-   $sumline .= "$this_installer";
+   $sumline .= "$this_hostname,";
+   $sumline .= "$this_installer,";
+   $sumline .= "$this_gskit64,$this_gskit32" . "(32)";
    my $sumfn = $opt_odir . "temsaud.txt";
    open SUM, ">$sumfn" or die "Unable to open summary output file $sumfn\n";
    print SUM "$sumline\n";
@@ -12506,7 +12550,9 @@ sub read_kib {
       $segp = 0;
       if ($segmax > 0) {
          if (defined $seg_time[1]) {
-            $skipzero = 1 if ($seg_time[1] - $seg_time[0]) > 3600;
+            if ($segmax >= 4) {
+               $skipzero = 1 if ($seg_time[1] - $seg_time[0]) > 3600;
+            }
          }
       }
       $segcurr = $seg[$segp];
@@ -12865,6 +12911,8 @@ exit;
 #2.23000 - Extend report082 to include thrunode with the hostaddr
 #2.24000 - add -dup option to generate de-duplication .sh/.cmd files
 #2.25000 - Simplify TEMS Audit logic by moving most to dup2go.pl logic
+#        - Add gskit versions to outputs
+#        - correct skipzero logic when less than 5 segments
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
