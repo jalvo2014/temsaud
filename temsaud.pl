@@ -144,7 +144,7 @@
 ## So avoiding the call, (by avoiding SSL), may avoid the hang.
 
 
-my $gVersion = 2.25000;
+my $gVersion = 2.27000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
@@ -616,6 +616,14 @@ my $csv1_path = "";
 my %net8x;
 my %net16x;
 my %net24x;
+
+my %iprpcx;
+
+my %newiipx;
+my %onlinex;
+my $newiip_lasttime = 0;
+my $newiip_go = 0;
+my %onlineipx;
 
 my %sitpdtx;
 my %pdtloadx;
@@ -1244,7 +1252,7 @@ my %knowntabx = (
                    'KSAOSP' => '644',
                    'KSAORASUM' => '596',
                    'KSAPERF' => '672',
-                   'KSAPROCESS' => '1052',
+                   'KSAPROCESS' => '1088',
                    'KSASERINFO' => '340',
                    'KSASLOG' => '1008',
                    'KSASLSYALT' => '1456',
@@ -4904,6 +4912,22 @@ for(;;)
          if ($logtime > $agto_etime) {
             $agto_etime = $logtime;
          }
+         if (substr($rest,-8,8) eq "ON-LINE."){;
+            my $online_ref = $onlinex{$iagent};
+            if (!defined $online_ref) {
+               my %onlineref = (
+                                  count => 0,
+                                  lines => {},
+                                  refs => [],
+                                  iipct => 0,
+                                  iips => {},
+                               );
+               $online_ref = \%onlineref;
+               $onlinex{$iagent} = \%onlineref;
+            }
+            $online_ref->{count} += 1;
+            $online_ref->{lines}{$l} = 1;
+         }
 
          # now track for Listen queue
 #         if (substr($rest,-8,8) eq "ON-LINE.") {
@@ -5149,6 +5173,15 @@ for(;;)
                   push @newPCB,$accept_ref;
                }
             }
+            if ($newiip_go == 0){
+               $newiip_lasttime = $logtime if $newiip_lasttime == 0;
+               if ($logtime - $newiip_lasttime < 60) {
+                  $newiip_lasttime = $logtime;
+               } else {
+                  $newiip_go = 1;
+               }
+            }
+            $newiipx{$l} = $iip if $newiip_go == 1;
             next;
          }
       }
@@ -7212,6 +7245,7 @@ for(;;)
          }
       }
    }
+   # (5EE1F8AD.010E-6D:kpxrpcrq.cpp,438,"PrintSelf") RPC request <183537575> to node Primary:APACMYENGAIRP04:NT address ip.pipe:#169.165.150.137[6015]
    if (substr($logunit,0,12) eq "kpxrpcrq.cpp") {
       if ($logentry eq "IRA_NCS_Sample") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -7459,6 +7493,43 @@ for(;;)
             if (defined $attrib) {
                $temsvagentx{$attrib} += 1;
             }
+         }
+      # (5EE1F8AD.010E-6D:kpxrpcrq.cpp,438,"PrintSelf") RPC request <183537575> to node Primary:APACMYENGAIRP04:NT address ip.pipe:#169.165.150.137[6015]
+      } elsif ($logentry eq "PrintSelf") { # Insufficient remote data for .SRVRADDN. Possible inconsistent definiton between agent and tems.
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         if (substr($rest,1,11) eq "RPC request") {
+            $rest =~ /to node (\S+) address.*\#(\S+)\[(\d+)\]/;
+            my $inode = $1;
+            my $iip = $2;
+            my $iport = $3;
+            $rest =~ /to node (\S+) address (\S+)/;
+            my $ihostaddr = $2;
+            my $iprpc_ref = $iprpcx{$iip};
+            if (!defined $iprpc_ref) {
+               my %iprpcref = (
+                                 count => 0,
+                                 instances => {},
+                                 instance_ct => 0,
+                              );
+               $iprpc_ref = \%iprpcref;
+               $iprpcx{$iip} = \%iprpcref;
+            }
+            $iprpc_ref->{count} += 1;
+            my $instance_ref = $iprpc_ref->{instances}{$inode};
+            if (!defined $instance_ref) {
+               my %instanceref = (
+                                    count => 0,
+                                    hostaddrs => {},
+                                    lines => [],
+                                 );
+               $instance_ref = \%instanceref;
+               $iprpc_ref->{instances}{$inode} = \%instanceref;
+               $iprpc_ref->{instance_ct} += 1;
+            }
+            $instance_ref->{count} += 1;
+            $instance_ref->{hostaddrs}{$ihostaddr} += 1;
+            push @{$instance_ref->{lines}},$l;
          }
       }
       next;
@@ -8269,7 +8340,7 @@ my $ss_ct = scalar keys %sitsuspx;
 if ($ss_ct > 0) {
    $rptkey = "TEMSREPORT081";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="$rptkey: Suspended Situations Wwaiting For Attribute Refresh\n";
+   $cnt++;$oline[$cnt]="$rptkey: Suspended Situations Waiting For Attribute Refresh\n";
    $cnt++;$oline[$cnt]="Situation,Count,\n";
    foreach $f ( sort { $a cmp $b } keys %sitsuspx) {
       $outl = $f . ",";
@@ -8341,11 +8412,13 @@ foreach $f ( sort { $sitres[$sitx{$b}] <=> $sitres[$sitx{$a}] ||
    $outl .= $sitres[$i] . ",";
    $respermin = int($sitres[$i] / ($dur / 60));
    $outl .= $respermin . ",";
-   my $fraction = ($respermin*100) / $trespermin;
+   my $fraction = 0;
+   $fraction = ($respermin*100) / $trespermin if $trespermin > 0;
    my $pfraction = sprintf "%.2f", $fraction;
    $outl .= $pfraction . "%,";
+   $fraction = 0;
    $crespermin += $respermin;
-   $fraction = ($crespermin*100) / $trespermin;
+   $fraction = ($crespermin*100) / $trespermin if $trespermin > 0;
    if ($res_max == 1) {
       if ($lag_fraction < $opt_nominal_workload) {
          $advi++;$advonline[$advi] = "Situation high rate $respermin [$pfraction%]";
@@ -9115,6 +9188,57 @@ $advi++;$advonline[$advi] = "Agents [$pagto] seen as Online or offline";
 $advcode[$advi] = "TEMSAUDIT1094I";
 $advimpact[$advi] = $advcx{$advcode[$advi]};
 $advsit[$advi] = "Onlines";
+
+my $online_ct = scalar keys %onlinex;
+if ($online_ct > 0) {
+   # prepare the needed data;
+   foreach my $o ( sort { $onlinex{$b}->{count} <=> $onlinex{$a}->{count} } keys %onlinex) {
+      my $online_ref = $onlinex{$o};
+      foreach $f (sort {$a <=> $b} keys %{$online_ref->{lines}}) {  # $f is line number where online was seen
+         my $lookback = $f - 8;
+         $lookback = 1 if $lookback < 1;
+         my $fline = 0;
+         for (my $i=$f;$i>=$lookback;$i--) {
+            next if !defined $newiipx{$i};
+            $fline = $i;
+            last;
+         }
+         if ($fline > 0) {
+            my $iip = $newiipx{$fline};
+            $onlineipx{$iip}{$o} += 1;
+            $online_ref->{iips}{$iip} += 1;
+            my @refdet = [$iip,$f,$fline];
+            push @{$online_ref->{refs}},\@refdet;
+            $online_ref->{iipct} += 1;
+            delete $newiipx{$fline};
+         }
+      }
+   }
+   $rptkey = "TEMSREPORT085";$advrptx{$rptkey} = 1;         # record report key
+#   $advi++;$advonline[$advi] = "$agto_mult Agents with repeated onlines - See Report $rptkey";
+#   $advcode[$advi] = "TEMSAUDIT1016W";
+#   $advimpact[$advi] = $advcx{$advcode[$advi]};
+#   $advsit[$advi] = "Onlines";
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Online Agent and calculated IP\n";
+   $cnt++;$oline[$cnt]="Node,NewPCB_Count,Disc_ct,IP_ct,Log_refs\n";
+   foreach my $o ( sort { $onlinex{$b}->{count} <=> $onlinex{$a}->{count} } keys %onlinex) {
+      my $online_ref = $onlinex{$o};
+      next if $online_ref->{iipct} <= 1;
+      $outl = $o . ",";
+      $outl .= $online_ref->{count} . ",";
+      $outl .= $online_ref->{iipct} . ",";
+      my $iip_ct = scalar keys %{$online_ref->{iips}};
+      $outl .= $iip_ct . ",";
+      my $iline = "";
+      foreach my $h (@{$online_ref->{refs}}) {
+         my @idata = @{$h};
+         $iline .= $idata[0][0] . "|" . $idata[0][1] . "|" . $idata[0][2] . " ";
+      }
+      $outl .= $iline;
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+}
 
 my $invi = keys %valvx;
 if ($invi > 0) {
@@ -10764,7 +10888,7 @@ if ($gate_dbl > 0) {
    $rptkey = "TEMSREPORT076";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Systems with Multiple Gateways\n";
-   $cnt++;$oline[$cnt]="System,Count,Gateways,\n";
+   $cnt++;$oline[$cnt]="System,Count,Gateways,Nodes\n";
    foreach $f ( sort { $a cmp $b } keys %physicalgx) {
       my $igate_ref = $physicalgx{$f};
       my $ephem_ct = scalar keys %{$igate_ref->{ephem}};
@@ -10779,12 +10903,24 @@ if ($gate_dbl > 0) {
       }
       chop($pgate) if $pgate ne "";
       $outl .= $pgate . ",";
+      my $pnode = "";
+      my $iprpc_ref = $iprpcx{$f};
+      if (defined $iprpc_ref) {
+         foreach my $j (keys %{$iprpc_ref->{instances}}) {
+            my $instance_ref = $iprpc_ref->{instances}{$j};
+            $pnode .= $j . "[" . $instance_ref->{count} . "] ";
+         }
+      }
+      chop($pnode) if $pnode ne "";
+      $outl .= $pnode . ",";
       $cnt++;$oline[$cnt]="$outl\n";
    }
    $advi++;$advonline[$advi] = "Multiple Gateway Systems[$gate_dbl] - See $rptkey report";
    $advcode[$advi] = "TEMSAUDIT1120E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
+   $crit_line = "2,$gate_dbl systems with multiple gateways seen in $rptkey Report";
+   push @crits,$crit_line;
 }
 
 
@@ -12913,6 +13049,8 @@ exit;
 #2.25000 - Simplify TEMS Audit logic by moving most to dup2go.pl logic
 #        - Add gskit versions to outputs
 #        - correct skipzero logic when less than 5 segments
+#2.26000 - newPCB versus agent online report
+#2.27000 - Extend REPORT076 information with Node counts when possible
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
@@ -17425,17 +17563,20 @@ Text: Systems with Multiple Gateways
 
 Sample Report
 System,Count,Gateways,
-10.171.81.160,2,ephemeral[1] TCP_Socket[866],
-10.239.153.19,2,ephemeral[1] TCP_Socket[960],
-10.239.153.21,2,ephemeral[1] TCP_Socket[963],
+10.171.81.114,2,ephemeral[1] TCP_Socket[2],Primary:IBM123:NT[5],
+10.218.121.46,2,TCP_Socket[3] ephemeral[1],Primary:IBM234:NT[35],
 
 Trace needed
 KBB_RAS1=error (comp:kde,unit:kdebp0r,Entry="receive_vectors" all er)(comp:kde,unit:kdeprxi,Entry="KDEP_ReceiveXID" all er)
 
 Meaning: These are systems which record that connections are being
-made via different gateways. The null gateway "" means a direct
+made via different gateways. The TCP_Socket gateway means a direct
 socket connection. "ephemeral" means a connection with an agent
 configured with EPHEMERAL:Y.
+
+The Nodes information is gathered from the number of incoming
+result data, if available. The following could is the number
+of result data arrivals in the diagnostic logs.
 
 ITM communications does not work relialbly when multiple gateways
 are used from the same system. The rule is that if you use something
@@ -17571,7 +17712,7 @@ on this system.
 ----------------------------------------------------------------
 
 TEMSREPORT081
-Text: Suspended Situations Wwaiting For Attribute Refresh
+Text: Suspended Situations Waiting For Attribute Refresh
 
 Trace: error
 
@@ -17693,4 +17834,54 @@ Subnets    The rest of the network address. A trailing * means an endpoint
            has a Recv-Q or Send-Q greater than zero.
 
 Recovery plan: Work with IBM Support to resolve these issues.
+----------------------------------------------------------------
+      `
+TEMSREPORT085
+Text: Online Agent and calculated IP
+
+Trace: error
+(5EAD2FD0.0002-15B0:kpxreqhb.cpp,974,"HeartbeatInserter") Remote node <mcelog:ibmpx25l01:LO> is ON-LINE.
+(5EAD2F6F.0024-16F0:kdepnpc.c,138,"KDEP_NewPCB") 9.225.72.20: 0D10037E, KDEP_pcb_t @ 86358D0 created
+
+Example report
+Node,NewPCB_Count,Disc_ct,IP_ct,Log_refs
+Primary:IBMWISEG20STD:NT,5,3,1,9.225.69.95|7432|7427 9.225.69.95|7449|7444 9.225.69.95|10527|10525
+Primary:IBMWWECN06L02:NT,4,3,2,9.233.70.84|4373|4366 9.225.0.174|4953|4951 9.225.0.174|8848|8846
+IBM_ORA_LXV5:p1ilwrgv23n01:LO,4,3,1,9.225.2.102|5347|5345 9.225.2.102|5372|5369 9.225.2.102|7225|7223
+IBM_APA_LXV5:p1ilwrgv23n01:LO,4,3,1,9.225.2.102|5356|5354 9.225.2.102|5384|5381 9.225.2.102|7234|7232
+IBM_WIN:P1MWISEG20STD:LO,4,1,1,9.225.69.95|10524|10521
+
+Meaning
+This an analysis of TEMS diagnostics looking at newPCB and agents going online
+recently [previous 8 lines in diagnostic log]. The data is only captured when
+there has been 60 seconds between newPCB lines. That avoids the messy first
+rush and concentrates on recurring issues where problems live.
+
+Node:         Agent name
+NewPCB_Count: Count newPCBs for this address
+Disc_ct:      Count newPCBs investigated. The first mad rush is ignored.
+IP_ct:        Count IP Addresses found
+Log_ref:      for each discovery, report the IP and diagnostic lines where the
+              on-line and the earlier newPCB was found. If there were multiple
+              diagnostic log segments, the count is over all logs.
+
+This exposes potential cases of duplicate agent cases. For example in the second
+report line the Windows OS Agent Primary:IBMWWECN06L02:NT was found in two
+different systems: 9.233.70.84 and 9.225.0.174.
+
+In also exposes potential cases of agent mal-configuration. For example in
+the first report line Primary:IBMWISEG20STD:NT was investigated 3 time. Each
+time it was going online from 9.225.69.95. That is abnornal and needs to be
+corrected.
+
+Not all reported issues will be problems. This is a huristic logic and may
+identify cases that are not really a problem. For example a simple agent
+recycle will show up. Network outages or remote TEMS recycles can also be
+in play. Focus on the ones with large discovery counts.
+
+The benefit is major because corrections mean a better monitored system and
+a less confusing one [duplicate agent name cases]. It also improves TEPS
+session performance and TEMS stability and resource usage.
+
+Recovery plan: Correct the reported issues. Call on IBM Support if needed.
 ----------------------------------------------------------------
