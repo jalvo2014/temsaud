@@ -17,6 +17,9 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
+my $gVersion = 2.28000;
+my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
+
 ## Todos
 ## Watch for Override messages
 ## Take Action command function for high usage
@@ -144,8 +147,6 @@
 ## So avoiding the call, (by avoiding SSL), may avoid the hang.
 
 
-my $gVersion = 2.27000;
-my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -306,6 +307,7 @@ my $this_hostname = "";
 my $this_installer = "";
 my $this_gskit64 = "";
 my $this_gskit32 = "";
+my $opt_dup_ct = 0;
 
 my %agtosx = ( 'NT' => 1,
                'LZ' => 1,
@@ -612,6 +614,8 @@ my $h;
 my $gsk701 = 0;
 my $csv1_path = "";
 
+my %reqlx = ();
+my $reql_ct = 0;
 
 my %net8x;
 my %net16x;
@@ -677,6 +681,8 @@ sub set_timeline;
 
 my $hdri = -1;                               # some header lines for report
 my @hdr = ();                                #
+
+my $usehandlenull_ct = 0;
 
 my $suspend_last = 0;
 my $suspend_ct = 0;
@@ -890,6 +896,8 @@ my %advcx = (
               "TEMSAUDIT1137E" => "109",
               "TEMSAUDIT1138E" => "100",
               "TEMSAUDIT1139I" => "0",
+              "TEMSAUDIT1140E" => "101",
+              "TEMSAUDIT1141W" => "95",
             );
 
 
@@ -985,6 +993,7 @@ my %knowntabx = (
                    'K1AWADPERF' => '360',
                    'K24EVENTLO' => '2864',
                    'K2SQUERYRE' => '212',
+                   'K3ZEVTLOG'  => '2984',
                    'K3ZNTDSDCA' => '1836',
                    'K3ZNTDSDCP' => '420',
                    'K3ZNTDSDAI' => '1140',
@@ -994,6 +1003,7 @@ my %knowntabx = (
                    'K3ZNTDSDRA' => '844',
                    'K3ZNTDSDS'  => '304',
                    'K3ZNTDSFRS' => '508',
+                   'K3ZNTDSFRT' => '3280',
                    'K3ZNTDSKCC' => '316',
                    'K3ZNTDSLDP' => '272',
                    'K3ZNTDSRLT' => '936',
@@ -1204,6 +1214,10 @@ my %knowntabx = (
                    'KQXPRESSRV' => '432',
                    'KQPAVAIL'   => '3244',
                    'KQPSHAREP0' => '200',
+                   'KR4DISK'    => '232',
+                   'KR4MEMORY'  => '244',
+                   'KR4PROC'    => '324',
+                   'KR4PROCSR'  => '76',
                    'KRAHIST'    => '332',
                    'KRZACTINS'  => '784',
                    'KRZACTINSR' => '216',
@@ -1608,6 +1622,7 @@ my %lociex = (                    # generic loci counter exclusion
                 "kdsstc1.c|ProcessTable" => 1,
                 "kdssqprs.c|PRS_ParseSql" => 1,
                 "kfastplr.c|KFA_LogRecTimestamp" => 1,
+                "kpxreqic.cpp|timeoutHandler" => 1,
              );
 
 my %rdx;
@@ -4372,6 +4387,81 @@ for(;;)
          $rest = $2;                       # Invalid Plan length. plan 9952 output 9952. status 58
          if (substr($rest,1,20) eq "Invalid Plan length.") {
             $invPlanLength += 1;
+         }
+         next;
+      }
+   }
+   # (5EF9441D.0339-75:kpxreqic.cpp,226,"timeoutHandler") UseHandle is NULL for IRACommandRequest object handle 0
+   if (substr($logunit,0,12) eq "kpxreqic.cpp") {
+      if ($logentry eq "timeoutHandler") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       #  UseHandle is NULL for IRACommandRequest object handle 0
+         if (substr($rest,1,46) eq "UseHandle is NULL for IRACommandRequest object") {
+            $usehandlenull_ct += 1;
+            next;
+         }
+      }
+
+      # (54E64441.0000-12:kpxreqds.cpp,2832,"timeout") Timeout for wlp_chstart_gmqc_std <26221448> *.QMCHANS.
+      # (54E7D64D.0000-12:kpxreqds.cpp,2832,"timeout") Timeout for  <1389379034> *.KINAGT.
+      if ($logentry eq "timeout") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Timeout for wlp_chstart_gmqc_std <26221448> *.QMCHANS.
+                                           # Timeout for  <1389379034> *.KINAGT.
+         next if substr($rest,1,11) ne "Timeout for";
+         my $isitname = "";
+         $itable = "";
+         if (substr($rest,14,1) eq "<") {
+            $rest =~ /\*\.(\S+)\./;
+            $itable = $1;
+         } else {
+            $rest =~ / Timeout for (\S+) .*\*\.(\S+)\./;
+            $isitname = $1;
+            $itable = $2;
+         }
+         $isitname = "*realtime" if $isitname eq "";
+         my $time_table_ref = $timex{$itable};
+         if (!defined $time_table_ref) {
+            my %table_tableref = ( count => 0,);
+            $timex{$itable} = \%table_tableref;
+            $time_table_ref  = \%table_tableref;
+         }
+         $time_table_ref->{count} += 1;
+         my $time_sit_ref = $timex{$itable}->{sit};
+         if (!defined $time_sit_ref) {
+            my %time_sitref   = ();
+            $time_sit_ref = \%time_sitref;
+            $timex{$itable}->{sit} = \%time_sitref;
+         }
+         $sit_ref = $timex{$itable}->{sit}{$isitname};
+         if (!defined $sit_ref) {
+            my %sitref = (count => 0);
+            $timex{$itable}->{sit}{$isitname} = \%sitref;
+            $sit_ref = \%sitref;
+         }
+         $sit_ref->{count} += 1;
+      }
+      next;
+   }
+   # (5EFC3455.0002-14:kpxrrega.cpp,148,"IRA_ReturnRequestList") IRA_NCS_RequestList_Cmp_v1 returned error 0x1c010001, node Primary:ITO075847:NT, transaction counter 50.
+   if (substr($logunit,0,12) eq "kpxrrega.cpp") {
+      if ($logentry eq "IRA_ReturnRequestList") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # IRA_NCS_RequestList_Cmp_v1 returned error 0x1c010001, node Primary:ITO075847:NT, transaction counter 50.
+         if (substr($rest,1,41) eq "IRA_NCS_RequestList_Cmp_v1 returned error") {
+            $rest =~ /error (\S+),.*node (\S+),/;
+            my $ierror = $1;
+            my $inode = $2;
+            my $reql_ref = $reqlx{$inode};
+            if (!defined $reql_ref) {
+               my %reqlref = (
+                               errors => {},
+                            );
+               $reql_ref = \%reqlref;
+               $reqlx{$inode} = \%reqlref;
+            }
+            $reql_ct += 1;
+            $reql_ref->{errors}{$ierror} += 1;
          }
          next;
       }
@@ -8079,6 +8169,15 @@ if ($hublost_total > 0) {
    }
 }
 
+if ($usehandlenull_ct > 0) {
+   $advi++;$advonline[$advi] = "TEMS Agent Proxy Timeouts [$usehandlenull_ct]";
+   $advcode[$advi] = "TEMSAUDIT1140E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "6,TEMS Agent Proxy Timeouts [$usehandlenull_ct]";
+   push @crits,$crit_line;
+}
+
 if ($hubconn_lost_total > 0) {
    $advi++;$advonline[$advi] = "TEMS has lost connection to HUB $hubconn_lost_total times";
    $advcode[$advi] = "TEMSAUDIT1138E";
@@ -9195,7 +9294,7 @@ if ($online_ct > 0) {
    foreach my $o ( sort { $onlinex{$b}->{count} <=> $onlinex{$a}->{count} } keys %onlinex) {
       my $online_ref = $onlinex{$o};
       foreach $f (sort {$a <=> $b} keys %{$online_ref->{lines}}) {  # $f is line number where online was seen
-         my $lookback = $f - 8;
+         my $lookback = $f - 3;
          $lookback = 1 if $lookback < 1;
          my $fline = 0;
          for (my $i=$f;$i>=$lookback;$i--) {
@@ -9238,6 +9337,29 @@ if ($online_ct > 0) {
       $outl .= $iline;
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
+}
+
+if ($reql_ct > 0) {
+   $rptkey = "TEMSREPORT086";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: TEMS/Agent coordination failure report\n";
+   $cnt++;$oline[$cnt]="Agent,Errors\n";
+   foreach my $f ( sort { $a cmp $b } keys %reqlx) {
+      my $reql_ref = $reqlx{$f};
+      $outl = $f . ",";
+      my $perr = "";
+      foreach my $e (keys %{$reql_ref->{errors}}) {
+         $perr .= $e . "[" . $reql_ref->{errors}{$e} . "] ";
+      }
+      chop($perr) if $perr ne "";
+      $outl .= $perr . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+   }
+   my $agt_ct = scalar keys %reqlx;
+   $advi++;$advonline[$advi] = "TEMS/Agent [$agt_ct] coordination failure - see report $rptkey";
+   $advcode[$advi] = "TEMSAUDIT1141W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
 }
 
 my $invi = keys %valvx;
@@ -10066,6 +10188,7 @@ if ($change_real > 0) {
          }
       }
    }
+}
 
 my $nodeiph_ct = scalar keys %nodeiphx;
 if ($nodeiph_ct > 0) {
@@ -10146,6 +10269,7 @@ if ($nodeiph_ct > 0) {
                my $dupagt_ref = $dupagtx{$j};
                foreach my $g (keys %{$dupagt_ref->{ipx}}) {
                   print DEPCSV $j . "," . $g . ",\n";
+                  $opt_dup_ct += 1;
                }
             }
             close(DEPCSV);
@@ -10154,84 +10278,121 @@ if ($nodeiph_ct > 0) {
    }
 }
 
+if ($online_ct > 0) {
+   if ($opt_dup == 1) {
+      my $xcnt = 0;
+      foreach my $o ( sort { $onlinex{$b}->{count} <=> $onlinex{$a}->{count} } keys %onlinex) {
+         my $online_ref = $onlinex{$o};
+         next if $online_ref->{iipct} <= 1;
+         my $iip_ct = scalar keys %{$online_ref->{iips}};
+         next if $iip_ct < 2;
+         $xcnt += 1;
+      }
+      if ($xcnt > 0) {
+         my $opt_dedup_csv = "dedup.csv";
+         if ($opt_dup_ct > 0) {
+            open DEPCSV, ">>$opt_dedup_csv" or die "can't open $opt_dedup_csv: $!";
+         } else {
+            open DEPCSV, ">$opt_dedup_csv" or die "can't open $opt_dedup_csv: $!";
+         }
+         foreach my $o ( sort { $onlinex{$b}->{count} <=> $onlinex{$a}->{count} } keys %onlinex) {
+            my $online_ref = $onlinex{$o};
+            next if $online_ref->{iipct} <= 1;
+            my $iip_ct = scalar keys %{$online_ref->{iips}};
+            next if $iip_ct < 2;
+            my %iipuse = ();
+            foreach my $h (@{$online_ref->{refs}}) {
+               my @idata = @{$h};
+               my $iip = $idata[0][0];
+               if (!defined $iipuse{$iip}) {
+                  $iipuse{$iip} = 1;
+                  print DEPCSV $o . ",ip.pipe:#" . $idata[0][0] . ",\n";
+               }
+            }
+         }
+         close(DEPCSV);
+      }
+   }
+}
 
-   $rptkey = "TEMSREPORT070";$advrptx{$rptkey} = 1;         # record report key
-   $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - Multi Listening Ports\n";
-   $cnt++;$oline[$cnt]="Hostaddr,Port_Count,Nodes,Ports,\n";
-   my $iportcnt = 0;
-   foreach $f ( keys %nodeippx) {
-      my $node_ipp_ref = $nodeippx{$f};
-      $node_ipp_ref->{count} = scalar keys %{$node_ipp_ref->{ports}};
+$rptkey = "TEMSREPORT070";$advrptx{$rptkey} = 1;         # record report key
+$cnt++;$oline[$cnt]="\n";
+$cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - Multi Listening Ports\n";
+$cnt++;$oline[$cnt]="Hostaddr,Port_Count,Nodes,Ports,\n";
+my $iportcnt = 0;
+foreach $f ( keys %nodeippx) {
+   my $node_ipp_ref = $nodeippx{$f};
+   $node_ipp_ref->{count} = scalar keys %{$node_ipp_ref->{ports}};
+}
+foreach $f ( sort { $nodeippx{$b}->{count} <=> $nodeippx{$a}->{count}} keys %nodeippx) {
+   my $node_ipp_ref = $nodeippx{$f};
+   next if $node_ipp_ref->{count} < 3;
+   $iportcnt += 1;
+   $outl = $node_ipp_ref->{count} . ",";
+   $outl .= $f . ",";
+   my $pnode = "";
+   foreach my $j (keys %{$node_ipp_ref->{nodes}}) {
+      $pnode .= $j . " ";
    }
-   foreach $f ( sort { $nodeippx{$b}->{count} <=> $nodeippx{$a}->{count}} keys %nodeippx) {
-      my $node_ipp_ref = $nodeippx{$f};
-      next if $node_ipp_ref->{count} < 3;
-      $iportcnt += 1;
-      $outl = $node_ipp_ref->{count} . ",";
-      $outl .= $f . ",";
-      my $pnode = "";
-      foreach my $j (keys %{$node_ipp_ref->{nodes}}) {
-         $pnode .= $j . " ";
-      }
-      chop($pnode) if $pnode ne "";
-      $outl .= $pnode . ",";
-      my $pport = "";
-      foreach my $j (keys %{$node_ipp_ref->{ports}}) {
-         $pport .= $j . " ";
-      }
-      $outl .= $pport . ",";
-      $cnt++;$oline[$cnt]="$outl\n";
+   chop($pnode) if $pnode ne "";
+   $outl .= $pnode . ",";
+   my $pport = "";
+   foreach my $j (keys %{$node_ipp_ref->{ports}}) {
+      $pport .= $j . " ";
    }
-   if ($iportcnt > 0 ) {
-      $advi++;$advonline[$advi] = "$iportcnt agents with multiple listening ports - see $rptkey report";
-      $advcode[$advi] = "TEMSAUDIT1106W";
-      $advimpact[$advi] = $advcx{$advcode[$advi]};
-      $advsit[$advi] = "diagnostic";
-   }
+   $outl .= $pport . ",";
+   $cnt++;$oline[$cnt]="$outl\n";
+}
+if ($iportcnt > 0 ) {
+   $advi++;$advonline[$advi] = "$iportcnt agents with multiple listening ports - see $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1106W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "diagnostic";
+}
 
-   my $flip_hour;
-   my $flip_ct;
-   my $change_ct = 0;
-   $rptkey = "TEMSREPORT066";$advrptx{$rptkey} = 1;         # record report key
-   $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Summary by hour\n";
-   $cnt++;$oline[$cnt]="LocalTime,Changes,Nodes,Types,Thrunodes,\n";
-   foreach $f ( sort { $a <=> $b } keys %changetx) {
-      $changet_ref = $changetx{$f};
-      $flip_hour += 1;
-      $outl = $f . ",";
-      $outl .= $changet_ref->{count} . ",";
-      $change_ct += $changet_ref->{count};
-      my $agent_ct = scalar keys %{$changet_ref->{nodes}};
-      $flip_ct += $agent_ct;
-      $outl .= $agent_ct . ",";
-      my $pdesc = "";
-      foreach $g ( sort {$a cmp $b} keys %{$changet_ref->{desc}}) {
-         $pdesc .= $g . "[" . $changet_ref->{desc}{$g} . "] ";
-      }
-      chop($pdesc) if $pdesc ne "";
-      $outl .= $pdesc . ",";
-      my $pthru = "";
-      foreach $g ( sort { $changet_ref->{thrunodes}{$b} <=> $changet_ref->{thrunodes}{$a} ||
-                          $a cmp $b} keys %{$changet_ref->{thrunodes}}) {
-         $pthru .= $g . "[" . $changet_ref->{thrunodes}{$g} . "] ";
-      }
-      chop($pthru) if $pthru ne "";
-      $outl .= $pthru . ",";
-      $cnt++;$oline[$cnt]="$outl\n";
+my $flip_hour = 0;
+my $flip_ct;
+my $change_ct = 0;
+$rptkey = "TEMSREPORT066";$advrptx{$rptkey} = 1;         # record report key
+$cnt++;$oline[$cnt]="\n";
+$cnt++;$oline[$cnt]="$rptkey: Agent Flipping Summary by hour\n";
+$cnt++;$oline[$cnt]="LocalTime,Changes,Nodes,Types,Thrunodes,\n";
+foreach $f ( sort { $a <=> $b } keys %changetx) {
+   $changet_ref = $changetx{$f};
+   $flip_hour += 1;
+   $outl = $f . ",";
+   $outl .= $changet_ref->{count} . ",";
+   $change_ct += $changet_ref->{count};
+   my $agent_ct = scalar keys %{$changet_ref->{nodes}};
+   $flip_ct += $agent_ct;
+   $outl .= $agent_ct . ",";
+   my $pdesc = "";
+   foreach $g ( sort {$a cmp $b} keys %{$changet_ref->{desc}}) {
+      $pdesc .= $g . "[" . $changet_ref->{desc}{$g} . "] ";
    }
-   my $flip_rate = $change_ct / $flip_hour;
-   if ($flip_rate > 6) {
-      my $res_pc = ($change_ct)/$flip_hour;
-      my $ppc = sprintf '%.2f', $res_pc;
-      $advi++;$advonline[$advi] = "Agent Flip Rate $ppc per hour - see $rptkey report";
-      $advcode[$advi] = "TEMSAUDIT1129W";
-      $advimpact[$advi] = $advcx{$advcode[$advi]};
-      $advsit[$advi] = "TEMS";
-      $crit_line = "2,Agent Change Flip Rate $ppc per hour - see $rptkey report";
-      push @crits,$crit_line;
+   chop($pdesc) if $pdesc ne "";
+   $outl .= $pdesc . ",";
+   my $pthru = "";
+   foreach $g ( sort { $changet_ref->{thrunodes}{$b} <=> $changet_ref->{thrunodes}{$a} ||
+                       $a cmp $b} keys %{$changet_ref->{thrunodes}}) {
+      $pthru .= $g . "[" . $changet_ref->{thrunodes}{$g} . "] ";
    }
+   chop($pthru) if $pthru ne "";
+   $outl .= $pthru . ",";
+   $cnt++;$oline[$cnt]="$outl\n";
+}
+
+my $flip_rate = 0;
+$flip_rate = $change_ct / $flip_hour if $flip_hour != 0;
+if ($flip_rate > 6) {
+   my $res_pc = ($change_ct)/$flip_hour;
+   my $ppc = sprintf '%.2f', $res_pc;
+   $advi++;$advonline[$advi] = "Agent Flip Rate $ppc per hour - see $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1129W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "2,Agent Change Flip Rate $ppc per hour - see $rptkey report";
+   push @crits,$crit_line;
 }
 
 $resume_ct = scalar keys %resumex;
@@ -11351,6 +11512,7 @@ if ($gotnet == 1) {
                $localsystem = $1 if defined $1;
                $localport = $2 if defined $2;
                $foreignad =~ /(\S+)[:\.](\S+)/;
+               next if substr($foreignad,0,4) eq ":::*";
                $foreignsystem = $1 if defined $1;
                $foreignport = $2 if defined $2;
                if ((defined $nzero_ports{$localport}) or (defined $nzero_ports{$foreignport})) {
@@ -13051,6 +13213,11 @@ exit;
 #        - correct skipzero logic when less than 5 segments
 #2.26000 - newPCB versus agent online report
 #2.27000 - Extend REPORT076 information with Node counts when possible
+#2.28000 - Ignore foreign address of :::*
+#        - Add advisory 1140E when TEMS too busy
+#        - Add advisory 1141W when TEMS/Agent coordination fails
+#        - collect report085 duplicate possibles
+#        - in report085 look back only 3 lines
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
@@ -15583,6 +15750,45 @@ In this case the situation status is simply created as it should be. This is not
 an actual error, more like a comment to help understant some conditions.
 
 Recovery plan: Informational only.
+----------------------------------------------------------------
+
+TEMSAUDIT1140E
+Text: TEMS Agent Proxy Timeouts [count]
+
+Tracing: error
+(5EF9441D.0339-75:kpxreqic.cpp,226,"timeoutHandler") UseHandle is NULL for IRACommandRequest object handle 0
+
+Meaning: The Agent Proxy reports that its distribution of
+TEMA commands (StartAgent, StopAgent, etc) is timing out.
+The Agent Proxy distributes the commands to all distributed
+systems that are configured.  The logic is that the commands
+must complete within 120 seconds.
+
+If there is an intervening condition that makes the software
+object that is associated with the command request to be no
+longer valid, then the associated timer for the command is
+also not valid and the resulting message is reported in the
+trace log. It is not an error, but instead a symptom of a problem
+that the TEMS is experiencing distributing the commands to its
+reporting agents.
+
+Recovery plan: Reduce the TEMS workload. That usually means runing
+fewer agents. It could also mean reducing the situation workload
+or running the TEMS on a more powerful system. In the critical case
+where this was diagnosed, a hub TEMS had been accidentally configured
+with 12,500+ agents. This was seen quite a lot.
+----------------------------------------------------------------
+
+TEMSAUDIT1141W
+Text: TEMS/Agent [count] coordination failure
+
+Tracing: error
+(5EFC3455.0002-14:kpxrrega.cpp,148,"IRA_ReturnRequestList") IRA_NCS_RequestList_Cmp_v1 returned error 0x1c010001, node Primary:ITO075847:NT, transaction counter 50.
+
+Meaning: See TEMSREPORT086 for details
+
+Recovery plan: See TEMSREPORT086 for details
+----------------------------------------------------------------
 
 TEMSREPORT001
 Text: Too Big Report
@@ -17884,4 +18090,33 @@ a less confusing one [duplicate agent name cases]. It also improves TEPS
 session performance and TEMS stability and resource usage.
 
 Recovery plan: Correct the reported issues. Call on IBM Support if needed.
+----------------------------------------------------------------
+      `
+TEMSREPORT086
+Text: TEMS/Agent coordination failure report
+
+Trace: error
+(5EFC3455.0002-14:kpxrrega.cpp,148,"IRA_ReturnRequestList") IRA_NCS_RequestList_Cmp_v1 returned error 0x1c010001, node Primary:ITO075847:NT, transaction counter 50.
+
+Example report
+Agent,Errors
+Primary:IBMO075847:NT,0x1c010001[8],
+
+Meaning
+When an agent connects with a TEMS, there is a coordination process performed
+which ensures the agent knows what situations it will be running. The agent
+maintains a persisant situation file for cases when the agent starts up and
+no TEMS is available.
+
+This error condition means the coordination process failed. This is rare but
+it might mean that the persistent situation file is corrupted in some way. The
+impact is that the agent will not know what situations to run when it starts
+and no TEMS is available.
+
+Recovery plan: Usually you can correct the issue by stopping the agent, deleting
+the persistant situation file and restarting the agent. On Linux/Unix this is
+found in <install>/<arch>/<pc> and has the form psit_<agent_name>.str
+On Windows the persistence files are found in <installdir>\TMAITM6
+and the name has the same form except that the colon [:] in the name
+is replaced by an underline. If this does not resolve the issue, contact IBM Support
 ----------------------------------------------------------------
