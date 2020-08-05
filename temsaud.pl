@@ -17,7 +17,7 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
-my $gVersion = 2.28000;
+my $gVersion = 2.29000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 ## Todos
@@ -146,7 +146,8 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 ## The thread never returns from this ssl_provider_open call.
 ## So avoiding the call, (by avoiding SSL), may avoid the hang.
 
-
+## (5F24B0ED.0005-86:kfansins.c,744,"FilteredAway") Node Status Update of <aia_win2012r2image:NT           > is ignored.
+## +5F24B0ED.0005  Heartbeat timestamp is older than previously received by current thrunode <REMOTE_AUBHDPLITM010            >New thrunode would have been <REMOTE_AUULDPLITM010            >
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -898,6 +899,9 @@ my %advcx = (
               "TEMSAUDIT1139I" => "0",
               "TEMSAUDIT1140E" => "101",
               "TEMSAUDIT1141W" => "95",
+              "TEMSAUDIT1142E" => "103",
+              "TEMSAUDIT1143W" => "90",
+              "TEMSAUDIT1144I" => "0",
             );
 
 
@@ -933,6 +937,7 @@ my %knowntabx = (
                    'K06CSCRIP2' => '304',
                    'JNC747300'  => '136',
                    'K06LOGFILE' => '2824',
+                   'K06K06LOG0' => '600',
                    'K06K06CUS0' => '924',
                    'K06PERLEX0' => '364',
                    'K06PERLEX1' => '344',
@@ -1070,7 +1075,9 @@ my %knowntabx = (
                    'KHTAWEBST'     => '956',
                    'KHTWSRS'       => '1000',
                    'KHVGETDIS0'    => '280',
-                   'KHVGETVIR0'    => '792',
+                   'KHVGETVIR0'    => '860',
+                   'KHVHVSDISK'    => '192',
+                   'KHVHYLPROC'    => '224',
                    'KHVHYPERV'     => '80',
                    'KHVHYPVRST'    => '188',
                    'KHVHYRPROC'    => '228',
@@ -1125,6 +1132,7 @@ my %knowntabx = (
                    'KNTPASCAP' => '3000',
                    'KNTPASSTAT' => '1392',
                    'KNTSCRRTM'  => '3544',
+                   'KNTSCRTSM'  => '3544',
                    'KNU03VOL'    => '532',
                    'KOQDBD' => '2712',
                    'KOQDBMIR' => '672',
@@ -1214,6 +1222,11 @@ my %knowntabx = (
                    'KQXPRESSRV' => '432',
                    'KQPAVAIL'   => '3244',
                    'KQPSHAREP0' => '200',
+                   'KR2DISK'    => '232',
+                   'KR2HRMEM'   => '232',
+                   'KR2PROCLST' => '260',
+                   'KR2PROCSR'  => '264',
+                   'KR2PROCSRT' => '64',
                    'KR4DISK'    => '232',
                    'KR4MEMORY'  => '244',
                    'KR4PROC'    => '324',
@@ -1305,6 +1318,7 @@ my %knowntabx = (
                    'KUXPASSTAT' => '1384',
                    'KUXSCRPTS' => '3952',
                    'KUXSCRTSM' => '3544',
+                   'KVA02STORA' => '2936',
                    'KVA16CPUSU' => '240',
                    'KVA21PAGIN' => '76',
                    'KVA22LOGIC' => '1076',
@@ -1315,21 +1329,27 @@ my %knowntabx = (
                    'KVA40NETWO' => '1527',
                    'KVA42NETWO' => '996',
                    'KVA51MPIOS' => '528',
+                   'KVA51DEVIC' => '528',
+                   'KVA55NPIVM' => '656',
                    'KVMAEVENTS' => '192',
+                   'KVMCLTRDST' => '906',
                    'KVMCLUSTRT' => '872',
-                   'KVMDSTORES'    => '1276',
+                   'KVMDSTORES' => '1276',
+                   'KVMRSPOOLC' => '612',
                    'KVMRSPOOLM' => '612',
+                   'KVMSERVERC' => '268',
                    'KVMSERVERD' => '568',
                    'KVMSERVERE' => '1876',
                    'KVMSERVERG' => '2288',
+                   'KVMSERVERM' => '340',
                    'KVMSERVERN' => '804',
                    'KVMSERVRDS' => '720',
                    'KVMSRVHBAS' => '644',
                    'KVMSVRHLTH' => '752',
                    'KVMSRVRSAN' => '460',
                    'KVMTOPO'    => '798',
-                   'KVMVCENTER'    => '416',
-                   'KVMVM_GEN'  => '1752',
+                   'KVMVCENTER' => '416',
+                   'KVMVM_GEN'  => '1760',
                    'KVMVM_MEM' => '632',
                    'KVMVM_NET' => '1072',
                    'KVMVM_PART' => '576',
@@ -1368,7 +1388,7 @@ my %knowntabx = (
                    'KYNLPORT'      => '1444',
                    'KYNMSGQUE'     => '1276',
                    'KYNREQHIS'     => '964',
-                   'KYNREQUEST'    => '1476',
+                   'KYNREQUEST'    => '1488',
                    'KYNSERVLT'     => '1296',
                    'KYNTHRDP'   => '852',
                    'KZABPCHECK' => '4192',
@@ -1413,6 +1433,8 @@ my %knowntabx = (
                    'MSEPRXY' => '116',
                    'MSEREPL' => '148',
                    'MSERPCCA' => '152',
+                   'MSESERVR' => '2744',
+                   'MSESRVCD' => '488',
                    'MSESTOINT' => '760',
                    'MSETRQUE' => '616',
                    'NETWRKIN' => '476',
@@ -4280,6 +4302,8 @@ for(;;)
       if ($logentry eq "IBInterface::doStageTwoProcess") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Begin stage 2 processing. Database and IB Cache synchronization with the hub
+         my $mkey = $logtimehex . "|" . $l;
+         $mhmx{$mkey} = $rest;
          set_timeline($logtime,$l,$logtimehex,"TEMSAUDIT1036W",$rest);
          if (substr($rest,1,13) eq "Begin stage 2") {
             $stage2_ct += 1;
@@ -5263,6 +5287,8 @@ for(;;)
                   push @newPCB,$accept_ref;
                }
             }
+
+            # wait for a one minute gap before proceeding
             if ($newiip_go == 0){
                $newiip_lasttime = $logtime if $newiip_lasttime == 0;
                if ($logtime - $newiip_lasttime < 60) {
@@ -5271,7 +5297,13 @@ for(;;)
                   $newiip_go = 1;
                }
             }
-            $newiipx{$l} = $iip if $newiip_go == 1;
+            # Even if generally ready to record, only accept if gap from previous is more than a second
+            if ($newiip_go == 1) {
+               if ($logtime - $newiip_lasttime > 1) {
+                  $newiipx{$l} = $iip;
+               }
+               $newiip_lasttime = $logtime;
+            }
             next;
          }
       }
@@ -7125,6 +7157,8 @@ for(;;)
    }
 
    #(58E42EB8.0000-1110:kdsdscom.c,196,"VDM1_Malloc") GMM1_AllocateStorage failed - 1
+   #(5F1F490F.0001-63:kdsdscom.c,218,"VDM1_Malloc") Could not acquire 758123397 bytes for kdsrsr2.c line 320, status = 1
+   # when TS003722911 diagnosed, add something here
    if (substr($logunit,0,10) eq "kdsdscom.c") {
       if ($logentry eq "VDM1_Malloc") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -9309,7 +9343,7 @@ if ($online_ct > 0) {
             my @refdet = [$iip,$f,$fline];
             push @{$online_ref->{refs}},\@refdet;
             $online_ref->{iipct} += 1;
-            delete $newiipx{$fline};
+##remove    delete $newiipx{$fline};
          }
       }
    }
@@ -9327,8 +9361,15 @@ if ($online_ct > 0) {
       $outl = $o . ",";
       $outl .= $online_ref->{count} . ",";
       $outl .= $online_ref->{iipct} . ",";
+
       my $iip_ct = scalar keys %{$online_ref->{iips}};
       $outl .= $iip_ct . ",";
+      my $ppips = "";
+      foreach my $i (keys %{$online_ref->{iips}}) {
+         $ppips .= $i . "[" . $online_ref->{iips}{$i} . "] ";
+      }
+      chop($ppips) if $ppips ne "";
+      $outl .= $ppips . ",";
       my $iline = "";
       foreach my $h (@{$online_ref->{refs}}) {
          my @idata = @{$h};
@@ -10278,6 +10319,7 @@ if ($nodeiph_ct > 0) {
    }
 }
 
+
 if ($online_ct > 0) {
    if ($opt_dup == 1) {
       my $xcnt = 0;
@@ -10300,10 +10342,18 @@ if ($online_ct > 0) {
             next if $online_ref->{iipct} <= 1;
             my $iip_ct = scalar keys %{$online_ref->{iips}};
             next if $iip_ct < 2;
+            my $mipcnt = 0;
+            foreach my $i (keys %{$online_ref->{iips}}) {
+               $mipcnt = $online_ref->{iips}{$i} if $online_ref->{iips}{$i} > $mipcnt;
+            }
+$DB::single=2;
+            my $ipcut = int($mipcnt/4);
             my %iipuse = ();
             foreach my $h (@{$online_ref->{refs}}) {
                my @idata = @{$h};
+$DB::single=2;
                my $iip = $idata[0][0];
+               next if $online_ref->{iips}{$iip} < $ipcut;
                if (!defined $iipuse{$iip}) {
                   $iipuse{$iip} = 1;
                   print DEPCSV $o . ",ip.pipe:#" . $idata[0][0] . ",\n";
@@ -11845,7 +11895,7 @@ if ($env_eph > 0) {
       $outl .= $ah[0][3] . ",";
       $cnt++;$oline[$cnt]="$outl\n";
    }
-   $advi++;$advonline[$advi] = "ITM processes [$env_eph] have EPHEMERAL:Y which can disrupt TEMS communications";
+   $advi++;$advonline[$advi] = "ITM processes [$env_eph] have EPHEMERAL:Y which can disrupt TEMS communications - See report $rptkey";
    $advcode[$advi] = "TEMSAUDIT1132E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
@@ -12037,6 +12087,52 @@ if ($prob_initial > 0) {
          set_timeline($itime,0,"","TEMSREPORT054","remote TEMS $f initial heartbeat");
       }
    }
+}
+
+
+
+my $stageII_max = 0;
+my $stageII_lag = 0;
+my $stageII_ct = 0;
+# 5EF42D59,20200624215137,21644, Begin stage 2 processing. Database and IB Cache synchronization with the hub,
+# 5EF42E12,20200624215442,23095, End stage 2 processing. Database and IB Cache synchronization with the hub with return code: 0,
+foreach $f ( sort { $a cmp $b } keys %mhmx) {
+   if (substr($mhmx{$f},0,14) eq " Begin stage 2") {
+      $stageII_lag = hex(substr($f,0,8));
+      next;
+   }
+   if (substr($mhmx{$f},0,12) eq " End stage 2") {
+      if ($stageII_lag > 0) {
+         my $idur =  hex(substr($f,0,8)) - $stageII_lag;
+         $stageII_max = $idur if $idur > $stageII_max;
+         $stageII_ct += 1;
+      }
+   }
+}
+if ($stageII_lag > 300) {
+   $advi++;$advonline[$advi] = "HUB sync count[$stageII_ct] max[$stageII_max] seconds";
+   $advcode[$advi] = "TEMSAUDIT1142E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "1,HUB sync count[$stageII_ct] max[$stageII_max] seconds";
+   push @crits,$crit_line;
+} elsif ($stageII_ct > 4) {
+   $advi++;$advonline[$advi] = "HUB sync count[$stageII_ct] max[$stageII_max] seconds";
+   $advcode[$advi] = "TEMSAUDIT1142E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "1,HUB sync count[$stageII_ct] max[$stageII_max] seconds";
+   push @crits,$crit_line;
+} elsif ($stageII_ct > 1) {
+   $advi++;$advonline[$advi] = "HUB sync count[$stageII_ct] max[$stageII_max] seconds";
+   $advcode[$advi] = "TEMSAUDIT1143W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+} elsif ($stageII_ct > 0) {
+   $advi++;$advonline[$advi] = "HUB sync count[$stageII_ct] max[$stageII_max] seconds - not a problem";
+   $advcode[$advi] = "TEMSAUDIT1144I";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
 }
 
 
@@ -13218,6 +13314,9 @@ exit;
 #        - Add advisory 1141W when TEMS/Agent coordination fails
 #        - collect report085 duplicate possibles
 #        - in report085 look back only 3 lines
+#2.29000 - Add Stage II logs to report044
+#        - Add advisories on hub/remote resync
+#        - improve newpcb/online logic heuristics
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
@@ -15788,6 +15887,58 @@ Tracing: error
 Meaning: See TEMSREPORT086 for details
 
 Recovery plan: See TEMSREPORT086 for details
+----------------------------------------------------------------
+
+TEMSAUDIT1142E
+Text: HUB sync count[count] max[secs] seconds
+
+Tracing: error
+(5D7A2DD2.0016-7:ko4crtsq.cpp,6931,"IBInterface::doStageTwoProcess") Begin stage 2 processing. Database and IB Cache synchronization with the hub
+(5D7A2E1E.0000-7:ko4crtsq.cpp,7146,"IBInterface::doStageTwoProcess") End stage 2 processing. Database and IB Cache synchronization with the hub with return code: 0
+
+Meaning: The resync to hub TEMS has occured more than 5 times OR
+the maximum duration of the sync is more than 300 seconds. This
+should only happen once, unless perhaps the hub TEMS is recycled.
+It can also mean a communication disturbance. That is most often
+caused by a mal-configuration but sometimes a network issue is
+diagnosed.
+
+In default configuration, the maximum time to retrieve data from
+the hub TEMS is 600 seconds [per table]. A high number of seconds
+suggests the remote TEMS is on a high latency link. The TEMS/TEMS
+communication does not work well on such links and many problems
+may follow. Some customers have had to change to installing a new
+hub TEMS at the remote site.
+
+Recovery plan: Review ITM configuration. Involve ITM support if
+needed.
+----------------------------------------------------------------
+
+TEMSAUDIT1143W
+Text: HUB sync count[count] max[secs] seconds
+
+Tracing: error
+(5D7A2DD2.0016-7:ko4crtsq.cpp,6931,"IBInterface::doStageTwoProcess") Begin stage 2 processing. Database and IB Cache synchronization with the hub
+(5D7A2E1E.0000-7:ko4crtsq.cpp,7146,"IBInterface::doStageTwoProcess") End stage 2 processing. Database and IB Cache synchronization with the hub with return code: 0
+
+Meaning: The resync to hub TEMS has occured more than once. That
+usually only happens during a remote TEMS reycle and is normal.
+If it happens regularly, an investigation should be undertaken.
+
+Recovery plan: Review ITM configuration. Involve ITM support if
+needed.
+----------------------------------------------------------------
+
+TEMSAUDIT1144I
+Text: HUB sync count[count] max[secs] seconds
+
+Tracing: error
+(5D7A2DD2.0016-7:ko4crtsq.cpp,6931,"IBInterface::doStageTwoProcess") Begin stage 2 processing. Database and IB Cache synchronization with the hub
+(5D7A2E1E.0000-7:ko4crtsq.cpp,7146,"IBInterface::doStageTwoProcess") End stage 2 processing. Database and IB Cache synchronization with the hub with return code: 0
+
+Meaning: This is produced when just one recsync has been seen.
+
+Recovery plan: Informational only.
 ----------------------------------------------------------------
 
 TEMSREPORT001
