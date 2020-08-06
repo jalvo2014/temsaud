@@ -12109,7 +12109,7 @@ foreach $f ( sort { $a cmp $b } keys %mhmx) {
       }
    }
 }
-if ($stageII_lag > 300) {
+if ($stageII_max > 300) {
    $advi++;$advonline[$advi] = "HUB sync count[$stageII_ct] max[$stageII_max] seconds";
    $advcode[$advi] = "TEMSAUDIT1142E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
