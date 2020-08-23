@@ -17,7 +17,7 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
-my $gVersion = 2.29000;
+my $gVersion = 2.30000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 ## Todos
@@ -622,6 +622,11 @@ my %net8x;
 my %net16x;
 my %net24x;
 
+my @stage2;
+my $stage2_ref;
+my $stage2ct = -1;
+my $stage2in = 0;
+
 my %iprpcx;
 
 my %newiipx;
@@ -902,6 +907,8 @@ my %advcx = (
               "TEMSAUDIT1142E" => "103",
               "TEMSAUDIT1143W" => "90",
               "TEMSAUDIT1144I" => "0",
+              "TEMSAUDIT1145E" => "101",
+              "TEMSAUDIT1146E" => "95",
             );
 
 
@@ -970,13 +977,16 @@ my %knowntabx = (
                    'K08CLUSTER' => '584',
                    'K08K08CUS0' => '924',
                    'K08K08FIL0' => '988',
-                   'K08K08FSA0' => '1712',
-                   'K08K08LOG0' => '1416',
-                   'K08K08MAI1' => '444',
+                   'K08K08FSA0' => '1968',
+                   'K08K08LOG0' => '1672',
+                   'K08K08MAI0' => '52',
+                   'K08K08MAI1' => '700',
+                   'K08K08NET0' => '357',
                    'K08K08PAR0' => '856',
-                   'K08K08PROC' => '4043',
-                   'K08K08SCR0' => '1416',
-                   'K08K08URL0' => '640',
+                   'K08K08PROC' => '4299',
+                   'K08K08SCR0' => '1672',
+                   'K08K08TRA0' => '332',
+                   'K08K08URL0' => '896',
                    'K08K08USE0' => '372',
                    'K08POBJST'  => '324',
                    'K09K09CUS0' => '924',
@@ -4308,10 +4318,59 @@ for(;;)
          if (substr($rest,1,13) eq "Begin stage 2") {
             $stage2_ct += 1;
             $stage2 .= "Begin-" . $logtime . ":";
+            $stage2ct += 1;
+            my %stage2ref = (
+                               epoch => $logtimehex,
+                               thread => $logthread,
+                               begin => $logtime,
+                               begin_l => $l,
+                               tnodelst => {},
+                               tobjaccl => {},
+                               tsitdesc => {},
+                               end   => 0,
+                               end_l  => 0,
+                               fail => 0,
+                               error => 0,
+                               error_l => 0,
+                               error_line => "",
+                               interupt => 0,
+                               table => "",
+                            );
+
+            $stage2[$stage2ct] = \%stage2ref;
+            $stage2_ref = \%stage2ref;
+            $stage2in = 1;
+            $stage2_ref->{tnodelst}{size} = 224;
+            $stage2_ref->{tobjaccl}{size} = 480;
+            $stage2_ref->{tsitdesc}{size} = 4000;
+            $stage2_ref->{tnodelst}{syndrq} = "";
+            $stage2_ref->{tobjaccl}{syndrq} = "";
+            $stage2_ref->{tsitdesc}{syndrq} = "";
          } elsif (substr($rest,1,11) eq "End stage 2") {
             $stage2_ct += 1;
             $stage2 .= "End-" . $logtime . ":";
             $stage2_ct_err += 1 if index($rest,"return code: 0") == -1;
+            $stage2_ref = $stage2[$stage2ct];
+            if (defined $stage2_ref) {
+               $stage2_ref->{end} = $logtime;
+               $stage2_ref->{end_l} = $l;
+               $stage2_ref->{fail} += 1 if index($rest,"return code: 0") == -1;
+            }
+            $stage2in = 0;
+         }
+         next;
+      }
+      if ($logentry eq "IBInterface::refreshTable") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Stage II Error processing table <5140> - stage II marked to retry
+                                           # Stage II Error - not connected to Hub TEMS.
+         if (substr($rest,1,14) eq "Stage II Error") {
+            if ($stage2in == 1) {
+               $stage2_ref = $stage2[$stage2ct];
+               $stage2_ref->{error} += 1;
+               $stage2_ref->{error_l} = $l;
+               $stage2_ref->{error_line} = $rest;
+            }
          }
          next;
       }
@@ -4577,11 +4636,27 @@ for(;;)
       if ($logentry eq "AccessRowsets") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Sync. Dist. request A9E5958 Timeout Status ( 155 ) ntype 1 ...
-         next if substr($rest,1,11) ne "Sync. Dist.";
-         $syncdist += 1;
-         $syncdist_timei += 1;
-         $syncdist_time[$syncdist_timei] = $logtime - $syncdist_first_time;
-         set_timeline($logtime,$l,$logtimehex,"TEMSAUDIT1027W","remote SQL timeout");
+         if ((substr($rest,1,11) eq "Sync. Dist.") or (substr($rest,1,26)  eq "Synch Take Sample Abandoned")) {
+            $syncdist += 1;
+            $syncdist_timei += 1;
+            $syncdist_time[$syncdist_timei] = $logtime - $syncdist_first_time;
+            set_timeline($logtime,$l,$logtimehex,"TEMSAUDIT1027W","remote SQL timeout");
+            if ($stage2in == 1) {
+               $stage2_ref = $stage2[$stage2ct];
+               if (defined $stage2_ref) {
+                  if ($stage2_ref->{table} eq "TNODELST") {
+                     $stage2_ref->{tnodelst}{syndrq} = $logtimehex;
+                     $stage2_ref->{tnodelst}{syndrq_l} = $l;
+                  } elsif ($stage2_ref->{table} eq "TOBJACCL") {
+                     $stage2_ref->{tobjaccl}{syndrq} = $logtimehex;
+                     $stage2_ref->{tobjaccl}{syndrq_l} = $l;
+                  } elsif ($stage2_ref->{table} eq "TSITDESC") {
+                     $stage2_ref->{tsitdesc}{syndrq} = $logtimehex;
+                     $stage2_ref->{tsitdesc}{syndrq_l} = $l;
+                  }
+               }
+            }
+         }
       }
       next;
    }
@@ -6509,6 +6584,32 @@ for(;;)
                $prt_ref->{type} = $4;
                $prt_ref->{path} = $5;
                $prt_ref->{status_time} = $logtime;
+               if ($stage2in == 1) {
+                  if (($prt_ref->{type} eq "Select") and ($prt_ref->{status} == 0)){
+                     $stage2_ref = $stage2[$stage2ct];
+                     if (defined $stage2_ref) {
+                        if ($prt_ref->{table} eq "TNODELST") {
+                           $stage2_ref->{tnodelst}{rows} = $prt_ref->{rows};
+                           $stage2_ref->{tnodelst}{l} = $l;
+                           $stage2_ref->{tnodelst}{status} = $prt_ref->{status};
+                           $stage2_ref->{tnodelst}{end} = $logtime;
+                           $stage2_ref->{tnodelst}{end_l} = $l;
+                        } elsif ($prt_ref->{table} eq "TOBJACCL") {
+                           $stage2_ref->{tobjaccl}{rows} = $prt_ref->{rows};
+                           $stage2_ref->{tobjaccl}{l} = $l;
+                           $stage2_ref->{tobjaccl}{status} = $prt_ref->{status};
+                           $stage2_ref->{tobjaccl}{end} = $logtime;
+                           $stage2_ref->{tobjaccl}{end_l} = $l;
+                        } elsif ($prt_ref->{table} eq "TSITDESC") {
+                           $stage2_ref->{tsitdesc}{rows} = $prt_ref->{rows};
+                           $stage2_ref->{tsitdesc}{l} = $l;
+                           $stage2_ref->{tsitdesc}{status} = $prt_ref->{status};
+                           $stage2_ref->{tsitdesc}{end} = $logtime;
+                           $stage2_ref->{tsitdesc}{end_l} = $l;
+                        }
+                     }
+                  }
+               }
             }
          } elsif (substr($rest,1,5) eq "Exit:") { # Exit: 0x4D
             my $prt_ref = $prtrunx{$logthread};
@@ -7363,6 +7464,30 @@ for(;;)
                   $rest .= " " x 100;
                   $sqlrun_ref->{frag} .= substr($rest,1,72);
                   $sqlrun_ref->{state} = 2;      #Captured at least one fragment
+                  if ($stage2in == 1) {
+                     $stage2_ref = $stage2[$stage2ct];
+                     if (defined $stage2_ref){
+                        if (substr($rest,1,71) eq "SELECT O4SRV.TNODELST.AFFINITIES , O4SRV.TNODELST.LOCFLAG , O4SRV.TNODE") {
+                           if (!defined $stage2_ref->{tnodelst}->{start}) {
+                              $stage2_ref->{tnodelst}->{start} = $logtime;
+                              $stage2_ref->{tnodelst}->{start_l} = $l;
+                              $stage2_ref->{table} = "TNODELST";
+                           }
+                        } elsif (substr($rest,1,71) eq "SELECT OBJNAME, OBJCLASS, NODEL, ACTIVATION, HUB, INFO, LOCFLAG, NETID,") {
+                           if (!defined $stage2_ref->{tobjaccl}->{start}) {
+                              $stage2_ref->{tobjaccl}->{start} = $logtime;
+                              $stage2_ref->{tobjaccl}->{start_l} = $l;
+                              $stage2_ref->{table} = "TOBJACCL";
+                           }
+                        } elsif (substr($rest,1,71) eq "SELECT O4SRV.TSITDESC.ADVISE , O4SRV.TSITDESC.AFFINITIES , O4SRV.TSITDE") {
+                           if (!defined $stage2_ref->{tsitdesc}->{start}) {
+                              $stage2_ref->{tsitdesc}->{start} = $logtime;
+                              $stage2_ref->{tsitdesc}->{start_l} = $l;
+                              $stage2_ref->{table} = "TSITDESC";
+                           }
+                        }
+                     }
+                  }
                   next;
                }
             }
@@ -7749,7 +7874,7 @@ my $mhm_ct = scalar keys %mhmx;
 if ($mhm_ct > 0) {
    $rptkey = "TEMSREPORT044";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="$rptkey: FTO control messages\n";
-   $cnt++;$oline[$cnt]="Epoch,Local_Time,Line_number,Message\n";
+   $cnt++;$oline[$cnt]="StartEpoch,Local_Time,Line_number,Message\n";
    foreach $f ( sort { $a cmp $b } keys %mhmx) {
       $outl = substr($f,0,8) . ",";
       $outl .= sec2ltime(hex(substr($f,0,8))+$local_diff) . ",";
@@ -7758,6 +7883,95 @@ if ($mhm_ct > 0) {
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
    $cnt++;$oline[$cnt]="\n";
+}
+if ($#stage2 != -1) {
+   $rptkey = "TEMSREPORT087";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="$rptkey: Hub TEMS to remote TEMS Table Sync detail\n";
+   $cnt++;$oline[$cnt]="Seq,Epoch,Local_Time,Fail,Errors\n";
+   $cnt++;$oline[$cnt]=",Table,Dur,Rows,Bytes,Rate/Sec,Syndrq,\n";
+   my $iseq = 0;
+   my $max_dur = 0;
+   my $isyndrq = 0;
+   my $resync = $#stage2 + 1;
+   foreach $stage2_ref (@stage2) {
+      $iseq += 1;
+      $outl = $iseq . ",";
+      $outl .= $stage2_ref->{epoch} . ",";
+      $outl .= sec2ltime(hex($stage2_ref->{epoch})+$local_diff) . ",";
+      $outl .= $stage2_ref->{fail} . ",";
+      $outl .= $stage2_ref->{error} . ",";
+      $outl .= $stage2_ref->{error_line} . ",";
+      $cnt++;$oline[$cnt]=$outl . "\n";
+
+      my $idur;
+      my $ibytes;
+      my $irate;
+      if (defined $stage2_ref->{tnodelst}{end}) {
+         $outl = ",";
+         $outl .= "TNODELST" . ",";
+         $idur = $stage2_ref->{tnodelst}{end} - $stage2_ref->{tnodelst}{start};
+         $max_dur = $idur if $max_dur < $idur;
+         $outl .= $idur . ",";
+         $outl .= $stage2_ref->{tnodelst}{rows} . ",";
+         $ibytes = $stage2_ref->{tnodelst}{size} * $stage2_ref->{tnodelst}{rows};
+         $outl .= $ibytes . ",";
+         $irate = 0;
+         $irate = int($ibytes / $idur) if $idur > 0;
+         $outl .= $irate . ",";
+         $outl .= $stage2_ref->{tnodelst}{syndrq} . ",";
+         $isyndrq += 1 if $stage2_ref->{tnodelst}{syndrq} ne "";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+      }
+
+      if (defined $stage2_ref->{tobjaccl}{end}) {
+         $outl = ",";
+         $outl .= "TOBJACCL" . ",";
+         $idur = $stage2_ref->{tobjaccl}{end} - $stage2_ref->{tobjaccl}{start};
+         $max_dur = $idur if $max_dur < $idur;
+         $outl .= $idur . ",";
+         $outl .= $stage2_ref->{tobjaccl}{rows} . ",";
+         $ibytes = $stage2_ref->{tobjaccl}{size} * $stage2_ref->{tobjaccl}{rows};
+         $outl .= $ibytes . ",";
+         $irate = 0;
+         $irate = int($ibytes / $idur) if $idur > 0;
+         $outl .= $irate . ",";
+         $outl .= $stage2_ref->{tobjaccl}{syndrq} . ",";
+         $isyndrq += 1 if $stage2_ref->{tobjaccl}{syndrq} ne "";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+      }
+
+      if (defined $stage2_ref->{tsitdesc}{end}) {
+         $outl = ",";
+         $outl .= "TSITDESC" . ",";
+         $idur = $stage2_ref->{tsitdesc}{end} - $stage2_ref->{tsitdesc}{start};
+         $max_dur = $idur if $max_dur < $idur;
+         $outl .= $idur . ",";
+         $outl .= $stage2_ref->{tsitdesc}{rows} . ",";
+         $ibytes = $stage2_ref->{tsitdesc}{size} * $stage2_ref->{tsitdesc}{rows};
+         $outl .= $ibytes . ",";
+         $irate = 0;
+         $irate = int($ibytes / $idur) if $idur > 0;
+         $outl .= $irate . ",";
+         $outl .= $stage2_ref->{tsitdesc}{syndrq} . ",";
+         $isyndrq += 1 if $stage2_ref->{tsitdesc}{syndrq} ne "";
+         $cnt++;$oline[$cnt]=$outl . "\n";
+      }
+
+   }
+   $cnt++;$oline[$cnt]="\n";
+   my $ialert = 0;
+   $ialert = 1 if $iseq > 1;
+   $ialert = 1 if $max_dur > 300;
+   $ialert = 1 if $isyndrq > 1;
+   if ($ialert == 1) {
+      $advi++;$advonline[$advi] = "Hub/Remote sync[$iseq] Max/secs[$max_dur] SynDrq fails[$isyndrq] - see Report $rptkey";
+      $advcode[$advi] = "TEMSAUDIT1145E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+      $crit_line = "1,Hub/Remote sync[$iseq] Max/secs[$max_dur] SynDrq fails[$isyndrq]";
+      push @crits,$crit_line;
+   }
+
 }
 
 
@@ -10346,12 +10560,10 @@ if ($online_ct > 0) {
             foreach my $i (keys %{$online_ref->{iips}}) {
                $mipcnt = $online_ref->{iips}{$i} if $online_ref->{iips}{$i} > $mipcnt;
             }
-$DB::single=2;
             my $ipcut = int($mipcnt/4);
             my %iipuse = ();
             foreach my $h (@{$online_ref->{refs}}) {
                my @idata = @{$h};
-$DB::single=2;
                my $iip = $idata[0][0];
                next if $online_ref->{iips}{$iip} < $ipcut;
                if (!defined $iipuse{$iip}) {
@@ -11999,6 +12211,7 @@ if ($gotdisk == 1) {
 
 }
 
+my $sdaprob = 0;
 my %iheartx;
 
 if ($full_logopfn ne "") {
@@ -12027,6 +12240,9 @@ if ($full_logopfn ne "") {
             }
             $iheart_ref->{count} += 1;
             push @{$iheart_ref->{stamps}},$idate;
+         # Sun Jul 19 09:53:07 2020 KQMSD100   Inconsistent Self-Describing Agent configuration at FTO peers: Local (ON/0) Peer (OFF/16)
+         } elsif ($opcode eq "KQMSD100") {
+            $sdaprob += 1;
          }
       }
       close(OPLOG);
@@ -12109,28 +12325,10 @@ foreach $f ( sort { $a cmp $b } keys %mhmx) {
       }
    }
 }
-if ($stageII_max > 300) {
-   $advi++;$advonline[$advi] = "HUB sync count[$stageII_ct] max[$stageII_max] seconds";
-   $advcode[$advi] = "TEMSAUDIT1142E";
-   $advimpact[$advi] = $advcx{$advcode[$advi]};
-   $advsit[$advi] = "TEMS";
-   $crit_line = "1,HUB sync count[$stageII_ct] max[$stageII_max] seconds";
-   push @crits,$crit_line;
-} elsif ($stageII_ct > 4) {
-   $advi++;$advonline[$advi] = "HUB sync count[$stageII_ct] max[$stageII_max] seconds";
-   $advcode[$advi] = "TEMSAUDIT1142E";
-   $advimpact[$advi] = $advcx{$advcode[$advi]};
-   $advsit[$advi] = "TEMS";
-   $crit_line = "1,HUB sync count[$stageII_ct] max[$stageII_max] seconds";
-   push @crits,$crit_line;
-} elsif ($stageII_ct > 1) {
-   $advi++;$advonline[$advi] = "HUB sync count[$stageII_ct] max[$stageII_max] seconds";
-   $advcode[$advi] = "TEMSAUDIT1143W";
-   $advimpact[$advi] = $advcx{$advcode[$advi]};
-   $advsit[$advi] = "TEMS";
-} elsif ($stageII_ct > 0) {
-   $advi++;$advonline[$advi] = "HUB sync count[$stageII_ct] max[$stageII_max] seconds - not a problem";
-   $advcode[$advi] = "TEMSAUDIT1144I";
+
+if ($sdaprob > 0) {
+   $advi++;$advonline[$advi] = "SDA inconsistent between the two FTO hub TEMS[$sdaprob]";
+   $advcode[$advi] = "TEMSAUDIT1146E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
 }
@@ -13317,6 +13515,8 @@ exit;
 #2.29000 - Add Stage II logs to report044
 #        - Add advisories on hub/remote resync
 #        - improve newpcb/online logic heuristics
+#2.30000 - track and report Stage 2 Global Acess Table progress
+#        - Warn if SDA different between the two FTO hub TEMSes
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
@@ -15941,6 +16141,31 @@ Meaning: This is produced when just one recsync has been seen.
 Recovery plan: Informational only.
 ----------------------------------------------------------------
 
+TEMSAUDIT1145E
+Text: Hub/Remote sync[$iseq] Max/secs[$max_dur] SynDrq fails[$isyndrq]
+
+Tracing: error
+(5D7A2DD2.0016-7:ko4crtsq.cpp,6931,"IBInterface::doStageTwoProcess") Begin stage 2 processing. Database and IB Cache synchronization with the hub
+(5D7A2E1E.0000-7:ko4crtsq.cpp,7146,"IBInterface::doStageTwoProcess") End stage 2 processing. Database and IB Cache synchronization with the hub with return code: 0
+
+Meaning: See Report087 for more explanation.
+
+Recovery plan: Informational only.
+----------------------------------------------------------------
+
+TEMSAUDIT1146E
+Text: SDA inconsistent between the two FTO hub TEMS[$sdaprob]
+
+Tracing: error
+Sun Jul 19 09:53:07 2020 KQMSD100   Inconsistent Self-Describing Agent configuration at FTO peers: Local (ON/0) Peer (OFF/16)
+
+Meaning: The Self Describing Agent configuration should be identical
+between the two FTO hub TEMS.
+
+Recovery plan: Make sure KMS_SDA=Y is specified on both FTO hub TEMS...
+or KMS_SDA=N if not wanted.
+----------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -18270,4 +18495,40 @@ found in <install>/<arch>/<pc> and has the form psit_<agent_name>.str
 On Windows the persistence files are found in <installdir>\TMAITM6
 and the name has the same form except that the colon [:] in the name
 is replaced by an underline. If this does not resolve the issue, contact IBM Support
+----------------------------------------------------------------
+      `
+TEMSREPORT087
+Text: Hub TEMS to remote TEMS Table Sync detail
+
+Trace: error (unit:kdsstc1,Entry="ProcessTable" all er)
+(5F2A657B.000B-8:ko4crtsq.cpp,6931,"IBInterface::doStageTwoProcess") Begin stage 2 processing. Database and IB Cache synchronization with the hub
+
+Example report
+Seq,Epoch,Local_Time,Line_number,Message
+,Table,Dur,Rows,Bytes,Rate/Sec,Syndrq,
+1,5F2A657B,20200805075331,
+,TNODELST,599,12361,2768864,4622,0,
+,TOBJACCL,1094,7557,3627360,3315,0,
+,TSITDESC,4656,5402,21608000,4640,1596617538,
+
+Meaning
+At remote TEMS startup time, three tables are synchronized with the hub TEMS.
+
+TNODELST
+TOBJACCL
+TSITDESC
+
+This will also occur when the remote TEMS has lost connection with the hub TEMS and
+then regains it. If the sync fails, it is periodically repeated. By default this
+remote SQL is allowed 600 seconds to compelte. It can be altered by setting
+KDS_SYNDRQ_TIMEOUT=nnn  in the TEMS environment. For example 1800 would be
+30 minutes.
+
+
+When the connection between remote and hub TEMS is too slow, the resync may fail
+repeatedly. This report shows the Sync progress for each table attempted. This
+sort of slow link error will cause many other errors. In the worst cases you
+need to set a hub TEMS at the distant location.
+
+Recovery plan: The recovery depends on the specific environment.
 ----------------------------------------------------------------
