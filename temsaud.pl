@@ -17,7 +17,7 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
-my $gVersion = 2.30000;
+my $gVersion = 2.31000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 ## Todos
@@ -148,6 +148,8 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 
 ## (5F24B0ED.0005-86:kfansins.c,744,"FilteredAway") Node Status Update of <aia_win2012r2image:NT           > is ignored.
 ## +5F24B0ED.0005  Heartbeat timestamp is older than previously received by current thrunode <REMOTE_AUBHDPLITM010            >New thrunode would have been <REMOTE_AUULDPLITM010            >
+
+## (5F1A294D.0002-1:kdsvlunx.c,1561,"dl_init") PAM library libpam.so would not load
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -615,6 +617,9 @@ my $h;
 my $gsk701 = 0;
 my $csv1_path = "";
 
+my %fileszx;
+my %dirzx;
+
 my %reqlx = ();
 my $reql_ct = 0;
 
@@ -909,6 +914,8 @@ my %advcx = (
               "TEMSAUDIT1144I" => "0",
               "TEMSAUDIT1145E" => "101",
               "TEMSAUDIT1146E" => "95",
+              "TEMSAUDIT1147E" => "101",
+              "TEMSAUDIT1148W" => "95",
             );
 
 
@@ -1144,6 +1151,9 @@ my %knowntabx = (
                    'KNTSCRRTM'  => '3544',
                    'KNTSCRTSM'  => '3544',
                    'KNU03VOL'    => '532',
+                   'KOQAVARD' => '1204',
+                   'KOQAVARS' => '792',
+                   'KOQAVRST' => '256',
                    'KOQDBD' => '2712',
                    'KOQDBMIR' => '672',
                    'KOQDBS' => '248',
@@ -1151,9 +1161,12 @@ my %knowntabx = (
                    'KOQFGRPD' => '980',
                    'KOQJOBD' => '1900',
                    'KOQJOBS' => '248',
+                   'KOQLOCKS' => '1052',
                    'KOQLRTS' => '216',
                    'KOQLSDBD' => '1768',
+                   'KOQPRCD' => '1044',
                    'KOQPRCS' => '276',
+                   'KOQPROBD' => '776',
                    'KOQPROBS' => '252',
                    'KOQCSQLR' => '1124',
                    'KOQSRVCD' => '592',
@@ -1212,6 +1225,7 @@ my %knowntabx = (
                    'KQ7FSITDTL' => '564',
                    'KQ7FSITDTL' => '564',
                    'KQ7IISAPPL' => '588',
+                   'KQ7IISWEBS' => '372',
                    'KQ7SITECER' => '628',
                    'KQ7WEBSERV' => '364',
                    'KQ7WSITDTL' => '628',
@@ -1233,49 +1247,66 @@ my %knowntabx = (
                    'KQPAVAIL'   => '3244',
                    'KQPSHAREP0' => '200',
                    'KR2DISK'    => '232',
+                   'KR2ELOGWMI' => '2420',
                    'KR2HRMEM'   => '232',
+                   'KR2PAGINGF' => '160',
+                   'KR2PROCESS' => '172',
                    'KR2PROCLST' => '260',
                    'KR2PROCSR'  => '264',
                    'KR2PROCSRT' => '64',
+                   'KR2SYSTEM'  => '116',
+                   'KR2WIN32OP' => '420',
+                   'KR2WIN32PE' => '204',
+                   'KR2WIN32S0' => '1868',
+                   'KR2WMINPLS' => '264',
+                   'KR2WMIPOS' => '324',
                    'KR4DISK'    => '232',
+                   'KR4LNXPOS' => '324',
                    'KR4MEMORY'  => '244',
                    'KR4PROC'    => '324',
                    'KR4PROCSR'  => '76',
                    'KRAHIST'    => '332',
                    'KRZACTINS'  => '784',
                    'KRZACTINSR' => '216',
-                   'KRZAGINF'      => '828',
+                   'KRZAGINF'   => '828',
                    'KRZAGTLSNR' => '1292',
                    'KRZARCDEST' => '716',
                    'KRZASMDKGP' => '420',
                    'KRZDAFCOUT' => '172',
                    'KRZDAFOVEW' => '840',
-                   'KRZDBINF'      => '258',
-                   'KRZDBINFO' => '804',
-                   'KRZDGDKSP' => '692',
+                   'KRZDBINF'   => '258',
+                   'KRZDBINFO'  => '804',
+                   'KRZDGDKSP'  => '692',
                    'KRZDGMGSTS' => '168',
                    'KRZDGSTATU' => '480',
-                   'KRZGCSBLO' => '188',
+                   'KRZGCSBLO'  => '188',
                    'KRZINSTINF' => '312',
                    'KRZLIBCART' => '188',
                    'KRZRAMDISK' => '808',
                    'KRZRAMDKGP' => '420',
                    'KRZRDBBGPS' => '156',
-                   'KRZRDBDKSP'    => '768',
+                   'KRZRDBDKSP' => '768',
+                   'KRZRDBLKD'  => '304',
                    'KRZRDBLOGD' => '364',
                    'KRZRDBLOGS' => '500',
+                   'KRZRDBLS'   => '624',
+                   'KRZRDBLSES' => '400',
+                   'KRZRDBPROD' => '992',
                    'KRZRDBPROS' => '252',
-                   'KRZRDBRFD' => '224',
+                   'KRZRDBRFD'  => '224',
                    'KRZRDBSTAT' => '456',
                    'KRZRDBTOPO' => '400',
                    'KRZRDBCUSQ' => '1940',
                    'KRZRDBOBJS' => '480',
-                   'KRZRDBUTS' => '332',
+                   'KRZRDBUTS'  => '332',
                    'KRZSEGALOC' => '524',
                    'KRZSESSSMY' => '260',
-                   'KRZTSNLUE' => '292',
-                   'KRZTSOVEW' => '428',
-                   'KRZTSTPUE' => '244',
+                   'KRZSGADETL' => '212',
+                   'KRZSGAOVEW' => '372',
+                   'KRZSMETGP'  => '480',
+                   'KRZTSNLUE'  => '292',
+                   'KRZTSOVEW'  => '428',
+                   'KRZTSTPUE'  => '244',
                    'KSAALERTS' => '2416',
                    'KSABUFFER' => '768',
                    'KSACTS' => '864',
@@ -1307,7 +1338,10 @@ my %knowntabx = (
                    'KSKTAPEVOL' => '1992',
                    'KSYCONNECT'    => '1184',
                    'KSYSUMMSTA' => '120',
+                   'KUD2649700' => '3112',
+                   'KUD3437500' => '1860',
                    'KUD3437600' => '1660',
+                   'KUD4177600' => '1500',
                    'KUD4238000' => '1600',
                    'KUDAPPL00' => '3804',
                    'KUDBPOOL' => '1356',
@@ -1327,11 +1361,13 @@ my %knowntabx = (
                    'KUXPASMGMT'    => '512',
                    'KUXPASSTAT' => '1384',
                    'KUXSCRPTS' => '3952',
+                   'KUXSCRRTM' => '3544',
                    'KUXSCRTSM' => '3544',
                    'KVA02STORA' => '2936',
                    'KVA16CPUSU' => '240',
                    'KVA21PAGIN' => '76',
                    'KVA22LOGIC' => '1076',
+                   'KVA27PHYSI' => '84',
                    'KVA34DISKS' => '432',
                    'KVA35PHYSI' => '396',
                    'KVA37LOGIC' => '1204',
@@ -1385,10 +1421,14 @@ my %knowntabx = (
                    'KYJWLJTA' => '872',
                    'KYJWLWEBAP' => '1268',
                    'KYNAPHLTH'     => '1124',
+                   'KYNAPP'        => '1036',
                    'KYNAPMONCF'    => '1748',
                    'KYNAPSRV'      => '1560',
                    'KYNAPSST'      => '1692',
+                   'KYNCACHE'      => '824',
+                   'KYNCNTROP'     => '788',
                    'KYNCONTNR'     => '864',
+                   'KYNDATAS'      => '1140',
                    'KYNDBCONP'     => '1100',
                    'KYNEJB'        => '1028',
                    'KYNGCACT'      => '720',
@@ -1396,11 +1436,16 @@ my %knowntabx = (
                    'KYNGCCYC'      => '632',
                    'KYNLOGANAL'    => '1044',
                    'KYNLPORT'      => '1444',
+                   'KYNMECOM'      => '976',
+                   'KYNREQSEL'     => '1224',
                    'KYNMSGQUE'     => '1276',
                    'KYNREQHIS'     => '964',
                    'KYNREQUEST'    => '1488',
                    'KYNSERVLT'     => '1296',
                    'KYNTHRDP'   => '852',
+                   'KYNTRANS'   => '812',
+                   'KYNWEBSVC'  => '1004',
+                   'KYNWPLETS'  => '820',
                    'KZABPCHECK' => '4192',
                    'LNXCPU' => '156',
                    'LNXCPUAVG' => '180',
@@ -1409,7 +1454,8 @@ my %knowntabx = (
                    'LNXDU'         => '204',
                    'LNXDSKIO'      => '212',
                    'LNXFILE'       => '5116',
-                   'LNXFILPAT'  => '1624',
+                   'LNXFILCMP'     => '1624',
+                   'LNXFILPAT'     => '1624',
                    'LNXIOEXT'      => '248',
                    'LNXMACHIN'     => '828',
                    'LNXNET'        => '320',
@@ -1435,10 +1481,13 @@ my %knowntabx = (
                    'LTCWRT'        => '748',
                    'MSEASYNC' => '344',
                    'MSEAVSERV' => '136',
-                   'MSEDB' => '592',
+                   'MSEDB'     => '592',
+                   'MSEDBINS' => '552',
                    'MSEIS' => '384',
                    'MSEISCLI' => '184',
+                   'MSEISPUR' => '752',
                    'MSEISSTR' => '2920',
+                   'MSEMBXD'  => '1860',
                    'MSENLBS' => '152',
                    'MSEPRXY' => '116',
                    'MSEREPL' => '148',
@@ -2035,7 +2084,7 @@ if (!defined $opt_sitpdt) {$opt_sitpdt = "";}
 if (!defined $opt_portlim) {$opt_portlim = 5;}
 $opt_stfn = "eventhist.csv" if $opt_sth == 1;
 $opt_ndfn = "nodehist.csv" if $opt_sth == 1;
-open( ZOP, ">$opt_zop" ) or die "Cannot open zop file $opt_zop : $!" if $opt_zop ne "";
+open( ZOP, "+>$opt_zop" ) or die "Cannot open zop file $opt_zop : $!" if $opt_zop ne "";
 
 
 if (!$opt_inplace) {
@@ -6124,7 +6173,7 @@ for(;;)
                      my $istatus = substr($rest,257,1);
                      if ($opt_sth == 1) {
                         if ($sthl == 0) {
-                           open STH, ">$opt_stfn" or die "Unable to open Status History output file $opt_stfn\n";
+                           open STH, "+>$opt_stfn" or die "Unable to open Status History output file $opt_stfn\n";
                            print STH "Line,LocalTime,Thrunode,Sitname,Node,Atomize,GlobalTime,Status,\n";
                         }
                         $sthl += 1;
@@ -6211,7 +6260,7 @@ for(;;)
                      $ireserved =~ s/\s+$//;   #trim trailing whitespace
                      if ($opt_sth == 1) {
                         if ($ndhl == 0) {
-                           open NDH, ">$opt_ndfn" or die "Unable to open Node History output file $opt_ndfn\n";
+                           open NDH, "+>$opt_ndfn" or die "Unable to open Node History output file $opt_ndfn\n";
                            print NDH "Line,Time,Node,Thrunode,Reason,O4ONLINE,Product,Version,Reserved,Hostinfo,Hostaddr,Affinity,\n";
                         }
                         $ndhl += 1;
@@ -7975,6 +8024,8 @@ if ($#stage2 != -1) {
 }
 
 
+
+
 if ($opt_kdcb0 ne "") {
    if ($opt_kdebi ne "") {
       if ($opt_kdcb0 ne $opt_kdebi) {
@@ -9630,7 +9681,7 @@ if ($invi > 0) {
       $outl .= $valvx{$f}->{type} . ",";
       $cnt++;$oline[$cnt]=$outl . "\n";
    }
-   $advi++;$advonline[$advi] = "Illegal Node Names rejected - $invi";
+   $advi++;$advonline[$advi] = "Illegal Node Names rejected[$invi] - See Report $rptkey";
    $advcode[$advi] = "TEMSAUDIT1029W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "InvalidNodes";
@@ -10519,7 +10570,7 @@ if ($nodeiph_ct > 0) {
          my $ipc = "";
          if ($inst_ct > 0) {
             $opt_dedup_csv  = "dedup.csv";
-            open DEPCSV, ">$opt_dedup_csv" or die "can't open $opt_dedup_csv: $!";
+            open DEPCSV, "+>$opt_dedup_csv" or die "can't open $opt_dedup_csv: $!";
             foreach my $j (keys %dupagtx) {
                my $dupagt_ref = $dupagtx{$j};
                foreach my $g (keys %{$dupagt_ref->{ipx}}) {
@@ -10547,9 +10598,9 @@ if ($online_ct > 0) {
       if ($xcnt > 0) {
          my $opt_dedup_csv = "dedup.csv";
          if ($opt_dup_ct > 0) {
-            open DEPCSV, ">>$opt_dedup_csv" or die "can't open $opt_dedup_csv: $!";
+            open DEPCSV, "+>>$opt_dedup_csv" or die "can't open $opt_dedup_csv: $!";
          } else {
-            open DEPCSV, ">$opt_dedup_csv" or die "can't open $opt_dedup_csv: $!";
+            open DEPCSV, "+>$opt_dedup_csv" or die "can't open $opt_dedup_csv: $!";
          }
          foreach my $o ( sort { $onlinex{$b}->{count} <=> $onlinex{$a}->{count} } keys %onlinex) {
             my $online_ref = $onlinex{$o};
@@ -11988,6 +12039,103 @@ if ($gotnet == 1) {
 
 }
 
+# new report of dir.info if it can be located
+
+my $dirpath;
+my $dirfn;
+my $gotdir = 0;
+my $this_candlehome = "";
+$dirpath = $opt_logpath;
+if ( -e $dirpath . "dir.info") {
+   $gotdir = 1;
+   $dirpath = $opt_logpath;
+} elsif ( -e $dirpath . "../dir.info") {
+   $gotdir = 1;
+   $dirpath = $opt_logpath . "../";
+} elsif ( -e $dirpath . "../../dir.info") {
+   $gotdir = 1;
+   $dirpath = $opt_logpath . "../../";
+}
+$dirpath = '"' . $dirpath . '"';
+if ($gotdir == 1) {
+   if ($gWin == 1) {
+      $pwd = `cd`;
+      chomp($pwd);
+      $dirpath = `cd $dirpath & cd`;
+   } else {
+      $pwd = `pwd`;
+      chomp($pwd);
+      $dirpath = `(cd $dirpath && pwd)`;
+   }
+   chomp $dirpath;
+
+   $dirfn = $dirpath . "/dir.info";
+   $dirfn =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+
+   chomp($dirfn);
+   chdir $pwd;
+
+   # Linux/Unix Example
+   #CANDLEHOME=/IBM/ITM
+   #134552    4 drwxr-xr-x  32 root     root         4096 Sep 23  2019 /opt/IBM/ITM
+   #262434    4 drwxrwxrwx   3 root     root         4096 May 29  2015 /opt/IBM/ITM/xmlconfig
+   #262678    4 -rwxrwxrwx   1 root     root         1017 Sep 23  2019 /opt/IBM/ITM/xmlconfig/ac16_help.png
+   #
+   # Windows Example
+   #
+   open DINFO,"< $dirfn" or warn " open dir.info file $dirfn -  $!";
+   my @din = <DINFO>;
+   close DINFO;
+   $l = 0;
+   my $d1 = "";
+   my $d2 = "";
+   foreach my $oneline (@din) {
+      $l++;
+      chomp($oneline);
+      next if $oneline eq "";
+      if ($this_candlehome eq "") {
+         $oneline =~ /CANDLEHOME=(.*)/;
+         $this_candlehome = $1 if defined $1;
+         next;
+      }
+      $oneline =~ /\d+\W+\d+\W+(\S+)\W+\d+\W+(\S+)\W+(\S+)\W+(\d+)\W+.{12}\W+(\S+)/;
+      my $iperm = $1;
+      my $iown = $2;
+      my $igroup = $3;
+      my $isize = $4;
+      my $iname = $5;
+      next if substr($iperm,0,1) eq "d";   # ignore directories
+      next if $isize < 100*1024*1024;      # ignore less than 100meg `
+      $fileszx{$iname} = $isize;           # record name and size
+   }
+   my $filesz_ct = scalar keys %fileszx;
+   if ($filesz_ct > 0) {
+      my $ge1gig = 0;
+      my $maxgig = 0;
+      $rptkey = "TEMSREPORT088";$advrptx{$rptkey} = 1;         # record report key
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="$rptkey: Large File Size Report\n";
+      $cnt++;$oline[$cnt]="Size(Gbytes),File,\n";
+      foreach $f ( sort { $fileszx{$b} <=> $fileszx{$a} } keys %fileszx) {
+        my $isize = $fileszx{$f};
+        my $igigs = ($isize)/(1024*1024*1024);
+        my $wpc = sprintf '%.2f', $igigs;
+        $outl = $wpc . "," . $f . ",";
+        $cnt++;$oline[$cnt]=$outl . "\n";
+        $ge1gig += 1 if $fileszx{$f} > (1024*1024*1024);
+        $maxgig = $wpc if $maxgig < $wpc;
+      }
+      $advi++;$advonline[$advi] = "System has $filesz_ct files larger than 100meg and $ge1gig file(s) larger than 1 gig max[$maxgig" . "GB] - See Report $rptkey";
+      $advcode[$advi] = "TEMSAUDIT1148W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+      if ($ge1gig > 0) {
+         $crit_line = "1,System has $ge1gig file(s) larger than 1 gig max[$maxgig" . "GB] - See Report $rptkey";
+         push @crits,$crit_line;
+      }
+   }
+}
+
 # new report of cinfo.info if it can be located
 
 my $cinfopath;
@@ -12089,6 +12237,85 @@ if ($gotcin == 1) {
             }
          }
          last if ($this_gskit32 ne "") and ($this_gskit64 ne "")
+      }
+   }
+}
+
+if ($this_hostname ne "") {
+   # Check report of hosts if it can be located
+   my $hostspath;
+   my $hostsfn;
+   my $gothosts = 0;
+   $hostspath = $opt_logpath;
+   if ( -e $cinfopath . "hosts") {
+      $gothosts = 1;
+      $hostspath = $opt_logpath;
+   } elsif ( -e $hostspath . "../hosts") {
+      $gothosts = 1;
+      $hostspath = $opt_logpath . "../";
+   } elsif ( -e $hostspath . "../../hosts") {
+      $gothosts = 1;
+      $hostspath = $opt_logpath . "../../";
+   }
+   $hostspath = '"' . $hostspath . '"';
+   if ($gothosts == 1) {
+      if ($gWin == 1) {
+         $pwd = `cd`;
+         chomp($pwd);
+         $hostspath = `cd $hostspath & cd`;
+      } else {
+         $pwd = `pwd`;
+         chomp($pwd);
+         $hostspath = `(cd $hostspath && pwd)`;
+      }
+      chomp $hostspath;
+
+      $hostsfn = $hostspath . "/hosts";
+      $hostsfn =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+
+      chomp($hostsfn);
+      chdir $pwd;
+
+      # Linux/Unix Example
+      # 127.0.0.1   ibmpsfitems3.bcpcorp.net    localhost.localdomain   localhost.localdomain   localhost4  localhost4.localdomain4 localhost   ibmpsfitems3
+      # 10.103.251.23 ibmpsfitems3
+      # 10.103.251.90 xpar11r4
+      # 10.80.35.35 xpar6r5
+
+      # Windows Example
+
+      #
+      #
+      #
+      #
+      #
+      #
+
+      open HOSTS,"< $hostsfn" or warn " open hosts file $hostsfn -  $!";
+      my @hin = <HOSTS>;
+      close HOSTS;
+      my %hostipx;
+      foreach my $oneline (@hin) {
+         $l++;
+         chomp($oneline);
+         next if $oneline eq "";
+         next if substr($oneline,0,1) eq "#";
+         my @hwords = split /\s+/,$oneline;
+         my $hip = $hwords[0];
+         my @slice = @hwords[1 .. $#hwords];
+         for my $t (@slice) {
+            next if $t ne $this_hostname;
+            $hostipx{$hip} = 1;
+         }
+      }
+      my $hostsip_ct = scalar keys %hostipx;
+      if ($hostsip_ct > 1) {
+         $advi++;$advonline[$advi] = "System hostname $this_hostname is present $hostsip_ct times in the HOSTS file";
+         $advcode[$advi] = "TEMSAUDIT1147E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TEMS";
+         $crit_line = "2,System hostname $this_hostname is present $hostsip_ct times in the HOSTS file";
+         push @crits,$crit_line;
       }
    }
 }
@@ -12653,7 +12880,7 @@ if ($rpc_ct > 0) {
 
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
 
-open OH, ">$opt_o" or die "unable to open $opt_o: $!";
+open OH, "+>$opt_o" or die "unable to open $opt_o: $!";
 
 
 if ($opt_nohdr == 0) {
@@ -12747,7 +12974,7 @@ close(OH);
 if ($opt_crit ne "") {
    if ($#crits != -1) {
       my $critfn = $opt_crit . $critical_fn;
-      open(CRIT,">$critfn");
+      open(CRIT,"+>$critfn");
       for my $cline (@crits) {
          $crit_line = $cline . "\n";
          print CRIT $crit_line;
@@ -12767,7 +12994,7 @@ if ($opt_sr == 1) {
 
       my $opt_sr_fn = $opt_ossdir . "soap_detail.txt";
 
-      open SOAP, ">$opt_sr_fn" or die "Unable to open SOAP Detail output file $opt_sr_fn\n";
+      open SOAP, "+>$opt_sr_fn" or die "Unable to open SOAP Detail output file $opt_sr_fn\n";
       select SOAP;              # print will use SOAP instead of STDOUT
       print "Secs   Count Line   Log-segment\n";
       for (my $i=0;$i<=$soap_burst_minute;$i++) {
@@ -12787,7 +13014,7 @@ if ($opt_sr == 1) {
 if ($opt_ss == 1) {
    if ($ssi != -1) {
       my $opt_ss_fn = $opt_ossdir . $opt_nodeid . "_sendstatus_detail.txt";
-      open SEND, ">$opt_ss_fn" or die "Unable to open SEND Detail output file $opt_ss_fn\n";
+      open SEND, "+>$opt_ss_fn" or die "Unable to open SEND Detail output file $opt_ss_fn\n";
       for (my $i=0;$i<=$ssi;$i++) {
          print SEND "$ssout[$i]\n";
       }
@@ -12798,7 +13025,7 @@ if ($opt_ss == 1) {
 if ($opt_eph == 1) {
    if ($eph_ct > 0) {
       my $opt_eph_fn = $opt_ephdir . $opt_nodeid . "_ephemeral_detail.txt";
-      open EPH, ">$opt_eph_fn" or die "Unable to open Ephemeral Detail output file $opt_eph_fn\n";
+      open EPH, "+>$opt_eph_fn" or die "Unable to open Ephemeral Detail output file $opt_eph_fn\n";
       print EPH "temsnodeid,eph_addr,pipe_addr,fixup,phys_self,phys_peer,virt_self,virt_peer,ephemeral,service_point,service_type,driver,build_date,build_target,process_time\n";
       foreach $f ( sort { $a cmp $b } keys %recvectx) {
          my $recvect_def = $recvectx{$f};
@@ -12843,7 +13070,7 @@ if ($opt_sum != 0) {
    $sumline .= "$this_installer,";
    $sumline .= "$this_gskit64,$this_gskit32" . "(32)";
    my $sumfn = $opt_odir . "temsaud.txt";
-   open SUM, ">$sumfn" or die "Unable to open summary output file $sumfn\n";
+   open SUM, "+>$sumfn" or die "Unable to open summary output file $sumfn\n";
    print SUM "$sumline\n";
    close(SUM);
 }
@@ -13517,6 +13744,9 @@ exit;
 #        - improve newpcb/online logic heuristics
 #2.30000 - track and report Stage 2 Global Acess Table progress
 #        - Warn if SDA different between the two FTO hub TEMSes
+#2.31000 - Add advisory for HOSTS hostname duplicated
+#        - Add advisory for large files and report section
+#        - make open/write do overwrites in Windows
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
@@ -16166,6 +16396,32 @@ Recovery plan: Make sure KMS_SDA=Y is specified on both FTO hub TEMS...
 or KMS_SDA=N if not wanted.
 ----------------------------------------------------------------
 
+TEMSAUDIT1147E
+Text: System hostname $this_hostname is present count times in the HOSTS file
+
+Tracing: error
+
+Meaning: When the HOSTS file is used to specify a hostname to ip address
+it should only be present once. When that is violated it often results
+in communications failures.
+
+Recovery plan: Change the HOSTS file so the hostname is only present.
+once.
+----------------------------------------------------------------
+
+TEMSAUDIT1148W
+Text: System has <count> files larger than 100meg and count file(s) larger than 1 gig max[size]
+
+Tracing: dir.info file
+
+Meaning: This can be useful when the file system where the TEMS is running
+is almost out of free space. See TEMSREPORT088 for a list files more then
+100 megabytes.
+
+Recovery plan: Review files consuming a lot of data and correct the
+condition.
+----------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -16775,7 +17031,7 @@ TEMSREPORT022
 Text: Historical Export summary by Object and time
 
 Trace: error (unit:khdxdacl,Entry="routeExportRequest" state er)
-(unit:khdxdacl,Entry=" routeData" detail er)
+(unit:khdxdacl,Entry="routeData" detail er)
 
 Meaning
 
@@ -18531,4 +18787,23 @@ sort of slow link error will cause many other errors. In the worst cases you
 need to set a hub TEMS at the distant location.
 
 Recovery plan: The recovery depends on the specific environment.
+----------------------------------------------------------------
+      `
+TEMSREPORT088
+Text: System has count files larger than 100meg and count file(s) larger than 1 gig max[size]
+
+Trace: error
+
+Example report
+TEMSREPORT088: Large File Size Report
+Size(Gbytes),File,
+40.57,IBM/ITM/lx8266/bn/hist/DP/KBNDPSTA17,
+0.41,IBM/ITM/lx8266/bn/hist/DP/KBNHTTPCON,
+0.31,IBM/ITM/lx8266/bn/hist/DP/KBNDPSTAT2,
+0.23,IBM/ITM/tables/RTEMS_IM-VL-GS-021/depot/PACKAGES/aix526/kjr/080535000/unix/jraix526.ctp,
+
+Meaning
+These are the files using more that 100megs on the file system where the TEMS is running.
+
+Recovery plan: If storage is tight, delete unnecessary files.
 ----------------------------------------------------------------
