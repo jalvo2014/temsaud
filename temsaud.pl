@@ -17,7 +17,7 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
-my $gVersion = 2.31000;
+my $gVersion = 2.32000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 ## Todos
@@ -35,8 +35,6 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 ## (591F6677.0009-15:kpxrreg.cpp,1623,"IRA_NotifySDAInstallStatus") SDA Notification failed, agent "sapprdaix04:KUX", product "UX" found unexpected RegBind type=4. Can't provide agent with SDA install result.
 ##  87348,082,000
 ##  /ecurep/pmr/8/7/87348,082,000/2017-05-19/87348.082.000.pdcollect-dkha3080.tar.Z_unpack/
-
-## (591ACD2E.0000-7C:kshcat.cpp,296,"RetrieveTableByTableName") Unable to get attributes for table tree TOBJACCL
 
 ## (56CF3C07.0000-8:kdspmou2.c,3077,"PM1_VPM2_AllocateLiteral") Literal Pool Boundary Violated (61/7/64304)
 ## (56CF3C07.0001-8:kdspmou1.c,721,"PM1_CompilerOutput") Cannot build table object, status = 201
@@ -57,13 +55,8 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 ## (56CF3C07.0011-8:ko4ibstr.cpp,686,"IBStream::op_ls_req") IB Err: 1131
 ## (56CF3C07.0012-8:ko4sit.cpp,870,"Situation::slice") Sit vil_fss_xuxc_mediatn: Unable to lodge - giving up.
 
-## (5970A187.0001-13:kdebeal.c,81,"ssl_provider_open") GSKit error 407: GSK_ERROR_BAD_KEYFILE_LABEL - errno 11
-
 ## kqmsnos.cpp|processARMSNOS::processRecs|367,87084,46%,(597AB870.0001-A:kqmsnos.cpp,367,"processARMSNOS::processRecs") Warning: Invalid timestamp in node status record: <dcn1papx617:KUX> <REMOTE_UKSWI-DLTVPVL01> <ip.pipe:#172.30.166.54[59283]<NM>dcn1papx617</NM>> <V>  <Y> at <1170728050701000> locflag <M> <9> <%IBM.STATIC013          000000000U000pyw0a7> <parent>
 ## kqmlog.cpp|processARMeib::processRecs|779,22530,11%,(597AB875.0000-A:kqmlog.cpp,779,"processARMeib::processRecs") Warning: Invalid timestamp in notify record: operation <I> id <5529> name <RTMAS0146:53                    REMOTE_UKRTH-MCTVPVL06> timestamp <1170728050707001> user <_FAGEN> originnode <>
-
-## ??
-## (5940BF37.0046-261F:kdebp0r.c,591,"receive_vectors") ephemeral ip.spipe: peer address translated
 
 ## KBB_RAS1=    warn of this case
 
@@ -75,8 +68,6 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 ## (58694088.0001-3A:khdxhist.cpp,3058,"copyHistoryFile") Found 1 corrupted rows for "KA4PFJOB". Rows were skipped during copying.
 
 ## (59B12EE8.0156-15:kde0srq.c,57,"enqueue_sqe") Not starting new service thread because maximum of 16 reached
-
-## capture node status if available !1
 
 ## (59DFC978.0002-9:ko4rulex.cpp,920,"PredParser::getDescription") Error: Missing situation <Linux_BP_SpaceUsedPct_Critical>.
 
@@ -95,31 +86,12 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 
 ## (59F300BA.0006-8:ko4accpr.cpp,1463,"WOSActivity::populate") Error: pcy <Run_nodata_Situations> act <WaitOnSituation1> tgt <bnc_check_datacollection_tems> sit def not found
 
-## (5A1D433C.0002-107:kshdsr.cpp,361,"login") Create Path Error st=1010 for 'ie4013t' 'xxxxxxxx' 'ip.ssl'
-## (5A1D433C.0003-107:kshhttp.cpp,493,"writeSoapErrorResponse") faultstring: CMS logon validation failed.
-## (5A1D433C.0004-107:kshhttp.cpp,523,"writeSoapErrorResponse") Client: ip.ssl:#127.0.0.1:59190
-
-## (5A2668D0.0004-68:kdsvws1.c,2421,"ManageView") ProcessTable TNODESTS Insert Error status = ( 1551 ).  SRVR01 ip.spipe:#10.64.11.30[3660]
-
-## (5A3E5FA4.0008-110:ko4bkgnd.cpp,482,"BackgroundController::nodeStatusUpdate") TEMS heartbeat insert failed with status 1542
-
-## (5A7AE343.0012-8:ko4rulin.cpp,928,"SitInfo::setHistRule") error: application <KD4> for situation <UADVISOR_KD4_KD43RP> is missing from catalog
-
 ## (5A901CB0.0000-10:kpxrwhpx.cpp,597,"LookupWarehouse") Using TEMS node id RTEMS_HOP12 for warehouse proxy registration.
 ## (5A901CB0.0001-10:kpxrwhpx.cpp,648,"LookupWarehouse") Default registration Candle_Warehouse_Proxy was NOT found in the location broker.
 
 ## (2018/03/09,06:22:34.0000-33B:kdepenq.c,124,"KDEP_Enqueue") (11856:3660) receive limit (8192) reached: 138.103.84.146
 
-## (53FE6331.0001-2438:kpxrpcrq.cpp,873,"IRA_NCS_Sample") RPC socket change detected, initiate reconnect, node Primary:LTRSPPDB:NT!
-
-## (5AF163FB.01FA-A:kdssqrun.c,2056,"Prepare") Prepare address = 1219BA840, len = 179, SQL = SELECT ATOMIZE, LCLTMSTMP, DELTASTAT, ORIGINNODE, RESULTS FROM O4SRV.TADVISOR WHERE EVENT("all_logalrt_x074_selfmon_gen____") AND SYSTEM.PARMA("ATOMIZE","K07K07LOG0.MESSAGE",18) ;
-
-## (5B4F548E.0005-C:kqmarm.cpp,810,"arm::doStageII") Both sides were acting hub last time.  Setting no delete option.
-## (5AF4C1E8.0008-B:kqmarm.cpp,860,"arm::doStageII") Failed to get records from peer HUB. rc = <1>; id = <5140>
-
 ## (5C081B4F.0000-14:kpxrreg.cpp,1623,"IRA_NotifySDAInstallStatus") SDA Notification failed, agent "pima2vla:LZ", product "LZ" found unexpected RegBind type=4. Can't provide agent with SDA install result.
-
-## (5C1B6BA3.0007-162C:kbbssge.c,72,"BSS1_GetEnv") KDEB_INTERFACELIST="10.245.4.7"
 
 ## (5C93B537.0000-129:kpxndmgr.cpp,189,"UpdateStatusForFailedRequest") *INFO: Setting node <rvnlprbwap1:LZ> off-line due to failure to start req <>
 
@@ -134,11 +106,7 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 ## (5CAE2178.06DC-179B:kpxreqi.cpp,977,"UseRequestImp") RequestImp RES1 Use handle 407914353: obj@119C3B3D0
 ## (5CAE2178.06DD-179B:kpxrpcrq.cpp,847,"IRA_NCS_Sample") Rcvd 1 rows sz 366 tbl *.KA4MISC req UADVISOR_KA4_KA4MISC <407914353,638583257> node <ESBRMT1:KA4>
 
-## (5D309F63.0000-24:ko4tsmgr.cpp,599,"TaskManager::checkSitmonStatus") Sitmon BUSY.  Process <TaskManager::process#1> in BUSY state since <5d3098bb>, which exceeds <900> seconds.,
-
 ## (5D51ECFF.005D-1E:ko4bkgnd.cpp,482,"BackgroundController::nodeStatusUpdate") TEMS heartbeat insert failed with status 155
-
-## (5DAB6600.0019-1:kdsdc.c,4162,"ProcessInstallMember") Number of installed packages exceeds the maximum of 512
 
 ## Thu Nov 14 12:41:13 2019 005D-9:kdebeal.c,20,"ssl_provider_open") Entry
 ## Thu Nov 14 12:41:13 2019 005E-9:kdebenc.c,24,"read_gsk") Entry
@@ -150,6 +118,8 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 ## +5F24B0ED.0005  Heartbeat timestamp is older than previously received by current thrunode <REMOTE_AUBHDPLITM010            >New thrunode would have been <REMOTE_AUULDPLITM010            >
 
 ## (5F1A294D.0002-1:kdsvlunx.c,1561,"dl_init") PAM library libpam.so would not load
+
+## (5F1A294D.0357-89:kpxrrega.cpp,148,"IRA_ReturnRequestList") IRA_NCS_RequestList_Cmp_v1 returned error 0x1c010001, node boi_cbaljirato11:KUL, transaction counter 389,
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -303,6 +273,7 @@ my $opt_ndfn;                                    # node history filename
 my $opt_evslot = 1;
 my $opt_tlslot = 5;
 my $opt_dup = 0;                                 # produce duplicate cleanup
+my $opt_dupi = 12;                               # Duplicate impact per day level
 my $start_date = "";
 my $start_time = "";
 my $local_diff = -1;
@@ -765,6 +736,12 @@ my %mismatchx;
 my $mismatch_ref;
 
 my %mhmx = ();
+my $mhm_hub_node = "";
+my $mhm_mirror_node = "";
+my $mhm_local_node = "";
+my $mhm_parent_node =  "";
+my $mhm_local_role = "";
+my $mhm_parent_role =  "";
 
 # allow user to set impact
 my %advcx = (
@@ -842,7 +819,7 @@ my %advcx = (
               "TEMSAUDIT1072W" => "85",
               "TEMSAUDIT1073W" => "85",
               "TEMSAUDIT1074W" => "85",
-              "TEMSAUDIT1075I" => "00",
+              "TEMSAUDIT1075I" => "0",
               "TEMSAUDIT1076W" => "85",
               "TEMSAUDIT1077W" => "85",
               "TEMSAUDIT1078E" => "100",
@@ -916,6 +893,8 @@ my %advcx = (
               "TEMSAUDIT1146E" => "95",
               "TEMSAUDIT1147E" => "101",
               "TEMSAUDIT1148W" => "95",
+              "TEMSAUDIT1149E" => "100",
+              "TEMSAUDIT1150E" => "100",
             );
 
 
@@ -1630,6 +1609,7 @@ my $sitrul_pdt = 0;
 my $sitrul_atr = 0;
 
 my $itc_ct = 0;
+my $badraw_ct = 0;
 
 my %readnextx;
 
@@ -1747,6 +1727,9 @@ my $kpx_warning_ct = 0;
 
 my %changex;
 my $changex_ct = 0;
+my $change_impact = 12;
+my $change_start = 0;
+my $change_end = 0;
 my $change_ref;
 my $change_node_ref;
 my $change_instance_ref;
@@ -1956,6 +1939,14 @@ while (@ARGV) {
             shift(@ARGV);
          }
       }
+   } elsif ($ARGV[0] eq "-dupi") {
+      shift(@ARGV);
+      if (defined $ARGV[0]) {
+         if (substr($ARGV[0],0,1) ne "-") {
+            $opt_dupi = $ARGV[0];
+            shift(@ARGV);
+         }
+      }
    } elsif ($ARGV[0] eq "-portlim") {
       shift(@ARGV);
       if (defined $ARGV[0]) {
@@ -2080,10 +2071,12 @@ if (!defined $opt_prtlim) {$opt_prtlim = 1;}
 if (!defined $opt_hb) {$opt_hb = 600;}
 if (!defined $opt_gap) {$opt_gap = 0;}
 if (!defined $opt_dupfile) {$opt_dupfile = 0;}
+if (!defined $opt_dupi) {$opt_dupi = 12;}
 if (!defined $opt_sitpdt) {$opt_sitpdt = "";}
 if (!defined $opt_portlim) {$opt_portlim = 5;}
 $opt_stfn = "eventhist.csv" if $opt_sth == 1;
 $opt_ndfn = "nodehist.csv" if $opt_sth == 1;
+$change_impact = $opt_dupi;
 open( ZOP, "+>$opt_zop" ) or die "Cannot open zop file $opt_zop : $!" if $opt_zop ne "";
 
 
@@ -3866,6 +3859,16 @@ for(;;)
             my $mkey = $logtimehex . "|" . $l;
             $mhmx{$mkey} = $rest;
             set_timeline($logtime,$l,$logtimehex,"TEMSREPORT044",$rest);
+            $rest =~ /(\S+).*<(\S*)> is now the (\S+)/;
+            my $ilp = $1;
+            my $items = $2;
+            my $irole = $3;
+            $mhm_hub_node    = $items if $irole eq "HUB";
+            $mhm_mirror_node = $items if $irole eq "MIRROR";
+            $mhm_local_node  = $items if $ilp eq "local";
+            $mhm_parent_node = $items if $ilp eq "parent";
+            $mhm_local_role  = $irole if $ilp eq "local";
+            $mhm_parent_role = $irole if $ilp eq "parent";
             next;
          }
       }
@@ -3886,6 +3889,17 @@ for(;;)
       }
    }
 
+   # (5FFAF233.0000-8C:kdei0af.c,113,"from_name") Status 1DE00003=KDE1_STC_BADRAWNAME
+   if (substr($logunit,0,9) eq "kdei0af.c") {
+      if ($logentry eq "from_name") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Status 1DE00003=KDE1_STC_BADRAWNAME
+         if (substr($rest,1,35) eq "Status 1DE00003=KDE1_STC_BADRAWNAME") {
+            $badraw_ct += 1;
+            next;
+         }
+      }
+   }
 
 
    # General signal for duplicate pipe deletion processing
@@ -4040,11 +4054,13 @@ for(;;)
    }
 
    # (59198C7E.005E-A:socket_imp.c,2020,"_create_eipc_client") KDE1_StringToAddress returned 0x1DE00003 for none
+   # (6037900E.0001-A:socket_imp.c,2027,"_create_eipc_client") KDE1_StringToAddress returned BADRAWNAME for none
    if (substr($logunit,0,12) eq "socket_imp.c") {
       if ($logentry eq "_create_eipc_client") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # KDE1_StringToAddress returned 0x1DE00003 for none
-         if (substr($rest,1,49) eq "KDE1_StringToAddress returned 0x1DE00003 for none") {
+         if ((substr($rest,1,49) eq "KDE1_StringToAddress returned 0x1DE00003 for none") or
+             (substr($rest,1,49) eq "KDE1_StringToAddress returned BADRAWNAME for none")) {
             $eipc_none += 1;
             next;
          }
@@ -6004,6 +6020,10 @@ for(;;)
                $ihostaddr =~ s/\s+$//;   #trim trailing whitespace
                my $islot = sec2slot($logtime,60);
                $lastslot = $islot;
+               $change_start = $logtime if $change_start == 0;
+               $change_start = $logtime if $change_start > $logtime;
+               $change_end = $logtime if $change_end == 0;
+               $change_end = $logtime if $change_end < $logtime;
                $change_ref = $changex{$idesc};
                $changex_ct += 1;
                if (!defined $change_ref) {
@@ -6022,10 +6042,12 @@ for(;;)
                                          count => 0,
                                          instances => {},
                                          systems => {},
+                                         rate => 0,
                                       );
                   $change_node_ref = \%changenoderef;
                   $change_ref->{nodes}{$inode} = \%changenoderef;
                }
+               $change_node_ref->{end} = $logtime;
                $change_node_ref->{count} += 1;
                $change_node_ref->{systems}{$ihostaddr} = 1 if $ihostaddr ne "";
                my $changekey = $ithrunode . "|" . $ihostaddr;
@@ -7904,6 +7926,23 @@ if ($itc_ct > 0) {
    $advsit[$advi] = "Comm";
 }
 
+if ($badraw_ct > 0) {
+   $advi++;$advonline[$advi] = "$badraw_ct KDE1_STC_BADRAWNAME resoution errors";
+   $advcode[$advi] = "TEMSAUDIT1149E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Comm";
+   $crit_line = "1,Name resolution errors[$badraw_ct]";
+   push @crits,$crit_line;
+}
+
+if ($stage2_ct_err > 0) {
+   $advi++;$advonline[$advi] = "Failed Reconnection from remote TEMS to hub TEMS - $stage2_ct_err times";
+   $advcode[$advi] = "TEMSAUDIT1043E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "Reconnect_Fail";
+   $crit_line = "1,Failed Reconnection from remote TEMS to hub TEMS - $stage2_ct_err times";
+}
+
 if ($opt_disable_http eq "YES") {
    $advi++;$advonline[$advi] = "DISABLE_HTTP=YES which is invalid for TEMS";
    $advcode[$advi] = "TEMSAUDIT1116E";
@@ -7919,10 +7958,29 @@ if ($toobigi > -1) {
       $advsit[$advi] = "TooBig";
 }
 
+#my $mhm_hub_node = "";
+#my $mhm_mirror_node = "";
+#my $mhm_local_node = "";
+#my $mhm_parent_node =  "";
+#my $mhm_local_role = "";
+#my $mhm_parent_role =  "";
+
+
 my $mhm_ct = scalar keys %mhmx;
 if ($mhm_ct > 0) {
    $rptkey = "TEMSREPORT044";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="$rptkey: FTO control messages\n";
+   if (($mhm_hub_node ne "") and ($mhm_mirror_node ne "")) {
+      $cnt++;$oline[$cnt]="Local[$mhm_local_node,$mhm_local_role] Parent[$mhm_parent_node,$mhm_parent_role]\n";
+      if ($mhm_local_node eq $mhm_parent_node) {
+         $advi++;$advonline[$advi] = "FTO hub TEMS with same nodeid $mhm_local_node";
+         $advcode[$advi] = "TEMSAUDIT1150E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "FTO";
+         $crit_line = "1,FTO hub TEMS with same nodeid $mhm_local_node";
+         push @crits,$crit_line;
+      }
+   }
    $cnt++;$oline[$cnt]="StartEpoch,Local_Time,Line_number,Message\n";
    foreach $f ( sort { $a cmp $b } keys %mhmx) {
       $outl = substr($f,0,8) . ",";
@@ -10394,9 +10452,7 @@ if ($change_real > 0) {
       }
    }
    $rptkey = "TEMSREPORT079";$advrptx{$rptkey} = 1;         # record report key
-   $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Duplicate Agent Report\n";
-   $cnt++;$oline[$cnt]="Desc,Count,Node,Count,Thrunode,HostAddr,OldThrunode,\n";
+   my $change_dur = $change_end - $change_start;            # seconds of changes
    foreach $f ( sort { $a cmp $b } keys %changex) {
       $change_ref = $changex{$f};
       foreach $g (keys %{$change_ref->{nodes}}) {
@@ -10404,12 +10460,31 @@ if ($change_real > 0) {
          next if $change_node_ref->{count} == 1;
          my $systems_ct = scalar keys %{$change_node_ref->{systems}};
          next if $systems_ct == 1;
+         my $flip_rate = $change_node_ref->{count} / ($change_dur/86400);
+         my $fprate = sprintf '%.2f', $flip_rate;
+         $change_node_ref->{rate} = $fprate;
+         $fdup_ct += 1 if $change_node_ref->{rate} >= $change_impact;
+      }
+   }
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Duplicate Agent Report\n";
+   $cnt++;$oline[$cnt]="Desc,Count,Rate,Node,Thrunode,HostAddr,OldThrunode,\n";
+   foreach $f ( sort { $a cmp $b } keys %changex) {
+      $change_ref = $changex{$f};
+      foreach $g ( sort { $change_ref->{nodes}{$b}->{count} <=> $change_ref->{nodes}{$a}->{count} || $a cmp $b }
+              keys %{$change_ref->{nodes}}) {
+         $change_node_ref = $change_ref->{nodes}{$g};
+         next if $change_node_ref->{count} == 1;
+         next if $change_node_ref->{rate} < $change_impact;
+         my $systems_ct = scalar keys %{$change_node_ref->{systems}};
+         next if $systems_ct == 1;
          $fdup_ct += 1;
-         foreach $h (keys %{$change_node_ref->{instances}}) {
+         foreach $h  ( keys %{$change_node_ref->{instances}}) {
             $change_instance_ref = $change_node_ref->{instances}{$h};
             $outl = $f . ",";
-            $outl .= $change_node_ref->{count} . "," . $g . ",";
-            $outl .= $change_instance_ref->{count} . ",";
+            $outl .= $change_node_ref->{count} . ",";
+            $outl .= $change_node_ref->{rate} . ",";
+            $outl .= $g . ",";
             $outl .= $change_instance_ref->{thrunode} . ",";
             $outl .= $change_instance_ref->{hostaddr} . ",";
             my $pports = "";
@@ -10435,6 +10510,7 @@ if ($change_real > 0) {
       $change_ref = $changex{$f};
       foreach $g (keys %{$change_ref->{nodes}}) {
          $change_node_ref = $change_ref->{nodes}{$g};
+         next if $change_node_ref->{rate} < $change_impact;
          foreach $h (keys %{$change_node_ref->{instances}}) {
             $change_instance_ref = $change_node_ref->{instances}{$h};
             my $node_ip = $change_instance_ref->{hostaddr};
@@ -10444,6 +10520,7 @@ if ($change_real > 0) {
                                    node => $g,
                                    hostaddr => $change_instance_ref->{hostaddr},
                                    count => 0,
+                                   rate => $change_node_ref->{rate},
                                    thrunodes => {},
                                    desc => {},
                                    ports => {},
@@ -10486,6 +10563,7 @@ if ($change_real > 0) {
                my %node_hostref = (
                                      hostaddrs => {},
                                      hct => 0,
+                                     rate => $change_node_ref->{rate},
                                   );
                $node_host_ref = \%node_hostref;
                $nodeiphx{$g} = \%node_hostref;
@@ -10513,12 +10591,15 @@ if ($nodeiph_ct > 0) {
       my $inst_ct = 0;
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Report - Multiple Systems\n";
-      $cnt++;$oline[$cnt]="Count,Agent,Hostaddrs,\n";
+      $cnt++;$oline[$cnt]="Count,Rate,Agent,Hostaddrs,\n";
       foreach $g (sort {$a cmp $b} %nodeiphx) {
          next if ref($g) eq "HASH";
          my $node_host_ref = $nodeiphx{$g};
+
+         my $host_rate = $node_host_ref->{rate};
          next if $node_host_ref->{hct} < 2;
          $outl = $node_host_ref->{hct} . ",";
+         $outl .= $host_rate . ",";
          $outl .= $g . ",";
          my @pagent = split(":",$g);
          my $pc = "";
@@ -10539,6 +10620,7 @@ if ($nodeiph_ct > 0) {
             if (!defined $dupagt_ref) {
                my %dupdetx =  (
                                  count => 0,
+                                 rate => $host_rate,
                                  ipx => {},
                               );
                 $dupagtx{$g} = \%dupdetx;
@@ -10573,6 +10655,7 @@ if ($nodeiph_ct > 0) {
             open DEPCSV, "+>$opt_dedup_csv" or die "can't open $opt_dedup_csv: $!";
             foreach my $j (keys %dupagtx) {
                my $dupagt_ref = $dupagtx{$j};
+               next if $dupagt_ref->{rate} < $change_impact;
                foreach my $g (keys %{$dupagt_ref->{ipx}}) {
                   print DEPCSV $j . "," . $g . ",\n";
                   $opt_dup_ct += 1;
@@ -13747,6 +13830,10 @@ exit;
 #2.31000 - Add advisory for HOSTS hostname duplicated
 #        - Add advisory for large files and report section
 #        - make open/write do overwrites in Windows
+#2.32000 - advisory about bad rawname messages
+#        - Add advisory when FTO hub TEMS have same nodeid
+#        - Add duplicate agent time average to judge impact
+
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
 __END__
@@ -16422,6 +16509,52 @@ Recovery plan: Review files consuming a lot of data and correct the
 condition.
 ----------------------------------------------------------------
 
+TEMSAUDIT1149E
+Text: <count> KDE1_STC_BADRAWNAME resoution errors
+
+Tracing: error
+(5FFAF233.0000-8C:kdei0af.c,113,"from_name") Status 1DE00003=KDE1_STC_BADRAWNAME,
+
+Meaning: A communications related name has to be resolved into
+an IP address and the resolution failed. The most common case is
+when the om_tec.info target is specified as "none" instead of "0".
+
+The usual result is expected processing is not performed.
+
+Recovery plan: Set TEMS tracing
+
+./tacmd login .... to hub TEMS
+./tacmd settrace -m <temsnodeid> -p KDE_DEBUG -o 'M'
+
+and later to turn off tracing
+
+./tacmd login .... to hub TEMS
+./tacmd settrace -m <temsnodeid> -p KDE_DEBUG -r
+
+
+
+There will be a diagnostic message stating what the unresolvable
+name is and that will often guide to what configuration needs
+to be resolved.
+----------------------------------------------------------------
+
+TEMSAUDIT1150E
+Text: FTO hub TEMS with same nodeid $mhm_local_node<count>
+
+Tracing: error
+(5F9984CC.0007-A:kqmmhm.cpp,1332,"mhm::promoteToHub") local cms <TEMS> is now the HUB
+(5F9984CC.0008-A:kqmmhm.cpp,1334,"mhm::promoteToHub") parent cms <TEMS> is now the MIRROR
+
+Meaning: In a FTO configuration there are two hub TEMS which
+take on primary or mirror roles alternately. In this case the
+two hub TEMS have the same nodeid and that configuration will
+not work as expected.
+
+
+Recovery plan: Uninstall the MIRROR hub TEMS and reinstall it
+with a TEMS nodeid that is different from the primary hub TEMS
+----------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -18737,7 +18870,7 @@ Primary:IBMO075847:NT,0x1c010001[8],
 Meaning
 When an agent connects with a TEMS, there is a coordination process performed
 which ensures the agent knows what situations it will be running. The agent
-maintains a persisant situation file for cases when the agent starts up and
+maintains a persisent situation file for cases when the agent starts up and
 no TEMS is available.
 
 This error condition means the coordination process failed. This is rare but
@@ -18745,9 +18878,12 @@ it might mean that the persistent situation file is corrupted in some way. The
 impact is that the agent will not know what situations to run when it starts
 and no TEMS is available.
 
-Recovery plan: Usually you can correct the issue by stopping the agent, deleting
-the persistant situation file and restarting the agent. On Linux/Unix this is
-found in <install>/<arch>/<pc> and has the form psit_<agent_name>.str
+In another case, there was a network communication issue from the TEMS to the
+agent and it was not responding correctly.
+
+Recovery plan: Sometimes you can correct the issue by stopping the agent, deleting
+the persistent situation file and restarting the agent. On Linux/Unix this is
+found in <installdir>/<arch>/<pc> and has the form psit_<agent_name>.str
 On Windows the persistence files are found in <installdir>\TMAITM6
 and the name has the same form except that the colon [:] in the name
 is replaced by an underline. If this does not resolve the issue, contact IBM Support
