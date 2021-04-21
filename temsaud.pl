@@ -17,7 +17,7 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
-my $gVersion = 2.32000;
+my $gVersion = 2.33000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 ## Todos
@@ -588,6 +588,8 @@ my $h;
 my $gsk701 = 0;
 my $csv1_path = "";
 
+my $kdsvlunx_perm = "";
+
 my %fileszx;
 my %dirzx;
 
@@ -894,7 +896,9 @@ my %advcx = (
               "TEMSAUDIT1147E" => "101",
               "TEMSAUDIT1148W" => "95",
               "TEMSAUDIT1149E" => "100",
-              "TEMSAUDIT1150E" => "100",
+              "TEMSAUDIT1150W" => "50",
+              "TEMSAUDIT1151E" => "50",
+              "TEMSAUDIT1152E" => "100",
             );
 
 
@@ -1028,7 +1032,7 @@ my %knowntabx = (
                    'KA4SBS'     => '124',
                    'KA4SYSTS'   => '188',
                    'KAGDYST'    => '504',     # kdy remote deploy
-                   'KAGREQT'    => '4096',    # kdy remote deploy
+                   'KAGREQT'    => '4196',    # kdy remote deploy
                    'KBNCPUUSAG' => '324',
                    'KBNDATETIM' => '952',
                    'KBNDPCBATS' => '368',
@@ -1126,6 +1130,7 @@ my %knowntabx = (
                    'KNPTOTENT' => '52',
                    'KNPWORKQUE' => '52',
                    'KNTPASCAP' => '3000',
+                   'KNTPASMGMT' => '528',
                    'KNTPASSTAT' => '1392',
                    'KNTSCRRTM'  => '3544',
                    'KNTSCRTSM'  => '3544',
@@ -1179,6 +1184,35 @@ my %knowntabx = (
                    'KPHSVRCPUP' => '540',
                    'KPHSVRLPAR' => '892',
                    'KPK03PERLP' => '892',
+                   'KNTPASMGMT' => '528',
+                   'KPPCDCSES1' => '140',
+                   'KPPCOMMON1' => '1252',
+                   'KPPDASD1' => '120',
+                   'KPPDASDDV1' => '76',
+                   'KPPDASDP1' => '92',
+                   'KPPDASDPS1' => '72',
+                   'KPPDASDST1' => '76',
+                   'KPPENHCLN1' => '152',
+                   'KPPIS1' => '340',
+                   'KPPLPARTI1' => '100',
+                   'KPPM1DS' => '169',
+                   'KPPM2DS' => '169',
+                   'KPPMQQC' => '220',
+                   'KPPMQQD' => '236',
+                   'KPPMQSSUM1' => '220',
+                   'KPPMQSUM1' => '76',
+                   'KPPPDUSER1' => '92',
+                   'KPPPOBJST' => '324',
+                   'KPPPROCT1' => '104',
+                   'KPPSVCAPP1' => '224',
+                   'KPPSVCJAM1' => '160',
+                   'KPPTAPE1' => '100',
+                   'KPPTPFDF1P' => '296',
+                   'KPPTPFDF2P' => '296',
+                   'KPPTPFDF3P' => '296',
+                   'KPPTPFDF4P' => '296',
+                   'KPPVFADE1' => '148',
+                   'KPPVFADS1' => '84',
                    'KPX02TOP50' => '2460',
                    'KPX13PAGIN' => '76',
                    'KPX14LOGIC' => '1076',
@@ -7927,7 +7961,7 @@ if ($itc_ct > 0) {
 }
 
 if ($badraw_ct > 0) {
-   $advi++;$advonline[$advi] = "$badraw_ct KDE1_STC_BADRAWNAME resoution errors";
+   $advi++;$advonline[$advi] = "$badraw_ct KDE1_STC_BADRAWNAME resolution errors";
    $advcode[$advi] = "TEMSAUDIT1149E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Comm";
@@ -7965,7 +7999,6 @@ if ($toobigi > -1) {
 #my $mhm_local_role = "";
 #my $mhm_parent_role =  "";
 
-
 my $mhm_ct = scalar keys %mhmx;
 if ($mhm_ct > 0) {
    $rptkey = "TEMSREPORT044";$advrptx{$rptkey} = 1;         # record report key
@@ -7974,11 +8007,11 @@ if ($mhm_ct > 0) {
       $cnt++;$oline[$cnt]="Local[$mhm_local_node,$mhm_local_role] Parent[$mhm_parent_node,$mhm_parent_role]\n";
       if ($mhm_local_node eq $mhm_parent_node) {
          $advi++;$advonline[$advi] = "FTO hub TEMS with same nodeid $mhm_local_node";
-         $advcode[$advi] = "TEMSAUDIT1150E";
+         $advcode[$advi] = "TEMSAUDIT1150W";
          $advimpact[$advi] = $advcx{$advcode[$advi]};
          $advsit[$advi] = "FTO";
-         $crit_line = "1,FTO hub TEMS with same nodeid $mhm_local_node";
-         push @crits,$crit_line;
+#        $crit_line = "1,FTO hub TEMS with same nodeid $mhm_local_node";
+#        push @crits,$crit_line;
       }
    }
    $cnt++;$oline[$cnt]="StartEpoch,Local_Time,Line_number,Message\n";
@@ -8243,10 +8276,16 @@ $cnt++;$oline[$cnt]="\n";
 if ($trace_size_minute > $opt_nominal_trace) {
    $trc_pc = int((($trace_size_minute - $opt_nominal_trace)*100)/$opt_nominal_trace);
    my $ppc = sprintf '%.0f%%', $trc_pc;
-   $advi++;$advonline[$advi] = "Trace bytes per minute $ppc higher then nominal $opt_nominal_trace - See Report $rptkey";
+   $advi++;$advonline[$advi] = "Trace bytes per minute $ppc higher then nominal $opt_nominal_trace";
    $advcode[$advi] = "TEMSAUDIT1007W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Trace";
+   if ($ppc > 1000) {
+      $advcode[$advi] = "TEMSAUDIT1152E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $crit_line = "1,Trace bytes per minute $ppc higher than nominal";
+      push @crits,$crit_line;
+   }
 }
 my $syncdist_early = -1;
 if ($syncdist > 0) {
@@ -12017,7 +12056,9 @@ if ($gotnet == 1) {
       }
    }
 
+   my $gotq = 0;
    if (($total_sendq + $total_recvq) > 0) {
+      $gotq = 1;
       $rptkey = "TEMSREPORT051";$advrptx{$rptkey} = 1;         # record report key
       $cnt++;$oline[$cnt]="\n";
       $cnt++;$oline[$cnt]="$rptkey: NETSTAT Send-Q and Recv-Q Report\n";
@@ -12044,66 +12085,68 @@ if ($gotnet == 1) {
    }
    my $net8_ct = scalar keys %net8x;
    if ($net8_ct > 0) {
-      $rptkey = "TEMSREPORT084";$advrptx{$rptkey} = 1;         # record report key
-      $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="$rptkey: NETSTAT.INFO Recv-Q and Send-Q Summary\n";
-      $cnt++;$oline[$cnt]="Net,Total-p,Level,SendQ-p,RecvQ-p,SendQ-0,RecvQ-0,Subnets,\n";
-      foreach $f ( sort { $a cmp $b} keys %net8x){
-         my $net_ref = $net8x{$f};
-         $outl = "8" . ",";
-         my $itot = $net_ref->{sendp} +  $net_ref->{recvp};
-         $outl .= $itot . ",";
-         $outl .= $f . ",";
-         $outl .= $net_ref->{sendp} . ",";
-         $outl .= $net_ref->{recvp} . ",";
-         $outl .= $net_ref->{send0} . ",";
-         $outl .= $net_ref->{recv0} . ",";
-         my $pnets = "";
-         foreach my $i (keys %{$net_ref->{subnets}}) {
-            $i .= "*" if $net_ref->{subnets}{$i} > 0;
-            $pnets .= $i . " ";
+      if ($gtoq == 1) {
+         $rptkey = "TEMSREPORT084";$advrptx{$rptkey} = 1;         # record report key
+         $cnt++;$oline[$cnt]="\n";
+         $cnt++;$oline[$cnt]="$rptkey: NETSTAT.INFO Recv-Q and Send-Q Summary\n";
+         $cnt++;$oline[$cnt]="Net,Total-p,Level,SendQ-p,RecvQ-p,SendQ-0,RecvQ-0,Subnets,\n";
+         foreach $f ( sort { $a cmp $b} keys %net8x){
+            my $net_ref = $net8x{$f};
+            $outl = "8" . ",";
+            my $itot = $net_ref->{sendp} +  $net_ref->{recvp};
+            $outl .= $itot . ",";
+            $outl .= $f . ",";
+            $outl .= $net_ref->{sendp} . ",";
+            $outl .= $net_ref->{recvp} . ",";
+            $outl .= $net_ref->{send0} . ",";
+            $outl .= $net_ref->{recv0} . ",";
+            my $pnets = "";
+            foreach my $i (keys %{$net_ref->{subnets}}) {
+               $i .= "*" if $net_ref->{subnets}{$i} > 0;
+               $pnets .= $i . " ";
+            }
+            chop($pnets) if $pnets ne "";
+            $outl .= $pnets . ",";
+            $cnt++;$oline[$cnt]="$outl\n";
          }
-         chop($pnets) if $pnets ne "";
-         $outl .= $pnets . ",";
-         $cnt++;$oline[$cnt]="$outl\n";
-      }
-      foreach $f ( sort { $a cmp $b} keys %net16x){
-         my $net_ref = $net16x{$f};
-         $outl = "16" . ",";
-         my $itot = $net_ref->{sendp} +  $net_ref->{recvp};
-         $outl .= $itot . ",";
-         $outl .= $f . ",";
-         $outl .= $net_ref->{sendp} . ",";
-         $outl .= $net_ref->{recvp} . ",";
-         $outl .= $net_ref->{send0} . ",";
-         $outl .= $net_ref->{recv0} . ",";
-         my $pnets = "";
-         foreach my $i (keys %{$net_ref->{subnets}}) {
-            $i .= "*" if $net_ref->{subnets}{$i} > 0;
-            $pnets .= $i . " ";
+         foreach $f ( sort { $a cmp $b} keys %net16x){
+            my $net_ref = $net16x{$f};
+            $outl = "16" . ",";
+            my $itot = $net_ref->{sendp} +  $net_ref->{recvp};
+            $outl .= $itot . ",";
+            $outl .= $f . ",";
+            $outl .= $net_ref->{sendp} . ",";
+            $outl .= $net_ref->{recvp} . ",";
+            $outl .= $net_ref->{send0} . ",";
+            $outl .= $net_ref->{recv0} . ",";
+            my $pnets = "";
+            foreach my $i (keys %{$net_ref->{subnets}}) {
+               $i .= "*" if $net_ref->{subnets}{$i} > 0;
+               $pnets .= $i . " ";
+            }
+            chop($pnets) if $pnets ne "";
+            $outl .= $pnets . ",";
+            $cnt++;$oline[$cnt]="$outl\n";
          }
-         chop($pnets) if $pnets ne "";
-         $outl .= $pnets . ",";
-         $cnt++;$oline[$cnt]="$outl\n";
-      }
-      foreach $f ( sort { $a cmp $b} keys %net24x){
-         my $net_ref = $net24x{$f};
-         $outl = "24" . ",";
-         my $itot = $net_ref->{sendp} +  $net_ref->{recvp};
-         $outl .= $itot . ",";
-         $outl .= $f . ",";
-         $outl .= $net_ref->{sendp} . ",";
-         $outl .= $net_ref->{recvp} . ",";
-         $outl .= $net_ref->{send0} . ",";
-         $outl .= $net_ref->{recv0} . ",";
-         my $pnets = "";
-         foreach my $i (keys %{$net_ref->{subnets}}) {
-            $i .= "*" if $net_ref->{subnets}{$i} > 0;
-            $pnets .= $i . " ";
+         foreach $f ( sort { $a cmp $b} keys %net24x){
+            my $net_ref = $net24x{$f};
+            $outl = "24" . ",";
+            my $itot = $net_ref->{sendp} +  $net_ref->{recvp};
+            $outl .= $itot . ",";
+            $outl .= $f . ",";
+            $outl .= $net_ref->{sendp} . ",";
+            $outl .= $net_ref->{recvp} . ",";
+            $outl .= $net_ref->{send0} . ",";
+            $outl .= $net_ref->{recv0} . ",";
+            my $pnets = "";
+            foreach my $i (keys %{$net_ref->{subnets}}) {
+               $i .= "*" if $net_ref->{subnets}{$i} > 0;
+               $pnets .= $i . " ";
+            }
+            chop($pnets) if $pnets ne "";
+            $outl .= $pnets . ",";
+            $cnt++;$oline[$cnt]="$outl\n";
          }
-         chop($pnets) if $pnets ne "";
-         $outl .= $pnets . ",";
-         $cnt++;$oline[$cnt]="$outl\n";
       }
    }
 
@@ -12163,6 +12206,7 @@ if ($gotdir == 1) {
    #134552    4 drwxr-xr-x  32 root     root         4096 Sep 23  2019 /opt/IBM/ITM
    #262434    4 drwxrwxrwx   3 root     root         4096 May 29  2015 /opt/IBM/ITM/xmlconfig
    #262678    4 -rwxrwxrwx   1 root     root         1017 Sep 23  2019 /opt/IBM/ITM/xmlconfig/ac16_help.png
+   #57385  422 -rwxr-xr-x  1 itmagent  netcool     431450 Aug  6  2018 /opt/IBM/tivoli/ITM/aix536/ms/bin/kdsvlunx
    #
    # Windows Example
    #
@@ -12188,6 +12232,9 @@ if ($gotdir == 1) {
       my $isize = $4;
       my $iname = $5;
       next if substr($iperm,0,1) eq "d";   # ignore directories
+      if (index($iname,"ms/bin/kdsvlunx") > 0) {
+         $kdsvlunx_perm = $iperm;
+      }
       next if $isize < 100*1024*1024;      # ignore less than 100meg `
       $fileszx{$iname} = $isize;           # record name and size
    }
@@ -12205,19 +12252,33 @@ if ($gotdir == 1) {
         my $wpc = sprintf '%.2f', $igigs;
         $outl = $wpc . "," . $f . ",";
         $cnt++;$oline[$cnt]=$outl . "\n";
-        $ge1gig += 1 if $fileszx{$f} > (1024*1024*1024);
+        $ge1gig += 1 if $fileszx{$f} > (4*1024*1024*1024);
         $maxgig = $wpc if $maxgig < $wpc;
       }
-      $advi++;$advonline[$advi] = "System has $filesz_ct files larger than 100meg and $ge1gig file(s) larger than 1 gig max[$maxgig" . "GB] - See Report $rptkey";
+      $advi++;$advonline[$advi] = "System has $filesz_ct files larger than 100meg and $ge1gig file(s) larger than 4 gig max[$maxgig" . "GB] - See Report $rptkey";
       $advcode[$advi] = "TEMSAUDIT1148W";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
       if ($ge1gig > 0) {
-         $crit_line = "1,System has $ge1gig file(s) larger than 1 gig max[$maxgig" . "GB] - See Report $rptkey";
+         $crit_line = "1,System has $ge1gig file(s) larger than 4 gig max[$maxgig" . "GB] - See Report $rptkey";
          push @crits,$crit_line;
       }
    }
 }
+
+if ($kdsvlunx_perm ne "") {
+   if ($opt_tems eq "*LOCAL") {
+      if (substr($kdsvlunx_perm,2,1) ne "s") {
+         $advi++;$advonline[$advi] = "kdsvlunx program object missing suid permission";
+         $advcode[$advi] = "TEMSAUDIT1151E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TEMS";
+         $crit_line = "1,kdsvlunx missing suid permission";
+         push @crits,$crit_line;
+      }
+   }
+}
+
 
 # new report of cinfo.info if it can be located
 
@@ -13833,6 +13894,11 @@ exit;
 #2.32000 - advisory about bad rawname messages
 #        - Add advisory when FTO hub TEMS have same nodeid
 #        - Add duplicate agent time average to judge impact
+#2.33000 - Modify advisory about same Primary/Mirror TEMS nodeids
+#        - Add advisory on non-suid kdsvlunx
+#        - Add result lengths for zTPF agents
+#        - Change crti warn on large files to more than 4 gigs
+#        - Add crit if trace rate is more than 10 times nominal
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -13984,7 +14050,7 @@ overwhelmed the system and things ran very slowly.
 
 Recovery plan: Do less tracing unless you are specifically
 instructed by IBM Support. You should especially avoid setting
-communications tracing [KDC_DEBUG=Y,KDE_DEBUG=Y,KBS_DEBUG=Y]
+communications tracing [KDC_DEBUG=Y,KDE_DEBUG=Y,KBS_DEBUG=Y,KDH_DEBUG=Y]
 unless specifically requested by IBM Support.
 --------------------------------------------------------------
 
@@ -16497,7 +16563,7 @@ once.
 ----------------------------------------------------------------
 
 TEMSAUDIT1148W
-Text: System has <count> files larger than 100meg and count file(s) larger than 1 gig max[size]
+Text: System has <count> files larger than 100meg and count file(s) larger than 4 gig max[size]
 
 Tracing: dir.info file
 
@@ -16510,14 +16576,14 @@ condition.
 ----------------------------------------------------------------
 
 TEMSAUDIT1149E
-Text: <count> KDE1_STC_BADRAWNAME resoution errors
+Text: <count> KDE1_STC_BADRAWNAME resolution errors
 
 Tracing: error
 (5FFAF233.0000-8C:kdei0af.c,113,"from_name") Status 1DE00003=KDE1_STC_BADRAWNAME,
 
 Meaning: A communications related name has to be resolved into
 an IP address and the resolution failed. The most common case is
-when the om_tec.info target is specified as "none" instead of "0".
+when the om_tec.config target is specified as "none" instead of "0".
 
 The usual result is expected processing is not performed.
 
@@ -16538,7 +16604,7 @@ name is and that will often guide to what configuration needs
 to be resolved.
 ----------------------------------------------------------------
 
-TEMSAUDIT1150E
+TEMSAUDIT1150W
 Text: FTO hub TEMS with same nodeid $mhm_local_node<count>
 
 Tracing: error
@@ -16550,9 +16616,55 @@ take on primary or mirror roles alternately. In this case the
 two hub TEMS have the same nodeid and that configuration will
 not work as expected.
 
+There have been cases where these messages are seen but the FTO
+hub TEMS are definitely configured with different TEMS Nodeids.
+Thus the severity was lowered to 50 and the related critical
+issues message was removed.
 
-Recovery plan: Uninstall the MIRROR hub TEMS and reinstall it
+
+Recovery plan: Verify that the MIRROR hub TEMS has the same
+nodeid and if so, uinstall the MIRROR hub TEMS and reinstall it
 with a TEMS nodeid that is different from the primary hub TEMS
+----------------------------------------------------------------
+      $advi++;$advonline[$advi] = "kdsvlunx program object missing suid permission";
+
+TEMSAUDIT1151E
+Text: kdsvlunx program object missing suid permission
+
+Tracing: error
+
+Meaning: In a Linux/Unix TEMS, the kdsvlunx program object
+on the hub TEMS has the "s" or setuid permission so it can
+switch to root temporarily. This is used so allow that
+program to use the system API to check validity of userid/password.
+
+If that is missing then the hub TEMS cannot perform user
+validation. This function is not needed if TEMS LDAP
+authentication has been configured.
+
+Recovery plan: If this is a problem, run the following command
+as root when the hub TEMS is stopped:  ./SetPerm -s
+----------------------------------------------------------------
+
+TEMSAUDIT1152E
+Text: Trace bytes per minute num higher then nominal num
+
+Tracing: error
+
+Meaning: ITM tracing is generally very low impact. This
+reports the rare case where tracing may be impacting
+performance. The key case for this advisory was a site
+that accidentally left a remote TEMS with KBB_RAS1=ALL. That
+produced 10 megabytes a second of data and that actually
+overwhelmed the system and things ran very slowly.
+
+This reports the case when trace bytes per minute are 10 time
+the nominal of 1 megabyte/second.
+
+Recovery plan: Do less tracing unless you are specifically
+instructed by IBM Support. You should especially avoid setting
+communications tracing [KDC_DEBUG=Y,KDE_DEBUG=Y,KBS_DEBUG=Y,KDH_DEBUG=Y]
+unless specifically requested by IBM Support.
 ----------------------------------------------------------------
 
 TEMSREPORT001
