@@ -12085,7 +12085,7 @@ if ($gotnet == 1) {
    }
    my $net8_ct = scalar keys %net8x;
    if ($net8_ct > 0) {
-      if ($gtoq == 1) {
+      if ($gotq == 1) {
          $rptkey = "TEMSREPORT084";$advrptx{$rptkey} = 1;         # record report key
          $cnt++;$oline[$cnt]="\n";
          $cnt++;$oline[$cnt]="$rptkey: NETSTAT.INFO Recv-Q and Send-Q Summary\n";
