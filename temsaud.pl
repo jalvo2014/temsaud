@@ -17,7 +17,7 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
-my $gVersion = 2.33000;
+my $gVersion = 2.34000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 ## Todos
@@ -119,7 +119,14 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 
 ## (5F1A294D.0002-1:kdsvlunx.c,1561,"dl_init") PAM library libpam.so would not load
 
-## (5F1A294D.0357-89:kpxrrega.cpp,148,"IRA_ReturnRequestList") IRA_NCS_RequestList_Cmp_v1 returned error 0x1c010001, node boi_cbaljirato11:KUL, transaction counter 389,
+## (608DBDED.0002-2B54:kfaiblod.c,1565,"SetupRequest") SetupRequest refused - TEIBLOGT is not provided at this TEMS
+
+## (605629A4.0000-20:kfaottev.c,3471,"Translate_ResultBuffer") Buffer full. Attribute <Write_Timeout_per_Sec=0> ignored.,
+## (60791EBC.0000-3:kfaottev.c,3929,"Parse_One_Row") Invalid attribute pair <Drive64=>. Ignored.,
+
+## (610BD6F0.0001-4:kglisopn.c,1342,"I_mat_namelist") No match for Key,C40 was found
+## (610BD6F0.0002-4:kglisopn.c,464,"I_iopen") Unable to get description of index QA1CCKPT.IDX
+## (610BD6F0.0003-4:kglisopn.c,914,"I_ifopen") Unable to open index QA1CCKPT.IDX
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -254,6 +261,7 @@ my $opt_level = 0;                               # build level not found
 my $opt_driver = "";                             # Driver
 my $opt_sum;                                     # Summary text
 my $opt_nodeid = "";                             # TEMS nodeid
+my $opt_sda = "";                                # SDA Y or N
 my $opt_disable_http = "";                       # DISABLE_HTTP setting
 my $opt_tems = "";                               # *HUB or *REMOTE
 my $opt_kdcb0 = "";                              # KDCB0_HOSTNAME
@@ -588,7 +596,12 @@ my $h;
 my $gsk701 = 0;
 my $csv1_path = "";
 
+my $kuiras1_ct = 0;
+
 my $kdsvlunx_perm = "";
+
+my %tbfilex;
+my $tbfile_ref;
 
 my %fileszx;
 my %dirzx;
@@ -899,6 +912,13 @@ my %advcx = (
               "TEMSAUDIT1150W" => "50",
               "TEMSAUDIT1151E" => "50",
               "TEMSAUDIT1152E" => "100",
+              "TEMSAUDIT1153W" => "90",
+              "TEMSAUDIT1154E" => "100",
+              "TEMSAUDIT1155W" => "80",
+              "TEMSAUDIT1156E" => "100",
+              "TEMSAUDIT1157E" => "103",
+              "TEMSAUDIT1158E" => "104",
+              "TEMSAUDIT1159E" => "102",
             );
 
 
@@ -1535,6 +1555,7 @@ my %knowntabx = (
                    'PRINTQ' => '576',
                    'PROCESSIO' => '704',
                    'QMANAGER' => '796',
+                   'QMCH_DATA'   => '976',
                    'QMCHAN_ST' => '1608',
                    'QMCHANNEL' => '1044',
                    'QMCHANS' => '1632',
@@ -1545,6 +1566,7 @@ my %knowntabx = (
                    'QMLSSTATUS' => '1192',
                    'QMQ_DATA' => '932',
                    'QMQ_QU_ST' => '364',
+                   'QMQUEUE'     => '932',
                    'QMQUEUES' => '844',
                    'READHIST'   => '748',
                    'REALTHDA'   => '1264',
@@ -1873,6 +1895,7 @@ my @crits;
 my $crit_line;
 my $opt_portlim = 5;
 my $opt_sitpdt;
+my $opt_windup;
 
 my $dupfi = -1;
 my @dupf = [],
@@ -1953,6 +1976,15 @@ while (@ARGV) {
       if (defined $ARGV[0]) {
          if (substr($ARGV[0],0,1) ne "-") {
             $opt_evslot = $ARGV[0];
+            shift(@ARGV);
+         }
+      }
+   } elsif ($ARGV[0] eq "-windup") {
+      $opt_windup = 60;
+      shift(@ARGV);
+      if (defined $ARGV[0]) {
+         if (substr($ARGV[0],0,1) ne "-") {
+            $opt_windup = $ARGV[0];
             shift(@ARGV);
          }
       }
@@ -2108,6 +2140,7 @@ if (!defined $opt_dupfile) {$opt_dupfile = 0;}
 if (!defined $opt_dupi) {$opt_dupi = 12;}
 if (!defined $opt_sitpdt) {$opt_sitpdt = "";}
 if (!defined $opt_portlim) {$opt_portlim = 5;}
+if (!defined $opt_windup) {$opt_windup = 0;}
 $opt_stfn = "eventhist.csv" if $opt_sth == 1;
 $opt_ndfn = "nodehist.csv" if $opt_sth == 1;
 $change_impact = $opt_dupi;
@@ -3444,6 +3477,21 @@ for(;;)
             if (substr($rest,1,11) eq "CMS_NODEID=") {
                $rest =~ /CMS_NODEID=\"(\S+)\"/;
                $opt_nodeid = $1;
+            }
+         }
+      }
+   }
+
+   # Extract the SDA setting
+   #(60BFB189.0003-1:kbbssge.c,72,"BSS1_GetEnv") KMS_SDA="Y"
+   if ($opt_sda eq "") {
+      if (substr($logunit,0,9) eq "kbbssge.c") {
+         if ($logentry eq "BSS1_GetEnv") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # KMS_SDA="Y"
+            if (substr($rest,1,8) eq "KMS_SDA=") {
+               $rest =~ /KMS_SDA=\"(\S+)\"/;
+               $opt_sda = $1;
             }
          }
       }
@@ -5016,12 +5064,27 @@ for(;;)
    }
 
    #(58DD7571.002C-1:kglisopn.c,949,"I_ifopen") Verify of QA1CNODL.IDX failed
+   #(610BD6F0.0003-4:kglisopn.c,914,"I_ifopen") Unable to open index QA1CCKPT.IDX
    if (substr($logunit,0,10) eq "kglisopn.c") {
       if ($logentry eq "I_ifopen") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Verify of QA1CNODL.IDX failed
          if (substr($rest,1,9) eq "Verify of") {
             $rest =~ / of (\S+)\.IDX/;
+            $vtable = $1;
+            next if !defined $vtable;
+            my $vtable_ref = $vtablex{$vtable};
+            if (!defined $vtable_ref) {
+               my %vtableref = (
+                                  count => 0,
+                               );
+               $vtablex{$vtable} = \%vtableref;
+               $vtable_ref = \%vtableref;
+            }
+            $vtable_ref->{count} += 1;
+            next;
+         } elsif (substr($rest,1,20) eq "Unable to open index") {
+            $rest =~ / index (\S+)\.IDX/;
             $vtable = $1;
             next if !defined $vtable;
             my $vtable_ref = $vtablex{$vtable};
@@ -6077,13 +6140,19 @@ for(;;)
                                          instances => {},
                                          systems => {},
                                          rate => 0,
+                                         win_ct => 0,
+                                         end => 0,
+                                         thrunodes => {},
+                                         times => {},
                                       );
                   $change_node_ref = \%changenoderef;
                   $change_ref->{nodes}{$inode} = \%changenoderef;
                }
                $change_node_ref->{end} = $logtime;
+               $change_node_ref->{times}{$logtime} = 1;
                $change_node_ref->{count} += 1;
                $change_node_ref->{systems}{$ihostaddr} = 1 if $ihostaddr ne "";
+               $change_node_ref->{thrunodes}{$ithrunode} = 1 if $ithrunode ne "";
                my $changekey = $ithrunode . "|" . $ihostaddr;
                $change_instance_ref = $change_node_ref->{instances}{$changekey};
                if (!defined $change_instance_ref) {
@@ -7210,6 +7279,7 @@ for(;;)
       }
       next;
    }
+   # (60A292B4.0000-FFA:kglcbbio.c,1080,"open") Open failed for 'QA1DDYST.DB', errno= 24, retrying
    if (substr($logunit,0,10) eq "kglcbbio.c") {
       if ($logentry eq "kglcb_getFsyncConfig") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -7225,6 +7295,29 @@ for(;;)
              }
          } else {
             $fsync_enabled = $test_fsync;
+         }
+      } elsif  ($logentry eq "open") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       #  Open failed for 'QA1DDYST.DB', errno= 24, retrying
+         if (substr($rest,1,15) eq "Open failed for") {
+            $rest =~ /'(.*)', errno\s*= (\d+)/;
+            my $tbfile = $1;
+            my $tberrno = $2;
+            if (defined $tbfile) {
+               if (defined $tberrno) {
+                  my $tbfile_ref = $tbfilex{$tbfile};
+                  if (!defined $tbfile_ref) {
+                     my %tbfileref = (
+                                        count => 0,
+                                        errnox => {},
+                                     );
+                     $tbfile_ref = \%tbfileref;
+                     $tbfilex{$tbfile} = \%tbfileref;
+                  }
+                  $tbfile_ref->{count} += 1;
+                  $tbfile_ref->{errnox}{$tberrno} += 1;
+               }
+            }
          }
       }
    }
@@ -8280,7 +8373,7 @@ if ($trace_size_minute > $opt_nominal_trace) {
    $advcode[$advi] = "TEMSAUDIT1007W";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "Trace";
-   if ($ppc > 1000) {
+   if ($trc_pc > 1000) {
       $advcode[$advi] = "TEMSAUDIT1152E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $crit_line = "1,Trace bytes per minute $ppc higher than nominal";
@@ -8763,11 +8856,11 @@ $et = scalar keys %vtablex;
 if ($et > 0) {
    foreach $f (keys %vtablex) {
       my $etct = $vtablex{$f}->{count};
-      $advi++;$advonline[$advi] = "TEMS database table with $etct Verify Index errors";
+      $advi++;$advonline[$advi] = "TEMS database table with $etct Index/Open errors";
       $advcode[$advi] = "TEMSAUDIT1044E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = $f;
-      $crit_line = "1,TEMS database table $f with $etct Verify Index errors";
+      $crit_line = "1,TEMS database table $f with $etct Index/Open errors";
       push @crits,$crit_line;
    }
 }
@@ -10490,8 +10583,13 @@ if ($change_real > 0) {
          }
       }
    }
-   $rptkey = "TEMSREPORT079";$advrptx{$rptkey} = 1;         # record report key
    my $change_dur = $change_end - $change_start;            # seconds of changes
+   my $change_win = $change_start;
+   if ($opt_windup > 0) {
+      if (($logtime - $opt_windup*60) > $change_start) {
+         $change_win = $logtime - $opt_windup*60;
+      }
+   }
    foreach $f ( sort { $a cmp $b } keys %changex) {
       $change_ref = $changex{$f};
       foreach $g (keys %{$change_ref->{nodes}}) {
@@ -10503,11 +10601,20 @@ if ($change_real > 0) {
          my $fprate = sprintf '%.2f', $flip_rate;
          $change_node_ref->{rate} = $fprate;
          $fdup_ct += 1 if $change_node_ref->{rate} >= $change_impact;
+         if ($opt_windup > 0) {
+            my $win_ct = 0;
+            foreach $h  ( keys %{$change_node_ref->{times}}) {
+               next if $h < $change_win;
+               $win_ct += 1;
+            }
+            $change_node_ref->{win_ct} = $win_ct;
+         }
       }
    }
+   $rptkey = "TEMSREPORT079";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
    $cnt++;$oline[$cnt]="$rptkey: Agent Flipping Duplicate Agent Report\n";
-   $cnt++;$oline[$cnt]="Desc,Count,Rate,Node,Thrunode,HostAddr,OldThrunode,\n";
+   $cnt++;$oline[$cnt]="Desc,Count,Rate/day,Node,Thrunode,HostAddr,OldThrunode,\n";
    foreach $f ( sort { $a cmp $b } keys %changex) {
       $change_ref = $changex{$f};
       foreach $g ( sort { $change_ref->{nodes}{$b}->{count} <=> $change_ref->{nodes}{$a}->{count} || $a cmp $b }
@@ -10517,6 +10624,9 @@ if ($change_real > 0) {
          next if $change_node_ref->{rate} < $change_impact;
          my $systems_ct = scalar keys %{$change_node_ref->{systems}};
          next if $systems_ct == 1;
+         if ($opt_windup > 0) {
+            next if $change_node_ref->{win_ct} == 0;
+         }
          $fdup_ct += 1;
          foreach $h  ( keys %{$change_node_ref->{instances}}) {
             $change_instance_ref = $change_node_ref->{instances}{$h};
@@ -10537,12 +10647,42 @@ if ($change_real > 0) {
          }
       }
    }
-   if ($fdup_ct > 0) {
-      $advi++;$advonline[$advi] = "Duplicate Agents [$fdup_ct] seen - See $rptkey";
-      $advcode[$advi] = "TEMSAUDIT1128E";
+   $rptkey = "TEMSREPORT090";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Duplicate Sub-Node Agent Report\n";
+   $cnt++;$oline[$cnt]="Node,Count,Rate,Managing_Agents,\n";
+   my $mdup_ct = 0;
+   my $mtdup_ct = 0;
+   foreach $f ( sort { $a cmp $b } keys %changex) {
+      $change_ref = $changex{$f};
+      next if $f ne "Thrunode";
+      foreach $g ( sort { $change_ref->{nodes}{$b}->{count} <=> $change_ref->{nodes}{$a}->{count} || $a cmp $b }
+              keys %{$change_ref->{nodes}}) {
+         $change_node_ref = $change_ref->{nodes}{$g};
+         next if $change_node_ref->{count} == 1;
+         next if $change_node_ref->{rate} < $change_impact;
+         my $thrunode_ct = scalar keys %{$change_node_ref->{thrunodes}};
+         next if $thrunode_ct == 1;
+         $mdup_ct += 1;
+         my $pthrus = "";
+         foreach $h  ( keys %{$change_node_ref->{thrunodes}}) {
+            $mtdup_ct += 1;
+            $pthrus .= $h . " ";
+         }
+         chop($pthrus) if $pthrus ne "";
+         $outl = $g . ",";
+         $outl .= $change_node_ref->{count} . ",";
+         $outl .= $change_node_ref->{rate} . ",";
+         $outl .= $pthrus . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+      }
+   }
+   if ($mdup_ct > 0) {
+      $advi++;$advonline[$advi] = "Duplicate Sub-Node Agents [$mdup_ct,$mtdup_ct] seen - See $rptkey";
+      $advcode[$advi] = "TEMSAUDIT1159E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TEMS";
-      $crit_line = "2,$fdup_ct duplicate agent name cases seen in $rptkey Report";
+      $crit_line = "2,$mdup_ct,$mtdup_ct duplicate sub-node agent name cases seen in $rptkey Report";
       push @crits,$crit_line;
    }
    foreach $f ( sort { $a cmp $b } keys %changex) {
@@ -10550,6 +10690,9 @@ if ($change_real > 0) {
       foreach $g (keys %{$change_ref->{nodes}}) {
          $change_node_ref = $change_ref->{nodes}{$g};
          next if $change_node_ref->{rate} < $change_impact;
+         if ($opt_windup > 0) {
+            next if $change_node_ref->{win_ct} == 0;
+         }
          foreach $h (keys %{$change_node_ref->{instances}}) {
             $change_instance_ref = $change_node_ref->{instances}{$h};
             my $node_ip = $change_instance_ref->{hostaddr};
@@ -12076,6 +12219,14 @@ if ($gotnet == 1) {
       }
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "TCP";
+      if ($total_recvq > 10) {
+         $advi++;$advonline[$advi] = "High number of TCP Pending Receive Queue [$total_recvq]";
+         $advcode[$advi] = "TEMSAUDIT1158E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TCP";
+         $crit_line = "8,Possible TCP SSL Blockage Condition: TCP Pending Receive Queue [$total_recvq]";
+         push @crits,$crit_line;
+      }
    }
    if (($high_sendq + $high_recvq > 0) or
        ($sendq_ct > 32767) or
@@ -12235,6 +12386,9 @@ if ($gotdir == 1) {
       if (index($iname,"ms/bin/kdsvlunx") > 0) {
          $kdsvlunx_perm = $iperm;
       }
+      if (substr($iperm,0,1) eq "-") {
+         $kuiras1_ct += 1 if substr($iname,0,6) eq "kuiras1";
+      }
       next if $isize < 100*1024*1024;      # ignore less than 100meg `
       $fileszx{$iname} = $isize;           # record name and size
    }
@@ -12264,6 +12418,12 @@ if ($gotdir == 1) {
          push @crits,$crit_line;
       }
    }
+}
+if ($kuiras1_ct >= 10000) {
+   $advi++;$advonline[$advi] = "The logs directory contains $kuiras1_ct kuiras1 log files which can cause instability";
+   $advcode[$advi] = "TEMSAUDIT1153W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
 }
 
 if ($kdsvlunx_perm ne "") {
@@ -12584,7 +12744,8 @@ if ($gotdisk == 1) {
 
 my $sdaprob = 0;
 my %iheartx;
-
+my %verifyx = ();
+my $verify_ref;
 if ($full_logopfn ne "") {
    my $ol = 0;
    if (open OPLOG,"< $full_logopfn") {
@@ -12614,11 +12775,66 @@ if ($full_logopfn ne "") {
          # Sun Jul 19 09:53:07 2020 KQMSD100   Inconsistent Self-Describing Agent configuration at FTO peers: Local (ON/0) Peer (OFF/16)
          } elsif ($opcode eq "KQMSD100") {
             $sdaprob += 1;
+         # Tue Jun 15 15:57:39 2021 KGL0001    Index file QA1CNODL.IDX was not closed properly. Verify required.
+         } elsif ($opcode eq "KGL0001 ") {
+           $opline =~ /Index file (\S+) /;
+           my $ifile = $1;
+           $verify_ref = $verifyx{$ifile};
+           if (!defined $verify_ref) {
+              my %verifyref = (
+                                 count => 0,
+                                 verify => 0,
+                              );
+              $verify_ref = \%verifyref;
+              $verifyx{$ifile} = \%verifyref;
+           }
+           $verify_ref->{count} += 1;
+         # Tue Jun 15 15:57:39 2021 KGL0002    Verify of QA1CNODL.IDX was successful.
+         } elsif ($opcode eq "KGL0002 ") {
+           $opline =~ /Verify of (\S+) /;
+           my $ifile = $1;
+           $verify_ref = $verifyx{$ifile};
+           if (defined $verify_ref) {
+              $verify_ref->{verify} += 1;
+              $verify_ref->{count} += 1;
+           }
          }
       }
       close(OPLOG);
    }
 }
+
+my $verify_ct = 0;
+my $verify_ok = 0;
+
+foreach my $f (keys %verifyx) {
+   $verify_ref=$verifyx{$f};
+   $verify_ct += 1;
+   $verify_ok += $verify_ref->{verify};
+}
+
+if ($verify_ct > 0) {
+   $advi++;$advonline[$advi] = "TEMS crash - index verifies[$verify_ct]";
+   $advcode[$advi] = "TEMSAUDIT1156E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+if ($verify_ct > 0) {
+   if ($verify_ok < $verify_ct) {
+      my $verify_fails = $verify_ct - $verify_ok;
+      $advi++;$advonline[$advi] = "TEMS crash - index verify failures[$verify_fails]";
+      $advcode[$advi] = "TEMSAUDIT1157E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+      $crit_line = "1,TEMS crash - index verify failures[$verify_fails]";
+      push @crits,$crit_line;
+   }
+}
+
+
+
+
 
 my $prob_initial = 0;
 foreach my $f (keys %iheartx) {
@@ -12702,6 +12918,14 @@ if ($sdaprob > 0) {
    $advcode[$advi] = "TEMSAUDIT1146E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
+}
+if ($opt_tems eq "*REMOTE") {
+   if ($opt_sda eq "Y") {
+      $advi++;$advonline[$advi] = "KMS_SDA=Y found on remote TEMS";
+      $advcode[$advi] = "TEMSAUDIT1155W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+   }
 }
 
 
@@ -13019,7 +13243,31 @@ if ($rpc_ct > 0) {
    $advsit[$advi] = "TEMS";
 }
 
-
+my $tbfile_ct = scalar keys %tbfilex;
+if ($tbfile_ct > 0) {
+   $rptkey = "TEMSREPORT089";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: TEMS Database File Errno Report\n";
+   $cnt++;$oline[$cnt]="File,Count,Errno,\n";
+   foreach my $f (sort {$a cmp $b} keys %tbfilex) {
+      my $tbfile_ref = $tbfilex{$f};
+      $outl = $f . ",";
+      $outl .= $tbfile_ref->{count} . ",";
+      my $perrno = "";
+      foreach my $j (keys %{$tbfile_ref->{errnox}}) {
+         $perrno = $j . "[" . $tbfile_ref->{errnox}{$j} . "],";
+      }
+      chop($perrno) if $perrno ne "";
+      $outl .= $perrno . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   $advi++;$advonline[$advi] = "Table File Errno Failures [$tbfile_ct] - See $rptkey report";
+   $advcode[$advi] = "TEMSAUDIT1154E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "1,Database files errnos[$tbfile_ct] - See $rptkey report";
+   push @crits,$crit_line;
+}
 
 
 $opt_o = $opt_odir . $opt_o if index($opt_o,'/') == -1;
@@ -13897,8 +14145,14 @@ exit;
 #2.33000 - Modify advisory about same Primary/Mirror TEMS nodeids
 #        - Add advisory on non-suid kdsvlunx
 #        - Add result lengths for zTPF agents
-#        - Change crti warn on large files to more than 4 gigs
+#        - Change crit warn on large files to more than 4 gigs
 #        - Add crit if trace rate is more than 10 times nominal
+#2.34000 - Add advisory for database file errno seen
+#        - add advisories for apparent TEMS crashes
+#        - Add advisory for TCP SSL handshake stalls
+#        - Add report on duplicate Sub-node agents
+#        - Extend advisory on index errors
+#        - Add window duplicate in minutes
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -14688,9 +14942,10 @@ the condition.
 ----------------------------------------------------------------
 
 TEMSAUDIT1044E
-Text: TEMS database table with $etct Verify Index errors
+Text: TEMS database table with $etct Index/Open errors
 
 Tracing: error
+(610BD6F0.0003-4:kglisopn.c,914,"I_ifopen") Unable to open index QA1CCKPT.IDX
 (58DD7571.002C-1:kglisopn.c,949,"I_ifopen") Verify of QA1CNODL.IDX failed
 
 Meaning: When a TEMS starts up after a failure, the TEMS
@@ -16050,7 +16305,7 @@ ISITSTSH that TEPS uses and events sent to event receiver. Add this
 environment variable [linux/unix] to
 <installdir>/tables/<temsnodeid>/KBBENV
 
-SITLOGSIZE=32876
+SITLOGSIZE=32766
 
 and when that TEMS is recycled its capacity will be increased.
 It can still get overloaded but you do have more leeway.
@@ -16665,6 +16920,122 @@ Recovery plan: Do less tracing unless you are specifically
 instructed by IBM Support. You should especially avoid setting
 communications tracing [KDC_DEBUG=Y,KDE_DEBUG=Y,KBS_DEBUG=Y,KDH_DEBUG=Y]
 unless specifically requested by IBM Support.
+----------------------------------------------------------------
+TEMSAUDIT1153W
+Text: The logs directory contains [count] kuiras1 log files which can cause instability
+
+Tracing: dir.info in pdcollect
+
+Meaning: The kuiras1 log files are created by running tacmd functions.
+When there are a large number of such log files, you may see performance
+issues because the  directory has so many files. The cutoff for this advisory
+is 10,000 files.
+
+The files are needed only for diagnosing tacmd functions and are almost
+never needed. Thus the large number can cause problems while adding no value.
+
+Recovery plan: Set up a procedure to erase such files periodically.
+That could be crontab process run every night or once a week. If the
+files are considered vital, move them to another directory not in
+the ITM installation directory.
+----------------------------------------------------------------
+
+TEMSAUDIT1154E
+Text: Table File Errno Failures [count]
+
+Tracing: error
+(60A292B6.0000-FFA:kglcbbio.c,1080,"open") Open failed for 'QA1DDYST.DB', errno= 24, retrying
+
+Meaning: The TEMS is unable to open a Database File because for some reason.
+In the case of errno 24 the TEMS is unable to access a Database File
+because it is not allowed to have so many open files. A TEMS will usually need
+about 400 file descriptors and two file descriptors per agent that connects to it.
+
+In the triggering case, the site had 6000+ agents connected to the hub
+TEMS and the file descriptor limit was 4096;
+
+Recovery plan: Set up a system controls to allow a maximum file
+descriptor limit of 2*agents + 400 or more..
+
+In another case errno 2 was seen when a directory did not exist.
+----------------------------------------------------------------
+
+TEMSAUDIT1155W
+Text: KMS_SDA=Y found on remote TEMS
+
+Tracing: error
+60BFB189.0003-1:kbbssge.c,72,"BSS1_GetEnv") KMS_SDA="Y"
+
+Meaning: When the hub TEMS is set to KMS_SDA=N and a remote TEMS set to KMS_SDA=Y
+the Self Describing Agent may run unexpectedly. The hub TEMS setting should
+be followed absolutely. In this case an agent repeatedly sent in a revised
+k02_resource.jar file. That led to an inability to run TEP sessions because
+the resource file needed to be signed again over and over.
+
+That setting may be found in the ms.ini file or a ms.environment file. If
+the ms.ini file is changed, a TEMS configuration is required.
+
+Recovery plan: Make sure remote TEMSs are set to KMS_SDA=N or not mentioned at all.
+----------------------------------------------------------------
+
+TEMSAUDIT1156E
+Text: TEMS crash - index verifies[count]
+
+Tracing: error
+Tue Jun 15 15:57:39 2021 KGL0001    Index file QA1CNODL.IDX was not closed properly. Verify required.
+
+Meaning: When a TEMS starts, it is determined that the TEMS database file
+was not closed properly. The usual reason is the TEMS suffered an exception
+or crash,
+
+Recovery plan: Contact IBM Support to identify and resolve the crash.
+----------------------------------------------------------------
+
+TEMSAUDIT1157E
+Text: TEMS crash - index verify failures[count]
+
+Tracing: error
+Tue Jun 15 15:57:39 2021 KGL0002    Verify of QA1CNODL.IDX was successful
+
+Meaning: When a TEMS starts, it is determined that the TEMS database file
+was not closed properly. In many circumstances, the database file index
+is verifyed correct. If some database file index verify fails, you will
+see this message. Some database files will need a recovery action such
+as restoring from a backup.
+
+Recovery plan: Contact IBM Support to identify and resolve the crash
+and the database file damage.
+----------------------------------------------------------------
+
+TEMSAUDIT1158E
+Text: High number of TCP Pending Receive Queue [count]
+
+Tracing: error
+netstat.info
+
+Meaning: When there are many stalled pending TCP Receive Queue data,
+a TEMS APAR fix IJ21264 should be considered. That removes an exposure
+to a stalled SSL initial handshake, That fix is included in ITM 630 FP7 SP3.
+and later service pack levels.
+
+IBM Tivoli Monitoring 6.3.0 Fix Pack 7 Service Pack 3 (6.3.0.7-TIV-ITM-SP0003)
+https://www.ibm.com/support/pages/node/1125303
+
+Recovery plan: Upgrade ITM to SP3 or later to remove this exposure.
+----------------------------------------------------------------
+
+TEMSAUDIT1159E
+Text: Duplicate Sub-Node Agents [count,total] seen - See TEMSREPORT090
+
+Tracing: error
+(59103772.0000-C9:kfaprpst.c,3618,"NodeStatusRecordChange") Affinities change detected for node <uuc_scent5010:NT                > thrunode <REMOTE_usitmpl8044              > hostAddr: <ip.spipe:#10.188.5.10[60467]<NM>uuc_scent5010</NM>          >
+
+Meaning: Positive identification of duplicate sub_node agents. This
+can cause TEMS instability and bad TEPS performance. count is number
+of agent namers and total is the total number of systems.
+
+Recovery plan: Configure the agents identified so all agents
+have unique names, as ITM expects.
 ----------------------------------------------------------------
 
 TEMSREPORT001
@@ -19054,4 +19425,37 @@ Meaning
 These are the files using more that 100megs on the file system where the TEMS is running.
 
 Recovery plan: If storage is tight, delete unnecessary files.
+----------------------------------------------------------------
+      `
+TEMSREPORT089
+Text: TEMS Database File Errno Report
+
+Trace: error
+
+Example report
+File,Count,Errno,
+QA1DDYST.DB,10,24[10],
+
+Meaning
+TEMS Database files experiencing errno failures.
+
+Recovery plan: See TEMSAUDIT1154E advisory information above.
+----------------------------------------------------------------
+      `
+TEMSREPORT090
+Text: Duplicate sub-nope agents
+
+Trace: error
+
+Example report
+Node,Count,Rate,Managing_Agents,
+LO:lwsprib00001q20_cfglf,5,116.50,cfglf1:lwsprib00001q20:LO cfglfa2:lwsprib00001q20:LO cfglfa1:lwsprib00001q20:LO CFGLOG:lwsprib00001q20:LO cfglfa:lwsprib00001q20:LO,
+
+Meaning
+The named subnode agent [Node] is reporting via a managing
+agent. There are duplications: the same node name is being
+used in multiple managing agents.
+
+Recovery plan: Configure the affected agents so each agent
+name is unique.
 ----------------------------------------------------------------
