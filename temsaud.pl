@@ -17,7 +17,7 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
-my $gVersion = 2.34000;
+my $gVersion = 2.35000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 ## Todos
@@ -33,8 +33,6 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 ##  24058.000.661.pdcollect-itmrtems02_19_Mayo.tar.Z_unpack
 
 ## (591F6677.0009-15:kpxrreg.cpp,1623,"IRA_NotifySDAInstallStatus") SDA Notification failed, agent "sapprdaix04:KUX", product "UX" found unexpected RegBind type=4. Can't provide agent with SDA install result.
-##  87348,082,000
-##  /ecurep/pmr/8/7/87348,082,000/2017-05-19/87348.082.000.pdcollect-dkha3080.tar.Z_unpack/
 
 ## (56CF3C07.0000-8:kdspmou2.c,3077,"PM1_VPM2_AllocateLiteral") Literal Pool Boundary Violated (61/7/64304)
 ## (56CF3C07.0001-8:kdspmou1.c,721,"PM1_CompilerOutput") Cannot build table object, status = 201
@@ -128,6 +126,27 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 ## (610BD6F0.0002-4:kglisopn.c,464,"I_iopen") Unable to get description of index QA1CCKPT.IDX
 ## (610BD6F0.0003-4:kglisopn.c,914,"I_ifopen") Unable to open index QA1CCKPT.IDX
 
+## (6205E2A7.0000-102:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <49131684>, new rows: <1>, new row length: <3132>, existing rows: <15686> .
+## (6205E304.0000-103:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <51120504>, new rows: <1>, new row length: <3132>, existing rows: <16321> .
+## (6205E34E.0000-104:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <42830100>, new rows: <1>, new row length: <3132>, existing rows: <13674> .
+## (6205E353.0000-105:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <33678396>, new rows: <1>, new row length: <3132>, existing rows: <10752> .
+## (6205E376.0000-106:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <46150020>, new rows: <1>, new row length: <3132>, existing rows: <14734> .
+## (6205E385.0000-107:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <33932088>, new rows: <1>, new row length: <3132>, existing rows: <10833> .
+## (6205E399.0000-107:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <33020676>, new rows: <1>, new row length: <3132>, existing rows: <10542> .
+## (6205E3BA.0000-108:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <34433208>, new rows: <1>, new row length: <3132>, existing rows: <10993> .
+## (6205E3BE.0000-109:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <34022916>, new rows: <1>, new row length: <3132>, existing rows: <10862> .
+## (6205E3CF.0000-104:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <30408588>, new rows: <1>, new row length: <3132>, existing rows: <9708> .
+## (6205E3FC.0000-103:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <33045732>, new rows: <1>, new row length: <3132>, existing rows: <10550> .
+## (6205E408.0000-109:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <34257816>, new rows: <1>, new row length: <3132>, existing rows: <10937> .
+## (6205E449.0000-80:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <33064524>, new rows: <1>, new row length: <3132>, existing rows: <10556> .
+## (6205E44C.0000-105:kpxdtpl.cpp,134,"DataArrived") Memory request failure, size: <34120008>, new rows: <1>, new row length: <3132>, existing rows: <10893> .
+
+## and later on
+
+## (6205E46C.0000-A:ko4stqmr.cpp,357,"StatusQueueManager::processStatuses") Warning: queue size <156830> exceeds limit <32768>
+##
+## diagnosis was a pure situation against NT log with 15 min sampling interval... massive results sent back.
+
 #use warnings::unused; # debug used to check for unused variables
 use strict;
 use warnings;
@@ -220,6 +239,24 @@ my $ccsid1047 =
 '\134\367\123\124\125\126\127\130\131\132\262\324\326\322\323\325' .
 '\060\061\062\063\064\065\066\067\070\071\263\333\334\331\332\237' ;
 
+my %opsit;
+my $opsit_ref;
+
+my %months = (
+                "Jan" => 0,
+                "Feb" => 1,
+                "Mar" => 2,
+                "Apr" => 3,
+                "May" => 4,
+                "Jun" => 5,
+                "Jul" => 6,
+                "Aug" => 7,
+                "Sep" => 8,
+                "Oct" => 9,
+                "Nov" => 10,
+                "Dec" => 11,
+             );
+
 my $opt_z;
 my $opt_zop;
 my $opt_gap = 60;
@@ -242,6 +279,7 @@ my $opt_inplace = 1;
 my $opt_work    = 0;
 my $opt_nofile = 0;                              # number of file descriptors, zero means not found
 my $opt_stack = 0;                               # Stack limit zero means not found
+my $opt_candlehome = "";
 my $opt_systype = "";                            # System Type
 my $opt_username = "";                           # User Name
 my $opt_effectiveusername = "";                  # Effective User Name
@@ -264,8 +302,11 @@ my $opt_nodeid = "";                             # TEMS nodeid
 my $opt_sda = "";                                # SDA Y or N
 my $opt_disable_http = "";                       # DISABLE_HTTP setting
 my $opt_tems = "";                               # *HUB or *REMOTE
+my $opt_ldap = "";                               # YES or NO
 my $opt_kdcb0 = "";                              # KDCB0_HOSTNAME
+my $opt_llb1 = "";
 my $opt_kdebi = "";                              # KDEB_INTERFACELIST
+my $opt_kdcf = "";                               # KDEB_FAMILIES
 my $opt_sqldetail;                               # detail SQL report wanted
 my $opt_rd;                                      # result detail wanted
 my $opt_rdslot;                                  # number of seconds for result detail slot, default 60 seconds
@@ -289,7 +330,13 @@ my $this_hostname = "";
 my $this_installer = "";
 my $this_gskit64 = "";
 my $this_gskit32 = "";
+my $this_sp3 = 0;
+my $this_sp1 = 0;
 my $opt_dup_ct = 0;
+my $queue_limit_ct = 0;
+my $kds_validate = "";
+
+my %failtosx = ();
 
 my %agtosx = ( 'NT' => 1,
                'LZ' => 1,
@@ -600,6 +647,9 @@ my $kuiras1_ct = 0;
 
 my $kdsvlunx_perm = "";
 
+my %nlsx = ();
+my $nls_ct = 0;
+
 my %tbfilex;
 my $tbfile_ref;
 
@@ -764,7 +814,7 @@ my %advcx = (
               "TEMSAUDIT1002W" => "80",
               "TEMSAUDIT1003W" => "40",
               "TEMSAUDIT1004W" => "20",
-              "TEMSAUDIT1005W" => "0",
+              "TEMSAUDIT1005E" => "100",
               "TEMSAUDIT1006E" => "100",
               "TEMSAUDIT1007W" => "10",
               "TEMSAUDIT1008E" => "100",
@@ -825,7 +875,7 @@ my %advcx = (
               "TEMSAUDIT1063E" => "100",
               "TEMSAUDIT1064E" => "90",
               "TEMSAUDIT1065W" => "75",
-              "TEMSAUDIT1066W" => "75",
+              "TEMSAUDIT1066E" => "95",
               "TEMSAUDIT1067E" => "100",
               "TEMSAUDIT1068W" => "85",
               "TEMSAUDIT1069W" => "85",
@@ -919,6 +969,16 @@ my %advcx = (
               "TEMSAUDIT1157E" => "103",
               "TEMSAUDIT1158E" => "104",
               "TEMSAUDIT1159E" => "102",
+              "TEMSAUDIT1160W" => "95",
+              "TEMSAUDIT1161E" => "99",
+              "TEMSAUDIT1162E" => "100",
+              "TEMSAUDIT1163E" => "99",
+              "TEMSAUDIT1164I" => "0",
+              "TEMSAUDIT1165E" => "100",
+              "TEMSAUDIT1166E" => "100",
+              "TEMSAUDIT1167I" => "0",
+              "TEMSAUDIT1168E" => "101",
+              "TEMSAUDIT1169W" => "90",
             );
 
 
@@ -956,25 +1016,27 @@ my %knowntabx = (
                    'K06LOGFILE' => '2824',
                    'K06K06LOG0' => '600',
                    'K06K06CUS0' => '924',
-                   'K06PERLEX0' => '364',
-                   'K06PERLEX1' => '344',
+                   'K06PERLEX0' => '620',
+                   'K06PERLEX1' => '600',
                    'K06PERLEX2' => '1416',
-                   'K06PERLEX3' => '640',
+                   'K06PERLEX3' => '896',
                    'K06PERLEX4' => '444',
                    'K06PERLEX5' => '468',
                    'K06PERLEX6' => '625',
                    'K06POBJST'  => '324',
-                   'K06TEST' => '404',
+                   'K06TEST' => '724',
+                   'K07GPFSTA0' => '472',
                    'K07K07ERL0' => '634',
                    'K07K07ERS0' => '176',
-                   'K07K07FSC0' => '960',
+                   'K07K07FSC0' => '1228',
                    'K07K07LGS0' => '1416',
                    'K07K07LOG0' => '668',
                    'K07K07MAL0' => '52',
-                   'K07K07MNT0' => '1712',
+                   'K07K07MNT0' => '1968',
                    'K07K07NET0' => '345',
                    'K07K07NTP0' => '334',
-                   'K07K07PAR0' => '600',
+                   'K07K07PAR0' => '856',
+                   'K07K07SAN0' => '408',
                    'K07POBJST'  => '324',
                    'K07PROCESS' => '468',
                    'K07K07PRO0' => '3979',
@@ -986,7 +1048,7 @@ my %knowntabx = (
                    'K07K07MAI0' => '444',
                    'K08CLUSTER' => '584',
                    'K08K08CUS0' => '924',
-                   'K08K08FIL0' => '988',
+                   'K08K08FIL0' => '1244',
                    'K08K08FSA0' => '1968',
                    'K08K08LOG0' => '1672',
                    'K08K08MAI0' => '52',
@@ -994,6 +1056,7 @@ my %knowntabx = (
                    'K08K08NET0' => '357',
                    'K08K08PAR0' => '856',
                    'K08K08PROC' => '4299',
+                   'K08SANPATH' => '408',
                    'K08K08SCR0' => '1672',
                    'K08K08TRA0' => '332',
                    'K08K08URL0' => '896',
@@ -1109,6 +1172,7 @@ my %knowntabx = (
                    'KISLDAP'       => '972',
                    'KISMSTATS'     => '448',
                    'KISSISTATS'    => '984',
+                   'KISTCPPORT'    => '780',
                    'KLOLOGEVTS' => '6928',
                    'KLOLOGFRX'     => '772',
                    'KLOLOGFST'  => '916',
@@ -1158,6 +1222,8 @@ my %knowntabx = (
                    'KOQAVARD' => '1204',
                    'KOQAVARS' => '792',
                    'KOQAVRST' => '256',
+                   'KOQCAVDB' => '1284',
+                   'KOQCAVRD' => '1532',
                    'KOQDBD' => '2712',
                    'KOQDBMIR' => '672',
                    'KOQDBS' => '248',
@@ -1168,15 +1234,19 @@ my %knowntabx = (
                    'KOQLOCKS' => '1052',
                    'KOQLRTS' => '216',
                    'KOQLSDBD' => '1768',
+                   'KOQLSJBD' => '1416',
                    'KOQPRCD' => '1044',
                    'KOQPRCS' => '276',
                    'KOQPROBD' => '776',
                    'KOQPROBS' => '252',
                    'KOQCSQLR' => '1124',
                    'KOQSRVCD' => '592',
+                   'KOQSRVD' => '588',
                    'KOQSRVR' => '256',
+                   'KOQSVRPR' => '1736',
                    'KOQSRVRE' => '1604',
-                   'KOQSRVS'    => '432',
+                   'KOQSRVS'  => '432',
+                   'KOQSTATD' => '252',
                    'KOQSTATS' => '284',
                    'KORALRTD'   => '708',
                    'KORARCDD'   => '2624',
@@ -1345,6 +1415,7 @@ my %knowntabx = (
                    'KSACTS' => '864',
                    'KSABPMDTL' => '664',
                    'KSADMPCNT' => '472',
+                   'KSADUMPS' => '884',
                    'KSAFSYSTEM' => '880',
                    'KSAJOBS' => '944',
                    'KSALOCKS' => '824',
@@ -1398,18 +1469,23 @@ my %knowntabx = (
                    'KUXSCRTSM' => '3544',
                    'KVA02STORA' => '2936',
                    'KVA16CPUSU' => '240',
+                   'KVA17CPUDE' => '220',
                    'KVA21PAGIN' => '76',
                    'KVA22LOGIC' => '1076',
                    'KVA27PHYSI' => '84',
+                   'KVA28VIRTU' => '100',
                    'KVA34DISKS' => '432',
                    'KVA35PHYSI' => '396',
+                   'KVA36VOLUM' => '276',
                    'KVA37LOGIC' => '1204',
                    'KVA38FILES' => '1028',
                    'KVA40NETWO' => '1527',
+                   'KVA41NETWO' => '4008',
                    'KVA42NETWO' => '996',
                    'KVA51MPIOS' => '528',
                    'KVA51DEVIC' => '528',
                    'KVA55NPIVM' => '656',
+                   'KVA56TADDM' => '152',
                    'KVMAEVENTS' => '192',
                    'KVMCLTRDST' => '906',
                    'KVMCLUSTRT' => '872',
@@ -1564,7 +1640,9 @@ my %knowntabx = (
                    'QMEVENTC' => '436',
                    'QMEVENTH' => '2756',
                    'QMLSSTATUS' => '1192',
-                   'QMQ_DATA' => '932',
+                   'QMMSG_STAT' => '532',
+                   'QMQ_DATA' => '980',
+                   'QMQ_HDL_ST' => '1036',
                    'QMQ_QU_ST' => '364',
                    'QMQUEUE'     => '932',
                    'QMQUEUES' => '844',
@@ -1768,6 +1846,7 @@ my $seq999_total = 0;
 my $ruld_total = 0;
 my $mktime_total = 0;
 my $eipc_none = 0;
+my $eipc_badraw = "";
 
 my %hist_corruptedx;
 
@@ -1877,7 +1956,7 @@ my $opt_nominal_nmr       = 0;               # No Matching Requests value
 my $opt_max_results       = 16*1024*1024 - 8192; # When max results this high, possible truncated results
 my $opt_nominal_listen    = 8;               # warn on high listen count
 my $opt_nominal_nofile    = 8192;            # warn on low nofile value
-my $opt_nominal_stack     = 10240;           # warn on high stack limit value
+my $opt_nominal_stack     = 4294967296;      # warn on low stack limit value
 my $opt_max_listen        = 16;              # maximum listen count allowed by default
 my $opt_nominal_soap_burst = 300;            # maximum burst of 300 per minute
 my $opt_nominal_agto_mult = 1;               # amount of allowed repeat onlines
@@ -2332,8 +2411,10 @@ opendir(ENVD,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n"); # get li
 @results = grep {/$pattern/} readdir(ENVD);
 closedir(ENVD);
 my $env_ct;
+my @gwylines;
 my @envlines;
 my $env_eph = 0;
+my $env_gwy = 0;
 if ($#results != -1) {
    $env_ct = $#results + 1;
    foreach my $f (@results) {
@@ -2349,7 +2430,12 @@ if ($#results != -1) {
          if (index($inline,"KDC_FAMILIES=") != -1) {
             my @envdet = ["EPH",$f,$l,$inline];
             push @envlines,\@envdet;
-            $env_eph += 1 if index($inline,"EPHEMERAL:Y") != -1;
+            my $uline = uc $inline;
+            $env_eph += 1 if index($uline,"EPHEMERAL:Y") != -1;
+         } elsif (index($inline,"KDE_GATEWAY=") != -1) {
+            my @geydet = ["GWY",$f,$l,$inline];
+            push @gwylines,\@geydet;
+            $env_gwy += 1;
          }
       }
    }
@@ -2675,6 +2761,7 @@ my $pe_etime = 0;
 my $pe_stime = 0;
 
 my $invalid_checkpoint_count = 0;
+my $invalid_timestamp = 0;
 my $kcf_count = 0;
 
 
@@ -3033,7 +3120,7 @@ for(;;)
       }
     }
       # Extract the Stack Limit - a Linux/Unix concern.
-      # We recommend a maximum of 10 megabytes for a TEMS
+      # We recommend a minimum of 4096 megabytes for a TEMS
       #+52BE1DCC.0000     Nofile Limit: None                       Stack Limit: 32M
       #+527A9859.0000 ==========
    if ($opt_stack == 0) {
@@ -3042,7 +3129,7 @@ for(;;)
           if ($opt_stack == 0) {
              my $pi = index($oneline,"Stack Limit: None");
              if ($pi != -1) {
-                $opt_stack = 4*1024*1024;
+                $opt_stack = 4*1024*1024*1024;
              } else {
                 $pi = index($oneline,"Stack Limit:");
                 if ($pi != -1) {
@@ -3052,12 +3139,25 @@ for(;;)
                    if (defined $modi) {
                       $opt_stack *= 1024 if $modi eq "K";
                       $opt_stack *= 1024*1024 if $modi eq "M";
+                   } else {
+                      $opt_stack *= 1024*1024;
                    }
                 }
              }
          }
       }
    }
+
+   # +637E5DBF.0000   UTC Start Time: 637e5dbf                      ITM Home: /opt/IBM/ITM
+   if ($opt_candlehome eq "") {
+       my $pi = index($oneline,"ITM Home:");
+       if ($pi != -1) {
+          $oneline =~ /ITM Home: (\S+)/;
+          $opt_candlehome = $1 if defined $1;
+       }
+   }
+
+
    if ($opt_kbb_ras1 eq "") {
       if (substr($oneline,0,1) eq "+") {
           $opt_kbb_ras1 = "n/a" if substr($oneline,14,11) eq " ==========";
@@ -3527,6 +3627,21 @@ for(;;)
       }
    }
 
+   # Extract the LDAP type
+   #(61D1922B.0000-3F:kbbssge.c,72,"BSS1_GetEnv") KGL_LDAP_VALIDATE="NO"
+   if ($opt_ldap eq "") {
+      if (substr($logunit,0,9) eq "kbbssge.c") {
+         if ($logentry eq "BSS1_GetEnv") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # KGL_LDAP_VALIDATE="NO"
+            if (substr($rest,1,18) eq "KGL_LDAP_VALIDATE=") {
+               $rest =~ /KGL_LDAP_VALIDATE=\"(\S+)\"/;
+               $opt_ldap = $1;
+            }
+         }
+      }
+   }
+
    #(5914DB2A.0065-6:kbbssge.c,72,"BSS1_GetEnv") KDEB_HOSTNAME=KDCB0_HOSTNAME="it06qam020xjbxm"
    if ($opt_kdcb0 eq "") {
       if (substr($logunit,0,9) eq "kbbssge.c") {
@@ -3558,6 +3673,20 @@ for(;;)
       }
    }
 
+   #(62BEF3F7.0015-5:kbbssge.c,72,"BSS1_GetEnv") KDE_TRANSPORT=KDC_FAMILIES="ephemeral:y HTTP_SERVER:N ip.spipe"
+   if ($opt_kdebi eq "") {
+      if (substr($logunit,0,9) eq "kbbssge.c") {
+         if ($logentry eq "BSS1_GetEnv") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       # KDE_TRANSPORT=KDC_FAMILIES="ephemeral:y HTTP_SERVER:N ip.spipe"
+            if (substr($rest,1,27) eq "KDE_TRANSPORT=KDC_FAMILIES=") {
+               $rest =~ /KDE_TRANSPORT=KDC_FAMILIES=\"(.*)\"/;
+               $opt_kdcf = $1 if defined $1;
+            }
+         }
+      }
+   }
+
    #(58CE9A38.0002-1:kbbssge.c,72,"BSS1_GetEnv") KDS_WRITENOS="YES"
    if ($kds_writenos eq "") {
       if (substr($logunit,0,9) eq "kbbssge.c") {
@@ -3567,6 +3696,20 @@ for(;;)
             if (substr($rest,1,12) eq "KDS_WRITENOS") {
                $rest =~ /KDS_WRITENOS=\"(\S+)\"/;
                $kds_writenos = $1;
+            }
+         }
+      }
+   }
+
+   #(6217D74C.000F-1:kbbssge.c,72,"BSS1_GetEnv") KDS_VALIDATE="NO"
+   if ($kds_validate eq "") {
+      if (substr($logunit,0,9) eq "kbbssge.c") {
+         if ($logentry eq "BSS1_GetEnv") {
+            $oneline =~ /^\((\S+)\)(.+)$/;
+            $rest = $2;                       #  KDS_VALIDATE="NO"
+            if (substr($rest,1,12) eq "KDS_VALIDATE") {
+               $rest =~ /KDS_VALIDATE=\"(\S+)\"/;
+               $kds_validate = $1;
             }
          }
       }
@@ -3798,14 +3941,18 @@ for(;;)
          }
       }
    }
-
-   # (5C574A08.16DA-10856:kdcsdrq.c,944,"KDCS_DispatchRequest") unable to allocate activity: aHint=0511, Last=FFCC, Limit=FFCC
-   if (substr($logunit,0,9) eq "kdcsdrq.c") {
-      if ($logentry eq "KDCS_DispatchRequest") {
+   # (62A7A5D1.001F-5:kdclnew.c,325,"NewSDB") LLB entry 1 is ip.spipe:#158.98.176.201[3660], local
+   if (substr($logunit,0,9) eq "kdclnew.c") {
+      if ($logentry eq "NewSDB") {
          $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;                       # unable to allocate activity: aHint=0511, Last=FFCC, Limit=FFCC
-         if (substr($rest,1,28) eq "unable to allocate activity:") {
-            $xactivity += 1;
+         $rest = $2;                       # LLB entry 1 is ip.spipe:#158.98.176.201[3660], local
+         if (substr($rest,1,14) eq "LLB entry 1 is") {
+            if ($opt_llb1 eq "") {
+               $rest =~ / is (\S+):(\S+)\,/;
+               my $llb_protocol = $1;
+               my $llb_ip = $2;
+               $opt_llb1 = $2 if defined $2;
+            }
          }
       }
    }
@@ -4141,9 +4288,13 @@ for(;;)
       if ($logentry eq "_create_eipc_client") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # KDE1_StringToAddress returned 0x1DE00003 for none
-         if ((substr($rest,1,49) eq "KDE1_StringToAddress returned 0x1DE00003 for none") or
-             (substr($rest,1,49) eq "KDE1_StringToAddress returned BADRAWNAME for none")) {
+         if ((substr($rest,1,44) eq "KDE1_StringToAddress returned 0x1DE00003 for") or
+             (substr($rest,1,44) eq "KDE1_StringToAddress returned BADRAWNAME for")) {
             $eipc_none += 1;
+            $rest =~ / for (\S+)/;
+            if ($eipc_badraw eq "") {
+               $eipc_badraw = $1 if defined $1;
+            }
             next;
          }
       }
@@ -5231,6 +5382,40 @@ for(;;)
          next;
       }
    }
+   #(624F1ADE.044D-1A:kqmtbcmp.cpp,303,"ARMCmp::operValid") Warning: Invalid timestamp in local record: Timestamp <1220407130716000> Key <*NT_SYSTEM                      Primary:GOXSA6537:NT                                                                                                            12204071307160005529>
+   if (substr($logunit,0,12) eq "kqmtbcmp.cpp") {
+      if ($logentry eq "ARMCmp::operValid") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Warning: Invalid timestamp in local record: Timestamp <1220407130716000> Key <*NT_SYSTEM                      Primary:GOXSA6537:NT                                                                                                            12204071307160005529>
+         next if substr($rest,1,43) ne "Warning: Invalid timestamp in local record:";
+         $invalid_timestamp += 1;
+         next;
+      }
+   }
+   # ((6129DC13.0001-26B:kpxndmgr.cpp,189,"UpdateStatusForFailedRequest") *INFO: Setting node <Primary:CSRLDMWIE001:NT> off-line due to failure to start req <_Z_NTEVTLOG6>
+   if (substr($logunit,0,12) eq "kpxndmgr.cpp") {
+      if ($logentry eq "UpdateStatusForFailedRequest") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
+         next if index($rest,"off-line due to failure to start") == -1;
+         $rest =~ /<(\S+)\>.*\<(\S*)\>/;
+         $iagent = $1;
+         my $isitname = $2;
+         my $fail_ref = $failtosx{$iagent};
+         if (!defined $fail_ref) {
+            my %failref = (
+                             count => 0,
+                             sits => {},
+                             l => $l,
+                          );
+             $fail_ref = \%failref;
+             $failtosx{$iagent} = \%failref;
+         }
+         $fail_ref->{count} += 1;
+         $fail_ref->{sits}{$isitname} += 1;
+         next;
+      }
+   }
 
    # (54EA2C3A.0002-AD:kpxreqhb.cpp,924,"HeartbeatInserter") Remote node <Primary:VA10PWPAPP032:NT> is ON-LINE.
    if (substr($logunit,0,12) eq "kpxreqhb.cpp") {
@@ -5324,6 +5509,21 @@ for(;;)
 #         }
       }
       next;
+   }
+   # (6205E46C.0000-A:ko4stqmr.cpp,357,"StatusQueueManager::processStatuses") Warning: queue size <156830> exceeds limit <32768>
+   if (substr($logunit,0,12) eq "ko4stqmr.cpp") {
+      if ($logentry eq "StatusQueueManager::processStatuses") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Warning: queue size <156830> exceeds limit <32768>
+         next if substr($rest,1,8) ne "Warning:";
+         $rest =~ /Warning: queue size \<(\d+)\> exceeds limit \<(\d+)\>/;
+         my $isize = $1;
+         my $ilimit = $2;
+         if (defined $ilimit) {
+            $queue_limit_ct += 1;
+            next;
+         }
+      }
    }
 
 
@@ -6929,6 +7129,23 @@ for(;;)
          next;
       }
    }
+   #(623FBD26.00AF-19:kdsstc2.c,892,"SetNLSConv") NLS1 set language id error 37. LanguageId 0x00000000->0x03480001 CodePage UTF8 Select EVNTSERVER 110100AA0 status 1022
+   if (substr($logunit,0,9) eq "kdsstc2.c") {
+      if ($logentry eq "SetNLSConv") {
+         # record start/end times
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;
+         $rest =~ /error\s+(\d+)\.\s+LanguageId\s+(\S+).*(status)\s+(\d+)/;
+         my $ierror = $1;
+         my $ilangid = $2;
+         my $istatus = $3;
+         if (defined $istatus) {
+            my $key = $istatus . "|" . $ierror . "|" . $ilangid;
+            $nlsx{$key} += 1;
+            $nls_ct += 1;
+         }
+      }
+   }
 
    #(5A2668D0.0004-68:kdsvws1.c,2421,"ManageView") ProcessTable TNODESTS Insert Error status = ( 1551 ).  SRVR01 ip.spipe:#10.64.11.30[3660]
    if (substr($logunit,0,9) eq "kdsvws1.c") {
@@ -8003,8 +8220,127 @@ foreach $f (keys %sqlrunx) {
 }
 %sqlrunx = ();
 
-$hdri++;$hdr[$hdri] = "$opt_nodeid $opt_tems";
+# new report of cinfo.info if it can be located
 
+my $cinfopath;
+my $cinfofn;
+my $gotcin = 0;
+$cinfopath = $opt_logpath;
+if ( -e $cinfopath . "cinfo.info") {
+   $gotcin = 1;
+   $cinfopath = $opt_logpath;
+} elsif ( -e $cinfopath . "../cinfo.info") {
+   $gotcin = 1;
+   $cinfopath = $opt_logpath . "../";
+} elsif ( -e $cinfopath . "../../cinfo.info") {
+   $gotcin = 1;
+   $cinfopath = $opt_logpath . "../../";
+}
+$cinfopath = '"' . $cinfopath . '"';
+if ($gotcin == 1) {
+   if ($gWin == 1) {
+      $pwd = `cd`;
+      chomp($pwd);
+      $cinfopath = `cd $cinfopath & cd`;
+   } else {
+      $pwd = `pwd`;
+      chomp($pwd);
+      $cinfopath = `(cd $cinfopath && pwd)`;
+   }
+   chomp $cinfopath;
+
+   $cinfofn = $cinfopath . "/cinfo.info";
+   $cinfofn =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
+
+   chomp($cinfofn);
+   chdir $pwd;
+
+   # Linux/Unix Example
+   #*********** Tue Nov 12 19:19:28 BRT 2019 ******************
+   #User: root Groups: root wheel
+   #Host name : brlpx3603	 Installer Lvl:06.30.07.06
+   #CandleHome: /IBM/ITM
+   #Version Format: VV.RM.FF.II (V: Version; R: Release; M: Modification; F: Fix; I: Interim Fix)
+   #***********************************************************
+
+   # Windows Example
+   #************ Friday, March 06, 2020 08:10:45 AM *************
+   #User       : ukc                   Group     : NA
+   #Host Name  : PSC-T-TIV01           Installer : Ver: 063007000
+   #CandleHome : D:\IBM\ITM
+   #Installitm : D:\IBM\ITM\InstallITM
+   #*************************************************************
+   open CINFO,"< $cinfofn" or warn " open cinfo.info file $cinfofn -  $!";
+   my @cin = <CINFO>;
+   close CINFO;
+   $l = 0;
+   my $d1 = "";
+   my $d2 = "";
+   foreach my $oneline (@cin) {
+      $l++;
+      chomp($oneline);
+      if ($this_hostname eq "") {
+         $oneline =~ /Host name :.*?(\S+).*?Installer Lvl:([0-9\.]*)/ if index($oneline,"Host name") != -1;
+         $oneline =~ /Host Name\s*:\s*(\S+)\s*Installer : Ver:\s*([0-9\.]*)/ if index($oneline,"Host Name") != -1;
+         $this_hostname = $1 if defined $1;
+         $this_installer = $2 if defined $2;
+         if ($this_hostname ne "") {
+            $hdri++;$hdr[$hdri] = "hostname: $this_hostname";
+            $hdri++;$hdr[$hdri] = "Installer: $this_installer";
+            if ($this_installer ne "") {
+               if (substr($this_installer,2,1) eq ".") {
+                  $this_sp3 = ($this_installer ge "06.30.07.09");
+               } else {
+                  $this_sp3 = ($this_installer >= "063007090");
+               }
+               if (substr($this_installer,2,1) eq ".") {
+                  $this_sp1 = ($this_installer ge "06.30.07.06");
+               } else {
+                  $this_sp1 = ($this_installer ge "063007060");
+               }
+            }
+         }
+
+      # gs   IBM GSKit Security Interface                              li6243  08.00.50.36   d5313a          -               0
+      # gs   IBM GSKit Security Interface                              lx8266  08.00.50.69   d6276a          -               0
+      } elsif (substr($oneline,0,2) eq "gs") {
+         $oneline =~/(3|6)\ .*(\d{2}\.\d{2}\.\d{2}\.\d{2})/;
+         my $ibit = $1;
+         my $iver = $2;
+         if (defined $2) {
+            if ($ibit == 3) {
+               $this_gskit32 = $iver;
+               $hdri++;$hdr[$hdri] = "GSKIT32: $this_gskit32";
+            } else {
+               $this_gskit64 = $iver;
+               $hdri++;$hdr[$hdri] = "GSKIT64: $this_gskit64";
+            }
+            last if ($this_gskit32 ne "") and ($this_gskit64 ne "")
+         }
+      # "GS","KGS(64-bit) GSK/IBM GSKit Security Interface","WIX64","080050690","d6276a","KGS64GSK.ver","0"
+      # "GS","KGS(32-bit) GSK/IBM GSKit Security Interface","WINNT","080050690","d6276a","KGSWIGSK.ver","0"
+      } elsif (substr($oneline,0,2) eq "\"GS\"") {
+         $oneline =~  /(WIX64|WINNT)\"\,\"(\d{9})\"/;
+         my $ibit = $1;
+         my $iver = $2;
+         if (defined $2) {
+            if ($ibit == "WINNT") {
+               $this_gskit32 = $iver;
+               $hdri++;$hdr[$hdri] = "GSKIT32: $this_gskit32";
+            } else {
+               $this_gskit64 = $iver;
+               $hdri++;$hdr[$hdri] = "GSKIT64: $this_gskit64";
+            }
+         }
+         last if ($this_gskit32 ne "") and ($this_gskit64 ne "")
+      }
+   }
+}
+
+
+$hdri++;$hdr[$hdri] = "$opt_nodeid $opt_tems";
+$hdri++;$hdr[$hdri] = "IP: $opt_llb1";
+$hdri++;$hdr[$hdri] = "ITM Home: $opt_candlehome";
 
 
 # produce output report
@@ -8060,14 +8396,6 @@ if ($badraw_ct > 0) {
    $advsit[$advi] = "Comm";
    $crit_line = "1,Name resolution errors[$badraw_ct]";
    push @crits,$crit_line;
-}
-
-if ($stage2_ct_err > 0) {
-   $advi++;$advonline[$advi] = "Failed Reconnection from remote TEMS to hub TEMS - $stage2_ct_err times";
-   $advcode[$advi] = "TEMSAUDIT1043E";
-   $advimpact[$advi] = $advcx{$advcode[$advi]};
-   $advsit[$advi] = "Reconnect_Fail";
-   $crit_line = "1,Failed Reconnection from remote TEMS to hub TEMS - $stage2_ct_err times";
 }
 
 if ($opt_disable_http eq "YES") {
@@ -8208,6 +8536,15 @@ if ($#stage2 != -1) {
 }
 
 
+if ($queue_limit_ct > 0) {
+   $advi++;$advonline[$advi] = "TEMS internal processing queue limit exceeded [$queue_limit_ct]";
+   $advcode[$advi] = "TEMSAUDIT1161E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "1,TEMS internal processing queue limit exceeded [$queue_limit_ct]";
+   push @crits,$crit_line;
+}
+
 
 
 if ($opt_kdcb0 ne "") {
@@ -8219,6 +8556,29 @@ if ($opt_kdcb0 ne "") {
          $advsit[$advi] = "TEMS";
       }
    }
+}
+
+if ($opt_kdcf ne "") {
+   my $uline = uc $opt_kdcf;
+   if (index($uline,"EPHEMERAL:Y") != -1) {
+      $advi++;$advonline[$advi] = "TEMS KDC_FAMILIES[$opt_kdcf] includes EPEHMERAL:Y which prevents TEMS from working";
+      $advcode[$advi] = "TEMSAUDIT1165E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+      $crit_line = "2,TEMS KDC_FAMILIES[$opt_kdcf] includes EPEHMERAL:Y which prevents TEMS from working";
+      push @crits,$crit_line;
+   }
+   if ($opt_tems eq "*LOCAL" ) {
+      if (index($uline,"HTTP_SERVER:N") != -1) {
+         $advi++;$advonline[$advi] = "HUB TEMS KDC_FAMILIES[$opt_kdcf] includes HTTP_SERVER:N which prevents some tacmd functions from working";
+         $advcode[$advi] = "TEMSAUDIT1166E";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TEMS";
+         $crit_line = "2,HUB TEMS KDC_FAMILIES[$opt_kdcf] includes HTTP_SERVER:N which prevents some tacmd functions from working";
+         push @crits,$crit_line;
+      }
+   }
+
 }
 
 if ($lp_high >= $opt_nominal_listen) {
@@ -8243,11 +8603,13 @@ if ($opt_nofile > 0) {
    }
 }
 if ($opt_stack > 0) {
-   if ($opt_stack > $opt_nominal_stack) {
-      $advi++;$advonline[$advi] = "ulimit stack [$opt_stack] is above nominal [$opt_nominal_stack] (kbytes)";
-      $advcode[$advi] = "TEMSAUDIT1005W";
+   if ($opt_stack < $opt_nominal_stack) {
+      $advi++;$advonline[$advi] = "ulimit stack [$opt_stack] is below nominal [$opt_nominal_stack] (bytes)";
+      $advcode[$advi] = "TEMSAUDIT1005E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "Stack";
+      $crit_line = "1,TEMS ulimit stack size too low [$opt_stack] - see TEMS Audit Report";
+      push @crits,$crit_line;
    }
 }
 
@@ -8422,45 +8784,52 @@ if ($stage2_ct_err > 0) {
    push @crits,$crit_line;
 }
 
+
 if ($portscan > 0) {
-   my $scantype = "";
-   $scantype .= "Unsupported(" . $portscan_Unsupported . ") " if $portscan_Unsupported > 0;
-   $scantype .= "HTTP(" . $portscan_HTTP . ") " if $portscan_HTTP > 0;
-   $scantype .= "integrity(" . $portscan_integrity . ") " if $portscan_integrity > 0;
-   $scantype .= "suspend(" . $portscan_suspend . ") " if $portscan_suspend > 0;
-   $advi++;$advonline[$advi] = "Indications of port scanning [$portscan] $scantype which can destabilize any ITM process including TEMS";
-   $advcode[$advi] = "TEMSAUDIT1037E";
-   $advimpact[$advi] = $advcx{$advcode[$advi]};
-   $advsit[$advi] = "Portscan";
+   if ($this_sp3 == 0) {
+      my $scantype = "";
+      $scantype .= "Unsupported(" . $portscan_Unsupported . ") " if $portscan_Unsupported > 0;
+      $scantype .= "HTTP(" . $portscan_HTTP . ") " if $portscan_HTTP > 0;
+      $scantype .= "integrity(" . $portscan_integrity . ") " if $portscan_integrity > 0;
+      $scantype .= "suspend(" . $portscan_suspend . ") " if $portscan_suspend > 0;
+      $advi++;$advonline[$advi] = "Indications of port scanning [$portscan] $scantype which can destabilize any ITM process including TEMS";
+      $advcode[$advi] = "TEMSAUDIT1037E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "Portscan";
+   }
 }
 
 if (($portscan_suspend + $portscan_72) > 0) {
-   my $scantype = "";
-   $scantype .= "suspend(" . $portscan_suspend . ") " if $portscan_suspend > 0;
-   $scantype .= "72(" . $portscan_72 . ") " if $portscan_72 > 0;
-   $advi++;$advonline[$advi] = "Definite Evidence of port scanning [$scantype] which can destabilize any ITM process including TEMS";
-   $advcode[$advi] = "TEMSAUDIT1049E";
-   $advimpact[$advi] = $advcx{$advcode[$advi]};
-   $advsit[$advi] = "Portscan";
-   $crit_line = "4,Definite Evidence of port scanning [$scantype] which can destabilize any ITM process including TEMS";
-   push @crits,$crit_line;
+   if ($this_sp3 == 0) {
+      my $scantype = "";
+      $scantype .= "suspend(" . $portscan_suspend . ") " if $portscan_suspend > 0;
+      $scantype .= "72(" . $portscan_72 . ") " if $portscan_72 > 0;
+      $advi++;$advonline[$advi] = "Definite Evidence of port scanning [$scantype] which can destabilize any ITM process including TEMS";
+      $advcode[$advi] = "TEMSAUDIT1049E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "Portscan";
+      $crit_line = "4,Definite Evidence of port scanning [$scantype] which can destabilize any ITM process including TEMS";
+      push @crits,$crit_line;
+   }
 }
 
 my $portscan_timex_ct = scalar keys %portscan_timex;
 if ($opt_portscan == 1) {
-   if ($portscan_timex_ct > 0) {
-      $rptkey = "TEMSREPORT042";$advrptx{$rptkey} = 1;         # record report key
-      $cnt++;$oline[$cnt]="\n";
-      $cnt++;$oline[$cnt]="$rptkey: Portscan Time Report\n";
-      $cnt++;$oline[$cnt]="Epoch,Local_Time,Scan_Types,\n";
-      foreach $f ( sort { $a cmp $b } keys %portscan_timex) {
-         $outl = $f . ",";
-         $outl .= sec2ltime(hex($f)+$local_diff) . ",";
-         my $pscans = join(" ",@{$portscan_timex{$f}});
-         $outl .= $pscans . ",";
-         $cnt++;$oline[$cnt]=$outl . "\n";
+   if ($this_sp3 == 0) {
+      if ($portscan_timex_ct > 0) {
+         $rptkey = "TEMSREPORT042";$advrptx{$rptkey} = 1;         # record report key
+         $cnt++;$oline[$cnt]="\n";
+         $cnt++;$oline[$cnt]="$rptkey: Portscan Time Report\n";
+         $cnt++;$oline[$cnt]="Epoch,Local_Time,Scan_Types,\n";
+         foreach $f ( sort { $a cmp $b } keys %portscan_timex) {
+            $outl = $f . ",";
+            $outl .= sec2ltime(hex($f)+$local_diff) . ",";
+            my $pscans = join(" ",@{$portscan_timex{$f}});
+            $outl .= $pscans . ",";
+            $cnt++;$oline[$cnt]=$outl . "\n";
+         }
+         $cnt++;$oline[$cnt]="\n";
       }
-      $cnt++;$oline[$cnt]="\n";
    }
 }
 
@@ -8691,8 +9060,8 @@ foreach $f (keys %soapcat) {
 }
 
 if ($eipc_none > 0) {
-   $advi++;$advonline[$advi] = "EIF unknown transmision target [none] $eipc_none times";
-   $advcode[$advi] = "TEMSAUDIT1066W";
+   $advi++;$advonline[$advi] = "EIF unknown transmision target [$eipc_badraw] $eipc_none times";
+   $advcode[$advi] = "TEMSAUDIT1066E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
 }
@@ -8848,6 +9217,13 @@ if ($et > 0) {
 if ($invalid_checkpoint_count > 0) {
    $advi++;$advonline[$advi] = "TEMS TCHECKPT Timestamp invalid $invalid_checkpoint_count time(s)";
    $advcode[$advi] = "TEMSAUDIT1045W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "FTO";
+}
+
+if ($invalid_timestamp > 0) {
+   $advi++;$advonline[$advi] = "TEMS TCHECKPT Local Timestamp invalid $invalid_timestamp time(s)";
+   $advcode[$advi] = "TEMSAUDIT1162E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "FTO";
 }
@@ -9802,36 +10178,43 @@ if ($online_ct > 0) {
          }
       }
    }
-   $rptkey = "TEMSREPORT085";$advrptx{$rptkey} = 1;         # record report key
-#   $advi++;$advonline[$advi] = "$agto_mult Agents with repeated onlines - See Report $rptkey";
-#   $advcode[$advi] = "TEMSAUDIT1016W";
-#   $advimpact[$advi] = $advcx{$advcode[$advi]};
-#   $advsit[$advi] = "Onlines";
-   $cnt++;$oline[$cnt]="\n";
-   $cnt++;$oline[$cnt]="$rptkey: Online Agent and calculated IP\n";
-   $cnt++;$oline[$cnt]="Node,NewPCB_Count,Disc_ct,IP_ct,Log_refs\n";
+   my $online_ct = 0;
    foreach my $o ( sort { $onlinex{$b}->{count} <=> $onlinex{$a}->{count} } keys %onlinex) {
       my $online_ref = $onlinex{$o};
-      next if $online_ref->{iipct} <= 1;
-      $outl = $o . ",";
-      $outl .= $online_ref->{count} . ",";
-      $outl .= $online_ref->{iipct} . ",";
+      $online_ct += 1 if $online_ref->{iipct} > 1;
+   }
+   if ($online_ct > 0) {
+      $rptkey = "TEMSREPORT085";$advrptx{$rptkey} = 1;         # record report key
+   #   $advi++;$advonline[$advi] = "$agto_mult Agents with repeated onlines - See Report $rptkey";
+   #   $advcode[$advi] = "TEMSAUDIT1016W";
+   #   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   #   $advsit[$advi] = "Onlines";
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="$rptkey: Online Agent and calculated IP\n";
+      $cnt++;$oline[$cnt]="Node,NewPCB_Count,Disc_ct,IP_ct,Log_refs\n";
+      foreach my $o ( sort { $onlinex{$b}->{count} <=> $onlinex{$a}->{count} } keys %onlinex) {
+         my $online_ref = $onlinex{$o};
+         next if $online_ref->{iipct} <= 1;
+         $outl = $o . ",";
+         $outl .= $online_ref->{count} . ",";
+         $outl .= $online_ref->{iipct} . ",";
 
-      my $iip_ct = scalar keys %{$online_ref->{iips}};
-      $outl .= $iip_ct . ",";
-      my $ppips = "";
-      foreach my $i (keys %{$online_ref->{iips}}) {
-         $ppips .= $i . "[" . $online_ref->{iips}{$i} . "] ";
+         my $iip_ct = scalar keys %{$online_ref->{iips}};
+         $outl .= $iip_ct . ",";
+         my $ppips = "";
+         foreach my $i (keys %{$online_ref->{iips}}) {
+            $ppips .= $i . "[" . $online_ref->{iips}{$i} . "] ";
+         }
+         chop($ppips) if $ppips ne "";
+         $outl .= $ppips . ",";
+         my $iline = "";
+         foreach my $h (@{$online_ref->{refs}}) {
+            my @idata = @{$h};
+            $iline .= $idata[0][0] . "|" . $idata[0][1] . "|" . $idata[0][2] . " ";
+         }
+         $outl .= $iline;
+         $cnt++;$oline[$cnt]=$outl . "\n";
       }
-      chop($ppips) if $ppips ne "";
-      $outl .= $ppips . ",";
-      my $iline = "";
-      foreach my $h (@{$online_ref->{refs}}) {
-         my @idata = @{$h};
-         $iline .= $idata[0][0] . "|" . $idata[0][1] . "|" . $idata[0][2] . " ";
-      }
-      $outl .= $iline;
-      $cnt++;$oline[$cnt]=$outl . "\n";
    }
 }
 
@@ -10663,6 +11046,11 @@ if ($change_real > 0) {
          next if $change_node_ref->{rate} < $change_impact;
          my $thrunode_ct = scalar keys %{$change_node_ref->{thrunodes}};
          next if $thrunode_ct == 1;
+         my $not_tems_ct = 0;
+         foreach $h  ( keys %{$change_node_ref->{thrunodes}}) {
+            $not_tems_ct += 1 if index($h,":") != -1;
+         }
+         next if $not_tems_ct < 1;
          $mdup_ct += 1;
          my $pthrus = "";
          foreach $h  ( keys %{$change_node_ref->{thrunodes}}) {
@@ -10754,6 +11142,57 @@ if ($change_real > 0) {
          }
       }
    }
+}
+
+my $failtos_ct = scalar keys %failtosx;
+if ($failtos_ct > 0) {
+      my $fail_ct = 0;
+      $rptkey = "TEMSREPORT091";$advrptx{$rptkey} = 1;         # record report key
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="$rptkey: Agent Failed Start Report\n";
+      $cnt++;$oline[$cnt]="Line,Count,Agent,Sits,\n";
+      foreach $f (sort {$failtosx{$b}->{count} <=> $failtosx{$a}->{count}} keys %failtosx) {
+         my $fail_ref = $failtosx{$f};
+         last if $fail_ref->{count} < 2;
+         $fail_ct += 1;
+         $outl = $fail_ref->{l} . ",";
+         $outl .= $fail_ref->{count} . ",";
+         $outl .= $f . ",";
+         my $psits = "";
+         foreach my $g ( keys %{$fail_ref->{sits}}) {
+            $psits .= "[" . $g . "]" . "(" . $fail_ref->{sits}{$g} . ") ";
+         }
+         chomp($psits) if $psits ne "";
+         $outl .= $psits . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+      }
+      if ($fail_ct > 0) {
+         $advi++;$advonline[$advi] = "Agent Failed Starts [$fail_ct] - See $rptkey";
+         $advcode[$advi] = "TEMSAUDIT1160W";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TEMS";
+         $crit_line = "2,$fail_ct Agents with Start Failures from TEMS seen in $rptkey Report";
+         push @crits,$crit_line;
+      }
+}
+
+if ($nls_ct > 0) {
+      $rptkey = "TEMSREPORT092";$advrptx{$rptkey} = 1;         # record report key
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="$rptkey: NLS Error Failure Report\n";
+      $cnt++;$oline[$cnt]="Count,Status|Error|LanguageID,\n";
+      my $itcnt = 0;
+      foreach $f (keys %nlsx) {
+         my $icnt = $nlsx{$f};
+         $outl = $icnt . ",";
+         $outl .= $f . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+         $itcnt += $icnt;
+      }
+      $advi++;$advonline[$advi] = "NLS Processing failures [$itcnt] - See $rptkey";
+      $advcode[$advi] = "TEMSAUDIT1163E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
 }
 
 my $nodeiph_ct = scalar keys %nodeiphx;
@@ -10962,7 +11401,7 @@ foreach $f ( sort { $a <=> $b } keys %changetx) {
 
 my $flip_rate = 0;
 $flip_rate = $change_ct / $flip_hour if $flip_hour != 0;
-if ($flip_rate > 6) {
+if ($flip_rate > 30) {
    my $res_pc = ($change_ct)/$flip_hour;
    my $ppc = sprintf '%.2f', $res_pc;
    $advi++;$advonline[$advi] = "Agent Flip Rate $ppc per hour - see $rptkey report";
@@ -12427,123 +12866,21 @@ if ($kuiras1_ct >= 10000) {
 }
 
 if ($kdsvlunx_perm ne "") {
-   if ($opt_tems eq "*LOCAL") {
-      if (substr($kdsvlunx_perm,2,1) ne "s") {
-         $advi++;$advonline[$advi] = "kdsvlunx program object missing suid permission";
-         $advcode[$advi] = "TEMSAUDIT1151E";
-         $advimpact[$advi] = $advcx{$advcode[$advi]};
-         $advsit[$advi] = "TEMS";
-         $crit_line = "1,kdsvlunx missing suid permission";
-         push @crits,$crit_line;
+   if ($kds_validate eq "YES") {
+      if ($opt_tems eq "*LOCAL") {
+         if (substr($kdsvlunx_perm,2,1) ne "s") {
+            $advi++;$advonline[$advi] = "kdsvlunx program object missing suid permission";
+            $advcode[$advi] = "TEMSAUDIT1151E";
+            $advimpact[$advi] = $advcx{$advcode[$advi]};
+            $advsit[$advi] = "TEMS";
+            $crit_line = "1,kdsvlunx missing suid permission";
+            push @crits,$crit_line;
+         }
       }
    }
 }
 
 
-# new report of cinfo.info if it can be located
-
-my $cinfopath;
-my $cinfofn;
-my $gotcin = 0;
-$cinfopath = $opt_logpath;
-if ( -e $cinfopath . "cinfo.info") {
-   $gotcin = 1;
-   $cinfopath = $opt_logpath;
-} elsif ( -e $cinfopath . "../cinfo.info") {
-   $gotcin = 1;
-   $cinfopath = $opt_logpath . "../";
-} elsif ( -e $cinfopath . "../../cinfo.info") {
-   $gotcin = 1;
-   $cinfopath = $opt_logpath . "../../";
-}
-$cinfopath = '"' . $cinfopath . '"';
-if ($gotcin == 1) {
-   if ($gWin == 1) {
-      $pwd = `cd`;
-      chomp($pwd);
-      $cinfopath = `cd $cinfopath & cd`;
-   } else {
-      $pwd = `pwd`;
-      chomp($pwd);
-      $cinfopath = `(cd $cinfopath && pwd)`;
-   }
-   chomp $cinfopath;
-
-   $cinfofn = $cinfopath . "/cinfo.info";
-   $cinfofn =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
-
-   chomp($cinfofn);
-   chdir $pwd;
-
-   # Linux/Unix Example
-   #*********** Tue Nov 12 19:19:28 BRT 2019 ******************
-   #User: root Groups: root wheel
-   #Host name : brlpx3603	 Installer Lvl:06.30.07.06
-   #CandleHome: /IBM/ITM
-   #Version Format: VV.RM.FF.II (V: Version; R: Release; M: Modification; F: Fix; I: Interim Fix)
-   #***********************************************************
-
-   # Windows Example
-   #************ Friday, March 06, 2020 08:10:45 AM *************
-   #User       : ukc                   Group     : NA
-   #Host Name  : PSC-T-TIV01           Installer : Ver: 063007000
-   #CandleHome : D:\IBM\ITM
-   #Installitm : D:\IBM\ITM\InstallITM
-   #*************************************************************
-   open CINFO,"< $cinfofn" or warn " open cinfo.info file $cinfofn -  $!";
-   my @cin = <CINFO>;
-   close CINFO;
-   $l = 0;
-   my $d1 = "";
-   my $d2 = "";
-   foreach my $oneline (@cin) {
-      $l++;
-      chomp($oneline);
-      if ($this_hostname eq "") {
-         $oneline =~ /Host name :.*?(\S+).*?Installer Lvl:([0-9\.]*)/ if index($oneline,"Host name") != -1;
-         $oneline =~ /Host Name\s*:\s*(\S+)\s*Installer : Ver:\s*([0-9\.]*)/ if index($oneline,"Host Name") != -1;
-         $this_hostname = $1 if defined $1;
-         $this_installer = $2 if defined $2;
-         if ($this_hostname ne "") {
-            $hdri++;$hdr[$hdri] = "hostname: $this_hostname";
-            $hdri++;$hdr[$hdri] = "Installer: $this_installer";
-         }
-
-      # gs   IBM GSKit Security Interface                              li6243  08.00.50.36   d5313a          -               0
-      # gs   IBM GSKit Security Interface                              lx8266  08.00.50.69   d6276a          -               0
-      } elsif (substr($oneline,0,2) eq "gs") {
-         $oneline =~/(3|6)\ .*(\d{2}\.\d{2}\.\d{2}\.\d{2})/;
-         my $ibit = $1;
-         my $iver = $2;
-         if (defined $2) {
-            if ($ibit == 3) {
-               $this_gskit32 = $iver;
-               $hdri++;$hdr[$hdri] = "GSKIT32: $this_gskit32";
-            } else {
-               $this_gskit64 = $iver;
-               $hdri++;$hdr[$hdri] = "GSKIT64: $this_gskit64";
-            }
-            last if ($this_gskit32 ne "") and ($this_gskit64 ne "")
-         }
-      # "GS","KGS(64-bit) GSK/IBM GSKit Security Interface","WIX64","080050690","d6276a","KGS64GSK.ver","0"
-      # "GS","KGS(32-bit) GSK/IBM GSKit Security Interface","WINNT","080050690","d6276a","KGSWIGSK.ver","0"
-      } elsif (substr($oneline,0,2) eq "\"GS\"") {
-         $oneline =~  /(WIX64|WINNT)\"\,\"(\d{9})\"/;
-         my $ibit = $1;
-         my $iver = $2;
-         if (defined $2) {
-            if ($ibit == "WINNT") {
-               $this_gskit32 = $iver;
-               $hdri++;$hdr[$hdri] = "GSKIT32: $this_gskit32";
-            } else {
-               $this_gskit64 = $iver;
-               $hdri++;$hdr[$hdri] = "GSKIT64: $this_gskit64";
-            }
-         }
-         last if ($this_gskit32 ne "") and ($this_gskit64 ne "")
-      }
-   }
-}
 
 if ($this_hostname ne "") {
    # Check report of hosts if it can be located
@@ -12638,12 +12975,32 @@ if ($env_eph > 0) {
       $outl .= $ah[0][3] . ",";
       $cnt++;$oline[$cnt]="$outl\n";
    }
-   $advi++;$advonline[$advi] = "ITM processes [$env_eph] have EPHEMERAL:Y which can disrupt TEMS communications - See report $rptkey";
+   $advi++;$advonline[$advi] = "ITM processes [$env_eph] on this system use EPHEMERAL:Y which can disrupt TEMS communications - See report $rptkey";
    $advcode[$advi] = "TEMSAUDIT1132E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
-   $crit_line = "2,ITM processes [$env_eph] have EPHEMERAL:Y which can disrupt TEMS communications";
+   $crit_line = "2,ITM processes [$env_eph] on this system use EPHEMERAL:Y which can disrupt TEMS communications";
    push @crits,$crit_line;
+}
+
+# check for EPHEMERAL:Y connections alongside TEMS
+if ($env_gwy > 0) {
+   $rptkey = "TEMSREPORT093";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: KDE_GATEWAY Configuration Report\n";
+   $cnt++;$oline[$cnt]="Type,File,LineNum,Line,\n";
+   foreach my $h (@gwylines) {
+      my @ah = @{$h};
+      $outl = $ah[0][0] . ",";
+      $outl .= $ah[0][1] . ",";
+      $outl .= $ah[0][2] . ",";
+      $outl .= $ah[0][3] . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+   }
+   $advi++;$advonline[$advi] = "This TEMS system uses KDE_GATEWAY logic - See report $rptkey";
+   $advcode[$advi] = "TEMSAUDIT1167I";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
 }
 
 # new report of disk.info if it can be located
@@ -12747,6 +13104,8 @@ my %iheartx;
 my %verifyx = ();
 my $verify_ref;
 if ($full_logopfn ne "") {
+   my $op_alpha = "";
+   my $op_omega = "";
    my $ol = 0;
    if (open OPLOG,"< $full_logopfn") {
       my $opline;
@@ -12755,7 +13114,10 @@ if ($full_logopfn ne "") {
          last if !defined $opline;
          $ol += 1;
          next if length($opline) < 40;
+         $op_alpha = $opline if $op_alpha eq "";
+         $op_omega = $opline;
          #Fri Dec 15 04:33:13 2017 KDS9143I   An initial heartbeat has been received from the TEMS REMOTE_usrdrtm041ccpr2 by the hub TEMS HUB_usrdhtms21ccpx2.
+
          my $opcode = substr($opline,25,8);
          if ($opcode eq "KDS9143I") {
             $opline =~ /has been received from the TEMS (\S+)/;
@@ -12798,9 +13160,175 @@ if ($full_logopfn ne "") {
               $verify_ref->{verify} += 1;
               $verify_ref->{count} += 1;
            }
+         # Wed Nov  2 13:05:02 2022 KO41041    Enterprise situation all_eralloq_gntw_mssql:dfr_chsql020:NT<MSSQLSERVER> is true.
+         } elsif ($opcode eq "KO41041 ") {
+           $opline =~ /Enterprise situation (\S+?)\:(\S+) /;
+           my $isit = $1;
+           my $inode = $2;
+           my $idisp = "";
+           if (index($inode,"<") != -1) {
+              $inode =~ /(.*?)<(.*?)>/;
+              $inode = $1;
+              $idisp = $2;
+           }
+           my $opsit_ref = $opsit{$isit};
+           if (!defined $opsit_ref) {
+              my %opsitref = (
+                                count => 0,
+                                true => 0,
+                                false => 0,
+                                nodes => {},
+                                disp => {},
+                             );
+              $opsit{$isit} = \%opsitref;
+              $opsit_ref = \%opsitref;
+           }
+           $opsit_ref->{count} += 1;
+           $opsit_ref->{true} += 1;
+           $opsit_ref->{disp}{$idisp} += 1 if $idisp ne "";
+           my $node_ref = $opsit_ref->{nodes}{$inode};
+           if (!defined $node_ref) {
+              my %noderef = (
+                                count => 0,
+                                true => 0,
+                                false => 0,
+                            );
+              $opsit_ref->{nodes}{$inode} = \%noderef;
+              $node_ref = \%noderef;
+           }
+           $node_ref->{count} += 1;
+           $node_ref->{true} += 1;
+
+         # Wed Nov  2 13:25:43 2022 KO41042    Enterprise situation all_svcprb_g06w_win_gen:dfr_chtsm201:06<QLManagementAgentJava> is no longer true.
+         } elsif ($opcode eq "KO41042 ") {
+           $opline =~ /Enterprise situation (\S+?)\:(\S+) /;
+           my $isit = $1;
+           my $inode = $2;
+           my $idisp = "";
+           if (index($inode,"<") != -1) {
+              $inode =~ /(.*?)<(.*?)>/;
+              $inode = $1;
+              $idisp = $2;
+           }
+           my $opsit_ref = $opsit{$isit};
+           if (!defined $opsit_ref) {
+              my %opsitref = (
+                                count => 0,
+                                true => 0,
+                                false => 0,
+                                nodes => {},
+                                disp => {},
+                             );
+              $opsit{$isit} = \%opsitref;
+              $opsit_ref = \%opsitref;
+           }
+           $opsit_ref->{count} += 1;
+           $opsit_ref->{false} += 1;
+           $opsit_ref->{disp}{$idisp} += 1 if $idisp ne "";
+           my $node_ref = $opsit_ref->{nodes}{$inode};
+           if (!defined $node_ref) {
+              my %noderef = (
+                                count => 0,
+                                true => 0,
+                                false => 0,
+                            );
+              $opsit_ref->{nodes}{$inode} = \%noderef;
+              $node_ref = \%noderef;
+           }
+           $node_ref->{count} += 1;
+           $node_ref->{true} += 1;
+
+         # Wed Nov  2 13:05:04 2022 KO49042    Situation all_eralloq_gntw_mssql:dfr_chsql020:NT<MSSQLSERVER> is occurring; 2 events available for status.
+         } elsif ($opcode eq "KO49042 ") {
+           $opline =~ /Situation (\S+?)\:(\S+) /;
+           my $isit = $1;
+           my $inode = $2;
+           my $idisp = "";
+           if (index($inode,"<") != -1) {
+              $inode =~ /(.*?)<(.*?)>/;
+              $inode = $1;
+              $idisp = $2;
+           }
+           my $opsit_ref = $opsit{$isit};
+           if (!defined $opsit_ref) {
+              my %opsitref = (
+                                count => 0,
+                                true => 0,
+                                false => 0,
+                                nodes => {},
+                                disp => {},
+                             );
+              $opsit{$isit} = \%opsitref;
+              $opsit_ref = \%opsitref;
+           }
+           $opsit_ref->{count} += 1;
+           $opsit_ref->{true} += 1;
+           $opsit_ref->{disp}{$idisp} += 1 if $idisp ne "";
+           my $node_ref = $opsit_ref->{nodes}{$inode};
+           if (!defined $node_ref) {
+              my %noderef = (
+                                count => 0,
+                                true => 0,
+                                false => 0,
+                            );
+              $opsit_ref->{nodes}{$inode} = \%noderef;
+              $node_ref = \%noderef;
+           }
+           $node_ref->{count} += 1;
+           $node_ref->{true} += 1;
+
+         # Wed Nov  2 13:05:13 2022 KO49043    Situation all_eralloq_gntw_mssql:dfr_chsql020:NT<MSSQLSERVER> is occurring; 10 events available for status; oldest
+         } elsif ($opcode eq "KO49043 ") {
+           $opline =~ /Situation (\S+?)\:(\S+) /;
+           my $isit = $1;
+           my $inode = $2;
+           my $idisp = "";
+           if (index($inode,"<") != -1) {
+              $inode =~ /(.*?)<(.*?)>/;
+              $inode = $1;
+              $idisp = $2;
+           }
+           my $opsit_ref = $opsit{$isit};
+           if (!defined $opsit_ref) {
+              my %opsitref = (
+                                count => 0,
+                                true => 0,
+                                false => 0,
+                                nodes => {},
+                                disp => {},
+                             );
+              $opsit{$isit} = \%opsitref;
+              $opsit_ref = \%opsitref;
+           }
+           $opsit_ref->{count} += 1;
+           $opsit_ref->{true} += 1;
+           $opsit_ref->{disp}{$idisp} += 1 if $idisp ne "";
+           my $node_ref = $opsit_ref->{nodes}{$inode};
+           if (!defined $node_ref) {
+              my %noderef = (
+                                count => 0,
+                                true => 0,
+                                false => 0,
+                            );
+              $opsit_ref->{nodes}{$inode} = \%noderef;
+              $node_ref = \%noderef;
+           }
+           $node_ref->{count} += 1;
+           $node_ref->{true} += 1;
+
          }
       }
       close(OPLOG);
+      if ($op_omega ne "") {
+         my $op_start = ltime(substr($op_alpha,0,24));
+         my $op_end = ltime(substr($op_omega,0,24));
+         my $op_secs = $op_end - $op_start;
+         my $op_days = int($op_secs/86400) + 1;
+         $advi++;$advonline[$advi] = "TEMS up time about $op_days days";
+         $advcode[$advi] = "TEMSAUDIT1164I";
+         $advimpact[$advi] = $advcx{$advcode[$advi]};
+         $advsit[$advi] = "TEMS";
+      }
    }
 }
 
@@ -12830,6 +13358,14 @@ if ($verify_ct > 0) {
       $crit_line = "1,TEMS crash - index verify failures[$verify_fails]";
       push @crits,$crit_line;
    }
+   if ($this_sp1 == 0) {
+      $advi++;$advonline[$advi] = "TEMS crash during SITMON startup prior to SP1 - possible CMS_DUPER issue";
+      $advcode[$advi] = "TEMSAUDIT1168E";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
+      $crit_line = "1,TEMS crash during SITMON startup prior to SP1 - possible CMS_DUPER issue";
+      push @crits,$crit_line;
+   }
 }
 
 
@@ -12847,20 +13383,6 @@ foreach my $f (keys %iheartx) {
    $advsit[$advi] = "TEMS";
 }
 
-my %months = (
-                "Jan" => 0,
-                "Feb" => 1,
-                "Mar" => 2,
-                "Apr" => 3,
-                "May" => 4,
-                "Jun" => 5,
-                "Jul" => 6,
-                "Aug" => 7,
-                "Sep" => 8,
-                "Oct" => 9,
-                "Nov" => 10,
-                "Dec" => 11,
-             );
 if ($prob_initial > 0) {
    $rptkey = "TEMSREPORT054";$advrptx{$rptkey} = 1;         # record report key
    $cnt++;$oline[$cnt]="\n";
@@ -12889,6 +13411,50 @@ if ($prob_initial > 0) {
          $itime -= $local_diff;
          set_timeline($itime,0,"","TEMSREPORT054","remote TEMS $f initial heartbeat");
       }
+   }
+}
+
+my $opsit_ct = scalar keys %opsit;
+if ($opsit_ct > 0) {
+   $rptkey = "TEMSREPORT094";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Operation Log Situation Report\n";
+   $cnt++;$oline[$cnt]= "Situaton,Count,True,False,DisplayItems\n";
+   $cnt++;$oline[$cnt]= ",Node,Count,True,False,\n";
+   my @opsits;
+   foreach $f ( sort { $opsit{$b}->{count} <=> $opsit{$a}->{count}} keys %opsit) {
+      my $opsit_ref = $opsit{$f};
+      next if $opsit_ref->{count} < 2;
+      if ($opsit_ref->{count} >= 100) {
+         push @opsits,$f;
+      }
+      $outl = $f . ",";
+      $outl .= $opsit_ref->{count} . ",";
+      $outl .= $opsit_ref->{true} . ",";
+      $outl .= $opsit_ref->{false} . ",";
+      my $pdisp = "";
+      foreach my $g  (keys %{$opsit_ref->{disp}}) {
+         $pdisp .= $g . "[" . $opsit_ref->{disp}{$g} . ']' . "," if $g ne "";
+      }
+      chop $pdisp if $pdisp ne "";
+      $outl .= $pdisp . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+      foreach my $h (keys %{$opsit_ref->{nodes}}) {
+         my $node_ref = $opsit_ref->{nodes}{$h};
+         next if $node_ref->{count} < 2;
+         $outl = "," . $h . ",";
+         $outl .= $node_ref->{count} . ",";
+         $outl .= $node_ref->{true} . ",";
+         $outl .= $node_ref->{false} . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+      }
+   }
+   if ($#opsits >= 0) {
+      my $psits = join(" ",@opsits);
+      $advi++;$advonline[$advi] = "Situations with more than 100 events in TEMS operation log [$psits] - see report $rptkey";
+      $advcode[$advi] = "TEMSAUDIT1169W";
+      $advimpact[$advi] = $advcx{$advcode[$advi]};
+      $advsit[$advi] = "TEMS";
    }
 }
 
@@ -13482,6 +14048,41 @@ $rc = 1 if $max_impact >= $opt_nominal_max_impact;
 #print STDERR "exit code 1 $max_impact $opt_max_impact\n" if $rc == 1;
 
 exit $rc;
+
+sub ltime {
+   my ($istamp) = @_;
+   # Thu Feb 15 22:45:49 2018
+   # 07/26/17 15:08:33
+   my $imon;
+   my $iday;
+   my $iyy;
+   my $ihh;
+   my $imm;
+   my $iss;
+   if (substr($istamp,2,1) ne "/") {
+      $istamp =~ /\S+ (\S+)\s+(\d+) (\d+):(\d+):(\d+) (\d+)/;
+      $imon = $1;
+      $iday = $2;
+      $ihh = $3;
+      $imm = $4;
+      $iss = $5;
+      $iyy = $6;
+      $iyy -= 1900;
+      $imon = $months{$imon};
+      return 0 if !defined $imon;
+      die "months table wrong" if !defined $imon;
+   } else {
+      $istamp =~  /(\d+)\/(\d+)\/(\d+) (\d+):(\d+):(\d+)/;
+      $imon = substr("00" . $1,-2,2);
+      $iday = substr("00" . $2,-2,2);
+      $iyy = 100 + $3;
+      $ihh = substr("00" . $4,-2,2);
+      $imm = substr("00" . $5,-2,2);
+      $iss = substr("00" . $6,-2,2);
+   }
+   my $itime = timelocal( $iss, $imm, $ihh, $iday, $imon, $iyy );
+   return $itime;
+}
 
 sub set_timeline {
    my ($ilogtime,$il,$ilogtimehex,$iadvisory,$inotes) = @_;
@@ -14153,6 +14754,19 @@ exit;
 #        - Add report on duplicate Sub-node agents
 #        - Extend advisory on index errors
 #        - Add window duplicate in minutes
+#2.35000 - Add advisory and report for Agent Start Failures
+#        - Adjust port scanning explanation to reference SP3
+#        - remove duplicate 1043E advisory
+#        - Skip kdsvlunx warning if KDS_VALIDATE not YES
+#        - Change flip rate test to 30/hour instead of 6/hour
+#        - revise stack advisory 1005E
+#        - Add 1162E advisory for damaged checkpoint table used in FTO
+#        - Add 1164I advisory informational number of days up
+#        - Add IP: ip_addr[port] the first published connection address/port.
+#        - REPORT090 skip subnode agents connected to TEMSes
+#        - Add advisory 168E for possible CMS_DUPER error
+#        - Skip kdsvlunx complaint when LDAP is being used.
+#        - Add REPORT094 and advisory 1169W on high frequency situation events
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -14243,20 +14857,19 @@ When you do a ulimit -n on the userid where the TEMS will be
 running, that should be at least 8192.
 --------------------------------------------------------------
 
-TEMSAUDIT1005W
-Text: ulimit stack [num] is above nominal [num] (kbytes)
+TEMSAUDIT1005E
+Text: ulimit stack [num] is above nominal [num] (bytes)
 
 Tracing: error
 Diag Log: +52BE1DCC.0000     Nofile Limit: None                       Stack Limit: 32M
 
-Meaning: This is a Linux/Unix concern. Most well running TEMS
-show a stack of 10meg or 10240K. In some cases having a
-larger value can waste virtual storage capacity.
+Meaning: This is a Linux/Unix concern. Most 64 bit TEMS
+instances need 4096M stack size. When that is lower
+the TEMS will often fail because of an inability to
+perform deeply nested calls.
 
-Recovery plan: It is not certain this makes a gigantic
-difference, however you might consider tuning the value
-for better virtual storage utilization. It may also be
-less of a concern in 64-bit platforms.
+Recovery plan: Increase that ulimit setting to 4096M or.
+unlimited/none.
 --------------------------------------------------------------
 
 TEMSAUDIT1006E
@@ -14814,11 +15427,29 @@ Diag Log: (571C6FD5.0000-F6:kdhsiqm.c,772,"KDHS_InboundQueueManager") Unsupporte
           (55C14E21.0001-8B:kdebp0r.c,235,"receive_pipe") Status 1DE00074=KDE1_STC_DATASTREAMINTEGRITYLOST
           (55C14E21.0002-89:kdhsiqm.c,548,"KDHS_InboundQueueManager") error in HTTP request from ip.ssl:#10.107.19.12:33992, status=7C4C803A, "unknown method in request"
 
-Meaning: ITM processes do not defend against port scanning. After 120
-such detected cases the affected port will stop listening.
+Meaning: The log indicates port scanning is taking place.
 
-Recovery plan: Work with security team to NOT do port scanning against
-known valid ITM listening ports.
+The following maintenance contains a communications APAR fix
+included in Service Pack 3 which will avoid most bad effects of
+port scanning. It also problems with related communication issues.
+
+https://www.ibm.com/support/pages/apar/IJ21264
+
+IBM Tivoli Monitoring 6.3.0 Fix Pack 7 Service Pack 3 (6.3.0.7-TIV-ITM-SP0003)
+https://www.ibm.com/support/pages/node/1125303
+
+There is a diagnostic fix included in Service Pack 1
+
+https://www.ibm.com/support/pages/apar/IV85368
+
+When that diagnostic fix is present and enabled, there are
+documented messages which identify the ip address source of the
+port scanning.
+
+Recovery plan: Install Service Pack 3 [or later] to include the
+critical APAR fix. If possible, work with network and security
+team to NOT port scan ITM processes. As an alternative, if instability
+is seen after port scanning then recycle theITM processes.
 --------------------------------------------------------------
 
 TEMSAUDIT1038W
@@ -15051,17 +15682,27 @@ Tracing: error
 
 Meaning: The log indicates port scanning is taking place.
 
-There is a diagnostic fix referenced here
+The following maintenance contains a communications APAR fix
+included in Service Pack 3 which will avoid most bad effects of
+port scanning. It also problems with related communication issues.
 
-https://www-304.ibm.com/support/entdocview.wss?uid=swg1IV85368
+https://www.ibm.com/support/pages/apar/IJ21264
 
-When that diagnostic fix is installed and enabled, there are
+IBM Tivoli Monitoring 6.3.0 Fix Pack 7 Service Pack 3 (6.3.0.7-TIV-ITM-SP0003)
+https://www.ibm.com/support/pages/node/1125303
+
+There is a diagnostic fix included in Service Pack 1
+
+https://www.ibm.com/support/pages/apar/IV85368
+
+When that diagnostic fix is present and enabled, there are
 documented messages which identify the ip address source of the
 port scanning.
 
-Recovery plan: Critical plan is to work with network and security
-team to NOT port scan ITM processes. As an alternative stop the
-ITM processes during such scanning.
+Recovery plan: Install Service Pack 3 [or later] to include the
+critical APAR fix. If possible, work with network and security
+team to NOT port scan ITM processes. As an alternative, if instability
+is seen after port scanning then recycle theITM processes.
 ----------------------------------------------------------------
 
 TEMSAUDIT1050W
@@ -15363,8 +16004,8 @@ Recovery plan: Determine which situations are causing the issue
 and consider how to rework them to avoid the issue.
 ----------------------------------------------------------------
 
-TEMSAUDIT1066W
-Text: EIF unknown transmision target [none] $eipc_none times
+TEMSAUDIT1066E
+Text: EIF unknown transmision target [target] $eipc_none times
 
 Tracing: error
 (59198C7E.005E-A:socket_imp.c,2020,"_create_eipc_client") KDE1_StringToAddress returned 0x1DE00003 for none
@@ -15375,8 +16016,8 @@ is defined during a hub TEMS configuration.
 
 When there is no event receiver, that address must be entered
 as the number 0. This message indicates the configuration
-was set to "none". In that case the EIF facility keeps looking
-to resolve "none" as a domain name and complains at the failiure.
+was set to some other target. In that case the EIF facility keeps looking
+to resolve that target as a domain name and complains at the failure.
 
 Recovery plan: Recongfigure the TEMS and specify zero [0] as the
 EIF target if no event receiver target is needed.
@@ -16898,7 +17539,10 @@ validation. This function is not needed if TEMS LDAP
 authentication has been configured.
 
 Recovery plan: If this is a problem, run the following command
-as root when the hub TEMS is stopped:  ./SetPerm -s
+as root when the hub TEMS is stopped:
+
+cd <installdir>/bin
+./SetPerm -s
 ----------------------------------------------------------------
 
 TEMSAUDIT1152E
@@ -17036,6 +17680,142 @@ of agent namers and total is the total number of systems.
 
 Recovery plan: Configure the agents identified so all agents
 have unique names, as ITM expects.
+----------------------------------------------------------------
+
+TEMSAUDIT1160W
+Text: Agent Failed Starts [count]
+
+Tracing: error
+(6205E46C.0000-A:ko4stqmr.cpp,357,"StatusQueueManager::processStatuses") Warning: queue size <156830> exceeds limit <32768>
+
+Meaning: There is so much situation results arriving, the internal
+limit has been exceeded.
+
+In one case, this involved a Pure situation that was accidentally
+defined to have a sampling interval. That is impossible when a
+situation is created via the TEP Situation editor but was manually
+constructed.
+
+In this case a Windows OS NT Log was scanned every fifteen minutes
+for a certain type of message. There were many thousands of such
+messages and this overflowed internal TEMS queues. That disabled
+normal TEMS operations.
+
+Recovery plan: Change the involved situation to avoid massive
+inflows of situation results. In this case the situation sampling
+interval was changed to 0.
+----------------------------------------------------------------
+
+TEMSAUDIT1161E
+Text: TEMS internal processing queue limit exceeded [size]
+
+Tracing: error
+(6129DC13.0001-26B:kpxndmgr.cpp,189,"UpdateStatusForFailedRequest") *INFO: Setting node <Primary:CSRLDMWIE001:NT> off-line due to failure to start req <_Z_NTEVTLOG6>
+
+Meaning: After an agent connects, the TEMS starts several functions
+including situations. This diagnostic message means the start failed.
+Single cases are common but when this is repeated it suggests a
+problem with the agent or perhaps communications.
+
+Recovery plan: Review the agent involved and correct issues. If needed
+involve IBM Support to aid in analysis.
+----------------------------------------------------------------
+
+TEMSAUDIT1162E
+Text: EMS TCHECKPT Local Timestamp invalid count time(s)
+
+Tracing: error
+(624F1ADE.044D-1A:kqmtbcmp.cpp,303,"ARMCmp::operValid") Warning: Invalid timestamp in local record: Timestamp <1220407130716000> Key <*NT_SYSTEM                      Primary:GOXSA6537:NT                                                                                                            12204071307160005529>
+
+Meaning: The TCHECKPT record has invalid data. This means the FTO
+process will not operate correctly.
+
+Recovery plan: Reset the QA1CCKPT.DB/IDX files to emptytable/install
+status while the FTO hub TEMS is stopped and restart.
+----------------------------------------------------------------
+'
+TEMSAUDIT1163E
+Text: TEMS up time about count days
+
+Tracing: error
+
+Meaning: The number of days is rounded up to the next whole day.
+
+Recovery plan: Information only
+----------------------------------------------------------------
+'
+TEMSAUDIT1164I
+Text: NLS Processing failures [count]
+
+Tracing: error
+
+Meaning: See TEMSREPORT092 for explanation.
+
+Recovery plan: Involve IBM Support.
+----------------------------------------------------------------
+
+TEMSAUDIT1165E
+Text: TEMS KDC_FAMILIES[text] includes EPEHMERAL:Y which prevents TEMS from working
+
+Tracing: error
+
+Meaning: TEMS cannot operate with EPHEMERAL:Y because attempted
+communications to an agent would get directed to a hub TEMS. See
+
+Sitworld: Use and Misuse of EPHEMERAL:Y
+https://itmsitworld.com/2020/12/14/sitworld-use-and-misuse-of-ephemeraly/
+
+for additional details.
+
+Recovery plan: Remove EPHEMERAL:Y from the TEMS and all other ITM
+agents on the same system. There is no alternative.
+----------------------------------------------------------------
+
+TEMSAUDIT1166E
+Text: HUB TEMS KDC_FAMILIES[text] includes HTTP_SERVER:N which prevents some tacmd functions from working";
+
+Tracing: error
+
+Meaning: TEMS requires the internal web server to implement many
+of the tacmd command line functions. This will disable normal use.
+
+Recovery plan: Remove HTTP_SERVER:N from the Hub TEMS configuration..
+----------------------------------------------------------------
+
+TEMSAUDIT1167I
+Text: This TEMS system uses KDE_GATEWAY logic
+
+Tracing: error
+
+Meaning: This environment has KDE_Gateway logic.
+
+Recovery plan: Information only.
+----------------------------------------------------------------
+
+TEMSAUDIT1168E
+Text: TEMS crash during SITMON startup prior to SP1 - possible CMS_DUPER issue
+
+Tracing: error
+
+Meaning: This rare error is seen early in TEMS startup. The relevent APAR text is
+   https://www.ibm.com/support/pages/apar/OA55408
+
+Recovery plan: Install ITM 630 Service Pack 1 or later. As a temporary
+work around set CMS_DUPER=NO in the TEMS configuration.
+----------------------------------------------------------------
+
+TEMSAUDIT1169W
+Text: Situations with more than 100 events in TEMS operation log [<situations>]
+
+Tracing: operations log
+
+Meaning: Best practice situations identify conditions that should be
+resolved. When they are not resolved the hub and remote TEMS can suffer
+extreme work overload and even failure. See report TEMSREPORT094.
+
+Recovery plan: Resolve condition. If that is not possible stop the
+situation or revise it to avoid the worthless overhead and possible
+TEMS failures.
 ----------------------------------------------------------------
 
 TEMSREPORT001
@@ -19441,9 +20221,9 @@ TEMS Database files experiencing errno failures.
 
 Recovery plan: See TEMSAUDIT1154E advisory information above.
 ----------------------------------------------------------------
-      `
+
 TEMSREPORT090
-Text: Duplicate sub-nope agents
+Text: Duplicate sub-node agents
 
 Trace: error
 
@@ -19458,4 +20238,102 @@ used in multiple managing agents.
 
 Recovery plan: Configure the affected agents so each agent
 name is unique.
+----------------------------------------------------------------
+      `
+TEMSREPORT091
+Text: Agent Failed Start Report
+
+Trace: error
+
+Example report
+Line,Count,Agent,Sits,
+2692,1613,Primary:CSRLDMWIE001:NT,[kph_dsp_gntc_mwie](6) [_Z_NTEVTLOG39](26)
+Node,Count,Rate,Managing_Agents,
+LO:lwsprib00001q20_cfglf,5,116.50,cfglf1:lwsprib00001q20:LO cfglfa2:lwsprib00001q20:LO cfglfa1:lwsprib00001q20:LO CFGLOG:lwsprib00001q20:LO cfglfa:lwsprib00001q20:LO,
+
+
+Meaning: After an agent connects, the TEMS starts several functions
+including situations. This diagnostic message means the start failed.
+Single cases are common but when this is repeated it suggests a
+problem with the agent or perhaps communications.
+
+Recovery plan: Review the agent involved and correct issues. If needed
+involve IBM Support to aid in analysis.
+----------------------------------------------------------------
+      `
+TEMSREPORT092
+Text: NLS Error Failure Report
+
+Trace: error
+(623FBD26.00AF-19:kdsstc2.c,892,"SetNLSConv") NLS1 set language id error 37. LanguageId 0x00000000->0x03480001 CodePage UTF8 Select EVNTSERVER 110100AA0 status 1022
+
+Example report
+Count,Status/Error/LanguageID,
+33,status|37|0x00000000->0x03480001
+
+Meaning: The TEMS is experiencing a problem performing National
+Language processing. This is sometimes an issue with how the
+system the TEMS is running is configured.
+
+One technote in this area is
+
+https://www.ibm.com/support/pages/error-message-kfwitm217e
+
+The specific issue was a TEMS running on z/OS and the recovery
+action was
+
+RKANPARU(KDSENV) LANG parameter incorrectly coded. LANG="N" was
+coded rather than LANG="en_US.ibm-nnn" where nnn is a number.
+
+In a Linux case, the environment variable was accidentally set as
+
+LANG=errinstall
+
+as seen in the logs directory the ms.env file. That environment
+variable is changed using the installation specific services. For
+example see
+
+https://www.tecmint.com/set-system-locales-in-linux/
+
+Recovery plan: Involve IBM Support to aid in analysis.
+----------------------------------------------------------------
+      `
+TEMSREPORT093
+Text: Operation Log Situation Report
+
+Trace: operations log
+
+Example report
+Type,File,LineNum,Line,
+GWY,lz.env,21,KDE_GATEWAY=/opt/IBM/ITM/config/ITMProxyAV02214.xml,
+
+Meaning: KDE_Gateway logic is being used in this environment.
+
+Recovery plan: Information only
+----------------------------------------------------------------
+      `
+TEMSREPORT094
+Text: KDE_GATEWAY Configuration Report
+
+Trace: error
+
+Example report
+Situaton,Count,True,False,DisplayItems
+,Node,Count,True,False,
+ibm_eralloq_gntw_mssql,35559,0,35559,MSSQLSERVER[35559],
+,ibm_chsql370d:NT,440,440,0,
+,ibm_chsql020:NT,35119,35119,0,
+
+Meaning: This shows operation log messages about situations going
+true or false. Agents[Nodes] which have only a single report
+are not included in the report. Situations that have only a single
+report are also ignored.
+
+Situations that only have True results are usually Pure situations.
+Sampled situation can show True and later false.
+
+Recovery plan: If a situation is generating many situation events,
+review the condition and correct it. A situation which gives results
+that are not being corrected should have the formula revised or
+the situation itself stopped.
 ----------------------------------------------------------------
