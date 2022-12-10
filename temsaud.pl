@@ -17,7 +17,7 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
-my $gVersion = 2.35000;
+my $gVersion = 2.36000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 ## Todos
@@ -147,6 +147,8 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 ##
 ## diagnosis was a pure situation against NT log with 15 min sampling interval... massive results sent back.
 
+## (63C347BC.0001-EE:kdsvws1.c,2421,"ManageView") ProcessTable QMMQISTAT Select Error status = ( 3001 ).  KCJ ip.pipe:#193.91.10.51[6015]
+
 #use warnings::unused; # debug used to check for unused variables
 use strict;
 use warnings;
@@ -239,6 +241,7 @@ my $ccsid1047 =
 '\134\367\123\124\125\126\127\130\131\132\262\324\326\322\323\325' .
 '\060\061\062\063\064\065\066\067\070\071\263\333\334\331\332\237' ;
 
+my %hist3001x;
 my %opsit;
 my $opsit_ref;
 
@@ -979,6 +982,7 @@ my %advcx = (
               "TEMSAUDIT1167I" => "0",
               "TEMSAUDIT1168E" => "101",
               "TEMSAUDIT1169W" => "90",
+              "TEMSAUDIT1170W" => "80",
             );
 
 
@@ -1817,7 +1821,9 @@ my %lociex = (                    # generic loci counter exclusion
                 "kdsstc1.c|ProcessTable" => 1,
                 "kdssqprs.c|PRS_ParseSql" => 1,
                 "kfastplr.c|KFA_LogRecTimestamp" => 1,
+                "kfaprpst.c|NodeStatusRecordChange" => 1,
                 "kpxreqic.cpp|timeoutHandler" => 1,
+                "kglcnos.c|Load" => 1,
              );
 
 my %rdx;
@@ -7148,6 +7154,7 @@ for(;;)
    }
 
    #(5A2668D0.0004-68:kdsvws1.c,2421,"ManageView") ProcessTable TNODESTS Insert Error status = ( 1551 ).  SRVR01 ip.spipe:#10.64.11.30[3660]
+   #(639347BC.0001-EE:kdsvws1.c,2421,"ManageView") ProcessTable QMMQISTAT Select Error status = ( 3001 ).  KCJ ip.pipe:#193.91.10.51[6015]
    if (substr($logunit,0,9) eq "kdsvws1.c") {
       if ($logentry eq "ManageView") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -7177,6 +7184,13 @@ for(;;)
             }
             $pti_ref->{count} += 1;
             $pti_ref->{codes}{$icode} += 1;
+         } elsif (index($rest,"Select Error status = ( 3001 )") != -1) {
+           $rest =~ /ProcessTable (\S+) .*?\.\s+(\S+) (.*)/;
+           my $itable = $1;
+           my $iuser = $2;
+           my $iip = $3;
+           my $key = $1 . "|" . $2 . "|" . $3;
+           $hist3001x{$key} += 1;
          }
          next;
       }
@@ -8608,7 +8622,7 @@ if ($opt_stack > 0) {
       $advcode[$advi] = "TEMSAUDIT1005E";
       $advimpact[$advi] = $advcx{$advcode[$advi]};
       $advsit[$advi] = "Stack";
-      $crit_line = "1,TEMS ulimit stack size too low [$opt_stack] - see TEMS Audit Report";
+      $crit_line = "1,TEMS ulimit stack size too low [$opt_stack] - see TEMS Audit Report advisory TEMSAUDIT1005E";
       push @crits,$crit_line;
    }
 }
@@ -10937,6 +10951,24 @@ if ($pti_ct > 0) {
    $cnt++;$oline[$cnt]="$outl\n";
 }
 
+my $hist3001_ct = scalar keys %hist3001x;
+if ($hist3001_ct > 0) {
+   my $icnt = 0;
+   $rptkey = "TEMSREPORT095";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Missing STH file Report\n";
+   $cnt++;$oline[$cnt]="Table/User/Source,Count,\n";
+   foreach $f ( sort {$hist3001x{$b} <=> $hist3001x{$b}} keys %hist3001x) {
+      $outl = "$f" . "," . $hist3001x{$f} . ",";
+      $cnt++;$oline[$cnt]="$outl\n";
+      $icnt += 1;
+   }
+   $advi++;$advonline[$advi] = "Missing STH files $icnt cases - see report $rptkey";
+   $advcode[$advi] = "TEMSAUDIT1170W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
 my $fdup_ct = 0;
 if ($change_real > 0) {
    $rptkey = "TEMSREPORT028";$advrptx{$rptkey} = 1;         # record report key
@@ -12864,17 +12896,18 @@ if ($kuiras1_ct >= 10000) {
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
 }
-
-if ($kdsvlunx_perm ne "") {
-   if ($kds_validate eq "YES") {
+if ($kdsvlunx_perm ne "s") {
+   if ($kds_validate ne "YES") {
       if ($opt_tems eq "*LOCAL") {
-         if (substr($kdsvlunx_perm,2,1) ne "s") {
-            $advi++;$advonline[$advi] = "kdsvlunx program object missing suid permission";
-            $advcode[$advi] = "TEMSAUDIT1151E";
-            $advimpact[$advi] = $advcx{$advcode[$advi]};
-            $advsit[$advi] = "TEMS";
-            $crit_line = "1,kdsvlunx missing suid permission";
-            push @crits,$crit_line;
+         if (length($kdsvlunx_perm) > 3) {
+            if (substr($kdsvlunx_perm,2,1) ne "s") {
+               $advi++;$advonline[$advi] = "kdsvlunx program object missing suid permission";
+               $advcode[$advi] = "TEMSAUDIT1151E";
+               $advimpact[$advi] = $advcx{$advcode[$advi]};
+               $advsit[$advi] = "TEMS";
+               $crit_line = "1,kdsvlunx missing suid permission";
+               push @crits,$crit_line;
+            }
          }
       }
    }
@@ -12940,7 +12973,9 @@ if ($this_hostname ne "") {
          $l++;
          chomp($oneline);
          next if $oneline eq "";
-         next if substr($oneline,0,1) eq "#";
+         $oneline =~ /(.*?)\#/;
+         $oneline = $1 if defined $1;
+         next if $oneline eq "";
          my @hwords = split /\s+/,$oneline;
          my $hip = $hwords[0];
          my @slice = @hwords[1 .. $#hwords];
@@ -13236,7 +13271,7 @@ if ($full_logopfn ne "") {
               $node_ref = \%noderef;
            }
            $node_ref->{count} += 1;
-           $node_ref->{true} += 1;
+           $node_ref->{false} += 1;
 
          # Wed Nov  2 13:05:04 2022 KO49042    Situation all_eralloq_gntw_mssql:dfr_chsql020:NT<MSSQLSERVER> is occurring; 2 events available for status.
          } elsif ($opcode eq "KO49042 ") {
@@ -14767,6 +14802,9 @@ exit;
 #        - Add advisory 168E for possible CMS_DUPER error
 #        - Skip kdsvlunx complaint when LDAP is being used.
 #        - Add REPORT094 and advisory 1169W on high frequency situation events
+#2.36000 - Add advisory and report for Missing STH file messages
+#        - correct test for kdsvlunx missing the "s" permissions
+#        - Correct duplicate host name when beyond a # comment character
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -17818,6 +17856,17 @@ situation or revise it to avoid the worthless overhead and possible
 TEMS failures.
 ----------------------------------------------------------------
 
+TEMSAUDIT1170W
+Text: Missing STH files $icnt cases
+
+Tracing: error
+(639347BC.0001-EE:kdsvws1.c,2421,"ManageView") ProcessTable QMMQISTAT Select Error status = ( 3001 ).  KCJ ip.pipe:#193.91.10.51[6015]
+
+Meaning: See report TEMSREPORT095 for explanation.
+
+Recovery plan: See report095 for recovery suggestion.
+----------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -20326,8 +20375,9 @@ ibm_eralloq_gntw_mssql,35559,0,35559,MSSQLSERVER[35559],
 
 Meaning: This shows operation log messages about situations going
 true or false. Agents[Nodes] which have only a single report
-are not included in the report. Situations that have only a single
-report are also ignored.
+are skipped in the report. Situations that have only a single
+report are also ignored. This can mean the totals are different
+than the sum of the node counts.
 
 Situations that only have True results are usually Pure situations.
 Sampled situation can show True and later false.
@@ -20336,4 +20386,34 @@ Recovery plan: If a situation is generating many situation events,
 review the condition and correct it. A situation which gives results
 that are not being corrected should have the formula revised or
 the situation itself stopped.
+----------------------------------------------------------------
+      `
+TEMSREPORT095
+Text: Missing STH file Report
+
+Trace: error
+
+Example report
+Table/User/Source,Count,
+QMMQISTAT|KCJ|ip.pipe:#193.91.10.51[6015],46,
+
+Meaning: This reflects a failed attempt to get
+Agent Short Term Historical file data. Typically this request
+will be from a TEP workspace view which asks for historical data.
+The most recent 24 hours is gotten from the Agent and the earlier
+data is requested from the TDW historical data database.
+
+The 3001 error means that the STH file was missing so no data was
+available.
+
+The report gives the table name, the requestor type and the requestor
+source. In this case it is an MQ agent. The user type was KCJ [TEP]
+and the agent source was as shown.
+
+Recovery plan: This is usually a problem at the agent. One example
+would be a damaged historical data config file, but there are many
+possibilities. One known case was where Linux LPAR data was supposed
+to be historically collected, but was available on only a subset
+of Linux systems. In any case the Agent side should be examined
+closely, probably with IBM Support aid.
 ----------------------------------------------------------------
