@@ -17,7 +17,7 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
-my $gVersion = 2.36000;
+my $gVersion = 2.37000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 ## Todos
@@ -148,6 +148,11 @@ my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for d
 ## diagnosis was a pure situation against NT log with 15 min sampling interval... massive results sent back.
 
 ## (63C347BC.0001-EE:kdsvws1.c,2421,"ManageView") ProcessTable QMMQISTAT Select Error status = ( 3001 ).  KCJ ip.pipe:#193.91.10.51[6015]
+
+## (63AF0E14.0000-7:ko4lodge.cpp,445,"origSitRec::getSQL") Multiple tables in situation <A_Linux_Proc_LAN_sensorstatd_C>
+
+## (637E2075.0006-1C:ko4locbr.cpp,594,"locMgr::lbLookupHub") Error <175> returned from SQL1_lbLookup for directAddr <@IP.SPIPE:none>
+## (637E2075.0007-1C:ko4locbr.cpp,424,"locMgr::locateEverbody") lblookupHub returned error <175> for directAddr <$MHM:@IP.SPIPE:none>
 
 #use warnings::unused; # debug used to check for unused variables
 use strict;
@@ -646,6 +651,9 @@ my $h;
 my $gsk701 = 0;
 my $csv1_path = "";
 
+my %hlocate_iblookupHub = ();
+my %hlocate_Everybody = ();
+
 my $kuiras1_ct = 0;
 
 my $kdsvlunx_perm = "";
@@ -983,6 +991,8 @@ my %advcx = (
               "TEMSAUDIT1168E" => "101",
               "TEMSAUDIT1169W" => "90",
               "TEMSAUDIT1170W" => "80",
+              "TEMSAUDIT1171W" => "80",
+              "TEMSAUDIT1172W" => "80",
             );
 
 
@@ -2477,8 +2487,9 @@ if ($logfn eq "") {
    $pattern = "(_ms|_MS|_ms_kdsmain|_MS_KDSMAIN)\.inv";
    @results = ();
    opendir(DIR,$opt_logpath) || die("cannot opendir $opt_logpath: $!\n"); # get list of files
-   @results = grep {/$pattern/} readdir(DIR);
+   my @resultss = grep {/$pattern/} readdir(DIR);
    closedir(DIR);
+   my @results = grep { /^((?!.*cms.*).)*$/} @resultss;     # sneaking case of "_ms_cms" is spotted   https://docs.ytria.com/globalfeatures/examples-excluding-a-string
    die "No _ms.inv found\n" if $#results == -1;
    $logfn =  $results[0];
    if ($#results > 0) {
@@ -5594,8 +5605,32 @@ for(;;)
             }
          }
       }
+    }
+   # (637E2075.0006-1C:ko4locbr.cpp,594,"locMgr::lbLookupHub") Error <175> returned from SQL1_lbLookup for directAddr <@IP.SPIPE:none>
+   # (637E2075.0007-1C:ko4locbr.cpp,424,"locMgr::locateEverbody") lblookupHub returned error <175> for directAddr <$MHM:@IP.SPIPE:none>
+   if (substr($logunit,0,12) eq "ko4locbr.cpp") {
+      if ($logentry eq "locMgr::lbLookupHub") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Error <175> returned from SQL1_lbLookup for directAddr <@IP.SPIPE:none>
+         if (substr($rest,1,5) eq "Error") {
+            $rest =~ /Error \<(\d+)\>.*?\<(.*?)\>/;
+            my $ierror = $1;
+            my $itarget = $2;
+            my $key = $ierror . "|" . $itarget;
+            $hlocate_iblookupHub{$key} += 1;
+         }
+      } elsif ($logentry eq "locMgr::locateEverbody") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # lblookupHub returned error <175> for directAddr <$MHM:@IP.SPIPE:none>
+         if (substr($rest,1,26) eq "lblookupHub returned error") {
+            $rest =~ /error \<(\d+)\>.*?\<(.*?)\>/;
+            my $ierror = $1;
+            my $itarget = $2;
+            my $key = $ierror . "|" . $itarget;
+            $hlocate_Everybody{$key} += 1;
+         }
+      }
    }
-
 
    # (5D51DC57.001D-23:kdcr0se.c,258,"KDCR0_Send") request FF68/21.0 (871): ip.spipe:#131.98.241.63[3660]
    if (substr($logunit,0,9) eq "kdcr0se.c") {
@@ -10969,6 +11004,33 @@ if ($hist3001_ct > 0) {
    $advsit[$advi] = "TEMS";
 }
 
+my $hlocate_iblookupHub_ct = scalar keys %hlocate_iblookupHub;
+if ( $hlocate_iblookupHub_ct > 0) {
+      my $perr = "";
+      foreach $g ( keys %hlocate_iblookupHub) {
+         $perr .= $g . "[" . $hlocate_iblookupHub{$g} . "] ";
+      }
+   chop($perr) if $perr ne "";
+   $advi++;$advonline[$advi] = "locate_iblookupHub failures [$perr]";
+   $advcode[$advi] = "TEMSAUDIT1171W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+my $hlocate_Everybody_ct = scalar keys %hlocate_Everybody;
+if ( $hlocate_Everybody_ct > 0) {
+      my $perr = "";
+      foreach $g ( keys %hlocate_Everybody) {
+         $perr .= $g . "[" . $hlocate_Everybody{$g} . "] ";
+      }
+   chop($perr) if $perr ne "";
+   $advi++;$advonline[$advi] = "locate_Everybody failures [$perr]";
+   $advcode[$advi] = "TEMSAUDIT1172W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+
 my $fdup_ct = 0;
 if ($change_real > 0) {
    $rptkey = "TEMSREPORT028";$advrptx{$rptkey} = 1;         # record report key
@@ -12853,6 +12915,7 @@ if ($gotdir == 1) {
       my $igroup = $3;
       my $isize = $4;
       my $iname = $5;
+      next if !defined $5;
       next if substr($iperm,0,1) eq "d";   # ignore directories
       if (index($iname,"ms/bin/kdsvlunx") > 0) {
          $kdsvlunx_perm = $iperm;
@@ -14805,6 +14868,8 @@ exit;
 #2.36000 - Add advisory and report for Missing STH file messages
 #        - correct test for kdsvlunx missing the "s" permissions
 #        - Correct duplicate host name when beyond a # comment character
+#2.37000 - Handle .inv case with "cms" in the filename, should be ignored.
+#        - Alert on some failures to resolve target addresses.
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -17865,6 +17930,34 @@ Tracing: error
 Meaning: See report TEMSREPORT095 for explanation.
 
 Recovery plan: See report095 for recovery suggestion.
+----------------------------------------------------------------
+
+TEMSAUDIT1171W
+Text: locate_iblookupHub failures [code_targets]
+
+Tracing: error
+(637E2075.0006-1C:ko4locbr.cpp,594,"locMgr::lbLookupHub") Error <175> returned from SQL1_lbLookup for directAddr <@IP.SPIPE:none>
+
+Meaning: Some configuration setting set to unresolveable name.
+This could prevent normal functioning. It might just mean
+unnecessary overhead.
+
+Recovery plan: Most common is specifying "none" instead of "0".
+Contact IBM support if unsure.
+----------------------------------------------------------------
+
+TEMSAUDIT1170W
+Text: locateEverbody failures [code_targets]
+
+Tracing: error
+(637E2075.0007-1C:ko4locbr.cpp,424,"locMgr::locateEverbody") lblookupHub returned error <175> for directAddr <$MHM:@IP.SPIPE:none>
+
+Meaning: Some configuration setting set to unresolveable name.
+This could prevent normal functioning. It might just mean
+unnecessary overhead.
+
+Recovery plan: Most common is specifying "none" instead of "0".
+Contact IBM support if unsure.
 ----------------------------------------------------------------
 
 TEMSREPORT001
