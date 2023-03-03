@@ -17,7 +17,7 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
-my $gVersion = 2.37000;
+my $gVersion = 2.38000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 ## Todos
@@ -1685,6 +1685,8 @@ my %knowntabx = (
                    'T5TGAT'        => '1252',
                    'T5TXCS'        => '868',
                    'T5USRSS'       => '704',
+                   'T6APPCS'       => '336',
+                   'T6APPSM'       => '336',
                    'T6CLNTOT'      => '604',
                    'T6DEPOTSTS'    => '64',
                    'T6EVENT'       => '3776',
@@ -12959,17 +12961,19 @@ if ($kuiras1_ct >= 10000) {
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
 }
-if ($kdsvlunx_perm ne "s") {
-   if ($kds_validate ne "YES") {
-      if ($opt_tems eq "*LOCAL") {
+if (index($kdsvlunx_perm,"s") == -1) {
+   if ($kds_validate ne "NO") {                   # Validate must be YES.
+      if ($opt_tems eq "*LOCAL") {                # A hub TEMS                                             #
          if (length($kdsvlunx_perm) > 3) {
             if (substr($kdsvlunx_perm,2,1) ne "s") {
-               $advi++;$advonline[$advi] = "kdsvlunx program object missing suid permission";
-               $advcode[$advi] = "TEMSAUDIT1151E";
-               $advimpact[$advi] = $advcx{$advcode[$advi]};
-               $advsit[$advi] = "TEMS";
-               $crit_line = "1,kdsvlunx missing suid permission";
-               push @crits,$crit_line;
+               if ($opt_ldap eq "NO") {
+                  $advi++;$advonline[$advi] = "kdsvlunx program object missing suid permission";
+                  $advcode[$advi] = "TEMSAUDIT1151E";
+                  $advimpact[$advi] = $advcx{$advcode[$advi]};
+                  $advsit[$advi] = "TEMS";
+                  $crit_line = "1,kdsvlunx missing suid permission";
+                  push @crits,$crit_line;
+               }
             }
          }
       }
@@ -14870,6 +14874,7 @@ exit;
 #        - Correct duplicate host name when beyond a # comment character
 #2.37000 - Handle .inv case with "cms" in the filename, should be ignored.
 #        - Alert on some failures to resolve target addresses.
+#2.38000 - Handle kdsvlunx warning
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -17946,7 +17951,7 @@ Recovery plan: Most common is specifying "none" instead of "0".
 Contact IBM support if unsure.
 ----------------------------------------------------------------
 
-TEMSAUDIT1170W
+TEMSAUDIT1172W
 Text: locateEverbody failures [code_targets]
 
 Tracing: error
@@ -17954,7 +17959,8 @@ Tracing: error
 
 Meaning: Some configuration setting set to unresolveable name.
 This could prevent normal functioning. It might just mean
-unnecessary overhead.
+unnecessary overhead. In one case there was a onfiguration pointing
+to the FTO partner hub TEMS but the name ended in ".co" instead of ".com".
 
 Recovery plan: Most common is specifying "none" instead of "0".
 Contact IBM support if unsure.
