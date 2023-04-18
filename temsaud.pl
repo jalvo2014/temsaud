@@ -17,7 +17,7 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
-my $gVersion = 2.38000;
+my $gVersion = 2.39000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 ## Todos
@@ -246,6 +246,11 @@ my $ccsid1047 =
 '\134\367\123\124\125\126\127\130\131\132\262\324\326\322\323\325' .
 '\060\061\062\063\064\065\066\067\070\071\263\333\334\331\332\237' ;
 
+my @caches;
+my $cache_max = 0;
+my @filerr;
+my %baccx;
+my $bacc_ref;
 my %hist3001x;
 my %opsit;
 my $opsit_ref;
@@ -687,6 +692,8 @@ my $newiip_lasttime = 0;
 my $newiip_go = 0;
 my %onlineipx;
 
+my %smox;
+
 my %sitpdtx;
 my %pdtloadx;
 my %rpcx;
@@ -993,6 +1000,9 @@ my %advcx = (
               "TEMSAUDIT1170W" => "80",
               "TEMSAUDIT1171W" => "80",
               "TEMSAUDIT1172W" => "80",
+              "TEMSAUDIT1173E" => "102",
+              "TEMSAUDIT1174E" => "100",
+              "TEMSAUDIT1175W" => "90",
             );
 
 
@@ -3675,6 +3685,17 @@ for(;;)
       }
    }
 
+   #4B64BC65.0000-D6:kdebsmo.c,122,"KDEB_SocketMonitorOpen") Status 1DE00001=KDE1_STC_NOMEMORY
+   if (substr($logunit,0,9) eq "kdebsmo.c") {
+      if ($logentry eq "KDEB_SocketMonitorOpen") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Status 1DE00001=KDE1_STC_NOMEMORY
+         $rest =~ /Status (\S+)/;
+         $smox{$1} += 1 if defined $1;
+         next;
+      }
+   }
+
    #(5914DB2A.0064-6:kbbssge.c,72,"BSS1_GetEnv") KDEB_INTERFACELIST="158.98.138.32"
    if ($opt_kdebi eq "") {
       if (substr($logunit,0,9) eq "kbbssge.c") {
@@ -3961,6 +3982,7 @@ for(;;)
       }
    }
    # (62A7A5D1.001F-5:kdclnew.c,325,"NewSDB") LLB entry 1 is ip.spipe:#158.98.176.201[3660], local
+   # (63D16E48.000C-4:kdclnew.c,227,"load_server_file") Error(s) detected in /opt/tivoli/ITM/tables/RTEMS14/glb_site.txt(1): "ip.pipe:lin01tiv01"
    if (substr($logunit,0,9) eq "kdclnew.c") {
       if ($logentry eq "NewSDB") {
          $oneline =~ /^\((\S+)\)(.+)$/;
@@ -3973,6 +3995,10 @@ for(;;)
                $opt_llb1 = $2 if defined $2;
             }
          }
+      } elsif ($logentry eq "load_server_file") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Error(s) detected in /opt/tivoli/ITM/tables/RTEMS14/glb_site.txt(1): "ip.pipe:lin01tiv01"
+         push @filerr,substr($rest,1);
       }
    }
 
@@ -4403,37 +4429,46 @@ for(;;)
          }
       }
    }
+   # (642AE02E.0006-9:ko4rulfa.cpp,121,"NodeFactory::createNode") Error: Unknown attribute <KQ5_CLUSTER_SUMMARY.Timestamp> at position <11>
+   # (642AE02E.0007-9:ko4rulex.cpp,1348,"PredParser::createNode") Error: Failed to create new node rc <1133>
+   # (642AE02E.0008-9:ko4rulex.cpp,729,"PredParser::build") Error: Failed to process situation formula rc <1133>
+   # (642AE02E.0009-9:ko4rulex.cpp,731,"PredParser::build") ..Situation: <UADVISOR_KQ5_VKQ5CLUSUM>
+   # (642AE02E.000A-9:ko4rulex.cpp,732,"PredParser::build") ..PDT:       <*IF *VALUE KQ5_CLUSTER_SUMMARY.Timestamp *GT 0800101000010000>
+   # (642AE02E.000B-9:ko4sitma.cpp,940,"IBInterface::lodge") warning: Situation <UADVISOR_KQ5_VKQ5CLUSUM> contains unknown attributes
+   # (642AE02E.000C-9:ko4ibstr.cpp,686,"IBStream::op_ls_req") IB Err: 1133
+   # (642AE02E.000D-9:ko4sit.cpp,1046,"Situation::slice") Sit UADVISOR_KQ5_VKQ5CLUSUM: Unable to lodge - giving up.
+
+
+   if (substr($logunit,0,12) eq "ko4rulfa.cpp") {
+      if ($logentry eq "NodeFactory::createNode") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Error: Unknown attribute <KQ5_CLUSTER_SUMMARY.Timestamp> at position <11>
+         if (substr($rest,1,24) eq "Error: Unknown attribute") {  # Error: Unknown attribute <Oracle_Statistics_Enterprise.Server> at position <11>
+            if ($sitrul_state == 0) {       # searching for next starting point
+               $rest =~ /\<(\S+)\> /;
+               $sitrul_atr = $1;
+               $sitrul_state = 1;           # search for sitname
+            }
+         }
+      }
+   }
 
    if (substr($logunit,0,12) eq "ko4rulex.cpp") {
       if ($logentry eq "PredParser::build") {
-         $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;                       # Unsupported request method "NESSUS"
-         if (substr($rest,1,6) eq "Error:") {
-            $sitrul_state = 1;                     #state 1 = looking for further data.
-         } elsif (substr($rest,1,12) eq "..Situation:") {
+         $oneline =~ /^\((\S+)\)(.+)$/;    #
+         $rest = $2;                       # ..Situation: <UADVISOR_KQ5_VKQ5CLUSUM>
+                                           # ..PDT:       <*IF *VALUE KQ5_CLUSTER_SUMMARY.Timestamp *GT 0800101000010000>
+         if (substr($rest,1,12) eq "..Situation:") {  # ..Situation: <UADVISOR_KQ5_VKQ5CLUSUM>
            if ($sitrul_state == 1) {
               $rest =~ /\<(\S+)\>$/;
               $sitrul_sitname = $1;
               $sitrul_state = 2;
             }
-         } elsif (substr($rest,1,6) eq "..PDT:") {
+         } elsif (substr($rest,1,6) eq "..PDT:") {    # .PDT:       <*IF *VALUE KQ5_CLUSTER_SUMMARY.Timestamp *GT 0800101000010000>
            if ($sitrul_state == 2) {
               $rest =~ /\<(.*)\>/;
               $sitrul_pdt = $1;
               $sitrul_state = 3;
-           }
-        }
-        next;
-      }
-   }
-   if (substr($logunit,0,12) eq "ko4rulfa.cpp") {
-     if ($logentry eq "NodeFactory::createNode") {
-         $oneline =~ /^\((\S+)\)(.+)$/;
-         $rest = $2;                       #
-         if (substr($rest,1,24) eq "Error: Unknown attribute") {
-           if ($sitrul_state == 3) {
-              $rest =~ /\<(\S+)\> /;
-              $sitrul_atr = $1;
               my $sitrul_key = $sitrul_sitname . "|" . $sitrul_atr;
               $sitrul_ref = $sitrulx{$sitrul_key};
               if (!defined $sitrul_ref) {
@@ -4447,8 +4482,10 @@ for(;;)
                  $sitrulx{$sitrul_key} = \%sitrulref;
               }
               $sitrul_ref->{count} += 1;
+              $sitrul_state = 0;
            }
-         }
+           next;
+        }
       }
    }
 
@@ -4618,6 +4655,18 @@ for(;;)
                                 );
                 push @accept,\%acceptref;
              }
+             # third use capture counts
+             $bacc_ref = $baccx{$iip};
+             if (!defined $bacc_ref) {
+                my %baccref = (
+                                 count => 0,
+                                 ports => {},
+                              );
+                $bacc_ref = \%baccref;
+                $baccx{$iip} = \%baccref;
+             }
+             $bacc_ref->{count} += 1;
+             $bacc_ref->{ports}{$iport} += 1;
           }
        }
    }
@@ -11006,6 +11055,40 @@ if ($hist3001_ct > 0) {
    $advsit[$advi] = "TEMS";
 }
 
+my $bacc_ct = scalar keys %baccx;
+if ($bacc_ct > 0) {
+   my $icnt = 0;
+   foreach $f ( keys %baccx) {
+      $bacc_ref = $baccx{$f};
+      $icnt += 1 if $bacc_ref->{count} > 1;
+   }
+   if ($icnt > 0) {
+      $rptkey = "TEMSREPORT096";$advrptx{$rptkey} = 1;         # record report key
+      $cnt++;$oline[$cnt]="\n";
+      $cnt++;$oline[$cnt]="$rptkey: Base Accept systems > 1 Report\n";
+      $cnt++;$oline[$cnt]="IP,Count,Ports,\n";
+      foreach $f ( keys %baccx) {
+         $bacc_ref = $baccx{$f};
+         next if $bacc_ref->{count} < 2;
+         $outl = "$f" . "," . $bacc_ref->{count} . ",";
+         my $pports = "";
+         foreach my $p (keys %{$bacc_ref->{ports}}) {
+            $pports .= $p . "[" . $bacc_ref->{ports}{$p} . "] ";
+         }
+         chop($pports) if $pports ne "";
+         $outl = "$f" . "," . $bacc_ref->{count} . "," . $pports . ",";
+         $cnt++;$oline[$cnt]="$outl\n";
+      }
+   }
+
+#   $advi++;$advonline[$advi] = "Missing STH files $icnt cases - see report $rptkey";
+#   $advcode[$advi] = "TEMSAUDIT1170W";
+#   $advimpact[$advi] = $advcx{$advcode[$advi]};
+#   $advsit[$advi] = "TEMS";
+}
+
+
+
 my $hlocate_iblookupHub_ct = scalar keys %hlocate_iblookupHub;
 if ( $hlocate_iblookupHub_ct > 0) {
       my $perr = "";
@@ -11028,6 +11111,36 @@ if ( $hlocate_Everybody_ct > 0) {
    chop($perr) if $perr ne "";
    $advi++;$advonline[$advi] = "locate_Everybody failures [$perr]";
    $advcode[$advi] = "TEMSAUDIT1172W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
+my $filerr_ct = $#filerr;
+if ($filerr_ct != -1) {
+   $rptkey = "TEMSREPORT097";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: KDC Error lines\n";
+   foreach my $f (@filerr) {
+      $cnt++;$oline[$cnt]="$f\n";
+   }
+   my $filerr_p = $filerr_ct + 1;
+   $advi++;$advonline[$advi] = "KDC file errors [$filerr_p]";
+   $advcode[$advi] = "TEMSAUDIT1173E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "4,KDC file errors [$filerr_p]";
+   push @crits,$crit_line;
+}
+
+
+my $smo_ct = scalar keys %smox;
+if ($smo_ct > 0) {
+   my $psmo = "";
+   foreach $g ( keys %smox) {
+      $psmo .= $g . "[" . $smox{$g} . "] ";
+   }
+   $advi++;$advonline[$advi] = "KDE SMO errors $psmo";
+   $advcode[$advi] = "TEMSAUDIT1174E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
 }
@@ -12339,7 +12452,6 @@ if ($opt_kdebi ne "") {
 
       $ipconfigfn = $ipconfigpath . "/ipconfig.info";
       $ipconfigfn =~ s/\\/\//g;    # switch to forward slashes, less confusing when programming both environments
-
       chomp($ipconfigfn);
       chdir $pwd;
       if (defined $ipconfigfn) {
@@ -12429,6 +12541,28 @@ if ($opt_kdebi ne "") {
          #                                        10.240.161.175
          #    NetBIOS over Tcpip. . . . . . . . : Enabled
 
+         #   Windows example in NLS and multiple IP4 Addresses
+
+         #     イーサネット アダプター HIS-LAN:
+         #
+         #        接続固有の DNS サフィックス . . . . .: hime3.localdomain
+         #        説明. . . . . . . . . . . . . . . . .: Microsoft Network Adapter Multiplexor Driver
+         #        物理アドレス. . . . . . . . . . . . .: B4-96-91-6E-AD-C3
+         #        DHCP 有効 . . . . . . . . . . . . . .: いいえ
+         #        自動構成有効. . . . . . . . . . . . .: はい
+         #        IPv4 アドレス . . . . . . . . . . . .: 10.1.20.54(優先)
+         #        サブネット マスク . . . . . . . . . .: 255.255.255.0
+         #        IPv4 アドレス . . . . . . . . . . . .: 10.1.20.231(優先)
+         #        サブネット マスク . . . . . . . . . .: 255.255.255.0
+         #        IPv4 アドレス . . . . . . . . . . . .: 10.1.20.232(優先)
+         #        サブネット マスク . . . . . . . . . .: 255.255.255.0
+         #        デフォルト ゲートウェイ . . . . . . .: 10.1.20.254
+         #        DNS サーバー. . . . . . . . . . . . .: 10.1.20.94
+         #                                 10.1.20.95
+         #       NetBIOS over TCP/IP . . . . . . . . .: 有効
+
+
+
          # Example AIX ipconfig.info
 
          # en0: flags=1e084863,480<UP,BROADCAST,NOTRAILERS,RUNNING,SIMPLEX,MULTICAST,GROUPRT,64BIT,CHECKSUM_OFFLOAD(ACTIVE),CHAIN>
@@ -12453,7 +12587,7 @@ if ($opt_kdebi ne "") {
             $oneline .= " " x 50;
             if ($got_type == 0) {
                if ($l == 2) {
-                  if (substr($oneline,0,24) eq "Windows IP Configuration") {
+                  if (substr($oneline,0,10) eq "Windows IP") {
                      $ip_win = 1;
                      $got_type = 1;
                   }
@@ -12478,7 +12612,7 @@ if ($opt_kdebi ne "") {
             }
             last if $got_type == 0;
             if ($ip_win == 1) {
-               if (substr($oneline,3,12) eq "IPv4 Address") {
+               if (substr($oneline,3,4) eq "IPv4") {
                   $oneline =~ /: (\d+\.\d+\.\d+\.\d+)/;
                   $ipx{$1} = 1 if defined $1;
                }
@@ -12919,6 +13053,19 @@ if ($gotdir == 1) {
       my $iname = $5;
       next if !defined $5;
       next if substr($iperm,0,1) eq "d";   # ignore directories
+      if (index($iname,'.cache') > 0) {
+         $iname =~ /\/opt\/IBM\/ITM\/tables\/\S+\/TECLIB\/(.*)/;
+         if (defined $1) {
+            my $icache = $1;
+            if ($isize > 0) {
+               my $idata = $isize . "," . $iname;
+               push @caches,$idata;
+               $cache_max = $isize if $isize > $cache_max;
+            }
+         }
+         next;
+      }
+
       if (index($iname,"ms/bin/kdsvlunx") > 0) {
          $kdsvlunx_perm = $iperm;
       }
@@ -12955,6 +13102,24 @@ if ($gotdir == 1) {
       }
    }
 }
+
+
+my $caches_ct = $#caches;
+if ($caches_ct != -1) {
+   $rptkey = "TEMSREPORT098";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: EIF Non-zero Cache files\n";
+   $cnt++;$oline[$cnt]="Size,Filename,\n";
+   foreach my $f (@caches) {
+      $cnt++;$oline[$cnt]="$f\n";
+   }
+   my $caches_p = $caches_ct + 1;
+   $advi++;$advonline[$advi] = "EIF Non-zero Cache files [$caches_p] max[$cache_max] - see $rptkey";
+   $advcode[$advi] = "TEMSAUDIT1175W";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+}
+
 if ($kuiras1_ct >= 10000) {
    $advi++;$advonline[$advi] = "The logs directory contains $kuiras1_ct kuiras1 log files which can cause instability";
    $advcode[$advi] = "TEMSAUDIT1153W";
@@ -14875,6 +15040,11 @@ exit;
 #2.37000 - Handle .inv case with "cms" in the filename, should be ignored.
 #        - Alert on some failures to resolve target addresses.
 #2.38000 - Handle kdsvlunx warning
+#2.39000 - Add report096 on base accept summaries
+#        - Add report 097 on glb_site.txt errors
+#        - Add report 098 on EIF Non-zero Cache files
+#        - Correct advisory TEMS1061E advisory information
+#        - Correct KDEB_INTERFACELIST logic for NLS captures
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -14971,12 +15141,16 @@ Text: ulimit stack [num] is above nominal [num] (bytes)
 Tracing: error
 Diag Log: +52BE1DCC.0000     Nofile Limit: None                       Stack Limit: 32M
 
-Meaning: This is a Linux/Unix concern. Most 64 bit TEMS
+Meaning: This is a Linux/Unix concern. All 64 bit TEMS
 instances need 4096M stack size. When that is lower
 the TEMS will often fail because of an inability to
-perform deeply nested calls.
+perform deeply nested calls. That is a severe impact to
+TEMS and results in weird unpredictable errors.
 
-Recovery plan: Increase that ulimit setting to 4096M or.
+There are very few production systems with 32-bit hardware
+these days.
+
+Recovery plan: Increase that ulimit setting to 4096M or
 unlimited/none.
 --------------------------------------------------------------
 
@@ -17966,6 +18140,64 @@ Recovery plan: Most common is specifying "none" instead of "0".
 Contact IBM support if unsure.
 ----------------------------------------------------------------
 
+TEMSAUDIT1173E
+Text: KDC file errors [count]
+
+Tracing: error
+(63D16E48.000C-4:kdclnew.c,227,"load_server_file") Error(s) detected in /opt/tivoli/ITM/tables/RTEMS14/glb_site.txt(1): "ip.pipe:ibm01tiv01"
+
+Meaning: See Report097 explanation.
+
+Recovery plan: See Report097 explanation.
+----------------------------------------------------------------
+
+TEMSAUDIT1174E
+Text: KDE SMO errors error[count] ...
+
+Tracing: error
+(641B7C7B.0001-10:kdebsmo.c,122,"KDEB_SocketMonitorOpen") Status 1DE00001=KDE1_STC_NOMEMORY
+
+Meaning: The  KDE1_STC_NOMEMORY suggests that the TEMS does not have
+enough memory configured. This usually results in a non-functional
+TEMS.
+
+At one customer the following settings
+corrected the issue:
+
+KGL_GMMSTORE=1024
+KDS_HEAP_SIZE=1024
+
+In some cases the values might need to be higher. A power of 2
+is suggested like 2048/4096 etc.
+
+In other cases, the system did not have enough paging space for
+the workload.
+
+Recovery plan: Make corrections and consult IBM support if needed.
+----------------------------------------------------------------
+
+TEMSAUDIT1175W
+Text: EIF Non-zero Cache files [count] max[max_size]
+
+Tracing: dir.info
+
+Meaning: If the TEMS events are being transferred to an event
+receiver such as Netcool, the data is first transferred into
+a cache file. Typically those files are empty. If they are not
+empty there could be a problem with the EIF configuration such
+as a target name not resolving. Small numbers are not a problem.
+
+There was one case where the cache file was quite large. In that
+case it had been used for testing but then reconfigured for another
+purpose. However the TEMS definitions remained. The TEMS kept
+attempting to transfer event data. The cached filled to the
+maximum defined and this condition seriously slowed down all
+the event transmission.
+
+Recovery plan: If this is seen, review all EIF transfer definitions
+and resolve any issues. Consult IBM support if needed.
+----------------------------------------------------------------
+
 TEMSREPORT001
 Text: Too Big Report
 
@@ -20516,3 +20748,68 @@ to be historically collected, but was available on only a subset
 of Linux systems. In any case the Agent side should be examined
 closely, probably with IBM Support aid.
 ----------------------------------------------------------------
+      `
+TEMSREPORT096
+Text: Base Accept systems > 1 Report
+
+Trace: error with  KDEB_TRACE_ACCEPT=YES
+(63FD230E.0349-B:kdebbac.c,89,"KDEB_BaseAccept") Accept from 10.157.32.36:56338, pASD=1146992D0, socket=0000000F
+
+Example report
+IP,Count,Ports,
+10.56.132.188,2,58403[1] 58404[1],
+
+Meaning: From ITM 630 FP7 SP1 on, if you run add this to the TEMS
+configuration:
+
+KDEB_TRACE_ACCEPT=YES
+
+Diagnostic log information records will be recorded to identity
+what agent system is connecting.
+
+If there are a large number of such connections, this can
+prevent normal TEMS processing. That can lead to many symptoms
+including TEMS crashes, time outs to hub TEMS connections etc.
+
+In one example, a web proxy was accidentally configured to
+connect via the hub TEMS. Other possibilities include network
+issues, agent configuration issues and large numbers of agents
+with the same name.
+
+Recovery plan: Identify and correct what is happening to cause
+the constant connections. If needed IBM Support can help.
+----------------------------------------------------------------
+      `
+TEMSREPORT097
+Text: KDC Error lines
+
+Trace: error
+(63D16E48.000C-4:kdclnew.c,227,"load_server_file") Error(s) detected in /opt/tivoli/ITM/tables/RTEMS14/glb_site.txt(1): "ip.pipe:ibm01tiv01"
+
+Example report
+Error(s) detected in /opt/tivoli/ITM/tables/RTEMS14/glb_site.txt(1): "ip.pipe:ibm01tiv01"
+Error(s) detected in /opt/tivoli/ITM/tables/RTEMS14/glb_site.txt(2): "ip.pipe:ibm01tiv11"
+
+Meaning: This is seen only on a remote TEMS. The glb_site.txt file
+should contain pointers to the hub TEMS or the two FTO hub TEMSes.
+In this case the name supplied could not be resolved and the
+remote TEMS will not connect.
+
+Recovery plan: Reconfigure the remote TEMS and specify names or
+ip addresses which will resolve to the hub TEMSes.
+----------------------------------------------------------------
+      `
+TEMSREPORT098
+Text: EIF Non-zero Cache files
+
+Trace: dir.info
+
+Example report
+Size,Filename,
+411,opt/IBM/ITM/tables/HUB_ibm/TECLIB/evtdst002.cache
+411,opt/IBM/ITM/tables/HUB_ibm/TECLIB/evtdst012.cache
+
+Meaning: See Advisory TEMS1175W for details
+
+Recovery plan: Correct EIF target definitions
+---------------------------------------.-------------------------
