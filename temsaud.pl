@@ -17,7 +17,7 @@
 #
 # $DB::single=2;   # remember debug breakpoint
 
-my $gVersion = 2.39000;
+my $gVersion = 2.40000;
 my $gWin = (-e "C:/") ? 1 : 0;       # determine Windows versus Linux/Unix for detail settings
 
 ## Todos
@@ -246,6 +246,7 @@ my $ccsid1047 =
 '\134\367\123\124\125\126\127\130\131\132\262\324\326\322\323\325' .
 '\060\061\062\063\064\065\066\067\070\071\263\333\334\331\332\237' ;
 
+my %pthreadx;
 my @caches;
 my $cache_max = 0;
 my @filerr;
@@ -348,6 +349,7 @@ my $this_sp1 = 0;
 my $opt_dup_ct = 0;
 my $queue_limit_ct = 0;
 my $kds_validate = "";
+my $send_kmsoms = 0;
 
 my %failtosx = ();
 
@@ -1003,6 +1005,8 @@ my %advcx = (
               "TEMSAUDIT1173E" => "102",
               "TEMSAUDIT1174E" => "100",
               "TEMSAUDIT1175W" => "90",
+              "TEMSAUDIT1176E" => "104",
+              "TEMSAUDIT1177E" => "100",
             );
 
 
@@ -3998,7 +4002,9 @@ for(;;)
       } elsif ($logentry eq "load_server_file") {
          $oneline =~ /^\((\S+)\)(.+)$/;
          $rest = $2;                       # Error(s) detected in /opt/tivoli/ITM/tables/RTEMS14/glb_site.txt(1): "ip.pipe:lin01tiv01"
-         push @filerr,substr($rest,1);
+         if ((substr($rest,1,6) ne "Active") and (substr($rest,1,5) ne "Entry") and (substr($rest,1,4) ne "Exit")){
+            push @filerr,substr($rest,1);
+         }
       }
    }
 
@@ -5105,6 +5111,32 @@ for(;;)
             $seedfile_ct += 1;
             next;
          }
+      }
+   }
+   #(6448CC3D.0000-1D08:pthread_cond_init.c,67,"pthread_cond_init") errno ENOMEM
+   if (substr($logunit,0,19) eq "pthread_cond_init.c") {
+      if ($logentry eq "pthread_cond_init") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Seed file <kyn_upg.sql>, Line <12360> not seeded: record not found.
+         if (substr($rest,1,5) eq "errno") {
+            my $ierrno = substr($rest,7);
+            my $ikey = $logentry . "|" . $ierrno;
+            $pthreadx{$ikey} += 1;
+         }
+         next;
+      }
+   }
+   #(6448D594.0003-3330:klxt_createthread.c,69,"KLXT_CreateThread") errno ENOMEM
+   if (substr($logunit,0,19) eq "klxt_createthread.c") {
+      if ($logentry eq "KLXT_CreateThread") {
+         $oneline =~ /^\((\S+)\)(.+)$/;
+         $rest = $2;                       # Seed file <kyn_upg.sql>, Line <12360> not seeded: record not found.
+         if (substr($rest,1,5) eq "errno") {
+            my $ierrno = substr($rest,7);
+            my $ikey = $logentry . "|" . $ierrno;
+            $pthreadx{$ikey} += 1;
+         }
+         next;
       }
    }
 
@@ -11124,11 +11156,28 @@ if ($filerr_ct != -1) {
       $cnt++;$oline[$cnt]="$f\n";
    }
    my $filerr_p = $filerr_ct + 1;
-   $advi++;$advonline[$advi] = "KDC file errors [$filerr_p]";
+   $advi++;$advonline[$advi] = "KDC file errors [$filerr_p] - See Report $rptkey";
    $advcode[$advi] = "TEMSAUDIT1173E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
-   $crit_line = "4,KDC file errors [$filerr_p]";
+   $crit_line = "4,KDC file errors [$filerr_p] - See Report $rptkey";
+   push @crits,$crit_line;
+}
+
+my $pthread_ct = scalar keys %pthreadx;
+if ($pthread_ct > 0) {
+   $rptkey = "TEMSREPORT099";$advrptx{$rptkey} = 1;         # record report key
+   $cnt++;$oline[$cnt]="\n";
+   $cnt++;$oline[$cnt]="$rptkey: Pthread errno reports [$pthread_ct],\n";
+   $cnt++;$oline[$cnt]="Key,Count,\n";
+   foreach $g ( keys %pthreadx) {
+      $cnt++;$oline[$cnt]=$g . "," . $pthreadx{$g} . ",\n";
+   }
+   $advi++;$advonline[$advi] = "pthread severe errors [$pthread_ct] - See Report $rptkey";
+   $advcode[$advi] = "TEMSAUDIT1176E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "4,pthread severe errors[$pthread_ct] - possible out of storage";
    push @crits,$crit_line;
 }
 
@@ -13381,8 +13430,10 @@ if ($full_logopfn ne "") {
          last if !defined $opline;
          $ol += 1;
          next if length($opline) < 40;
-         $op_alpha = $opline if $op_alpha eq "";
-         $op_omega = $opline;
+         if (substr($opline,3,1) eq " ") {
+            $op_alpha = $opline if $op_alpha eq "";
+            $op_omega = $opline;
+         }
          #Fri Dec 15 04:33:13 2017 KDS9143I   An initial heartbeat has been received from the TEMS REMOTE_usrdrtm041ccpr2 by the hub TEMS HUB_usrdhtms21ccpx2.
 
          my $opcode = substr($opline,25,8);
@@ -13583,6 +13634,10 @@ if ($full_logopfn ne "") {
            $node_ref->{count} += 1;
            $node_ref->{true} += 1;
 
+
+         # Mon Jan 16 00:40:38 2023 KO4SRV105  Send to ksmoms failed.
+         } elsif ($opcode eq "KO4SRV105") {
+              $send_kmsoms += 1;
          }
       }
       close(OPLOG);
@@ -13613,6 +13668,15 @@ if ($verify_ct > 0) {
    $advcode[$advi] = "TEMSAUDIT1156E";
    $advimpact[$advi] = $advcx{$advcode[$advi]};
    $advsit[$advi] = "TEMS";
+}
+
+if ($send_kmsoms > 0) {
+   $advi++;$advonline[$advi] = "TEMS possible crash - Send to ksmoms failed.";
+   $advcode[$advi] = "TEMSAUDIT1177E";
+   $advimpact[$advi] = $advcx{$advcode[$advi]};
+   $advsit[$advi] = "TEMS";
+   $crit_line = "1,TEMS possible crash - Send to ksmoms failed";
+   push @crits,$crit_line;
 }
 
 if ($verify_ct > 0) {
@@ -15045,6 +15109,8 @@ exit;
 #        - Add report 098 on EIF Non-zero Cache files
 #        - Correct advisory TEMS1061E advisory information
 #        - Correct KDEB_INTERFACELIST logic for NLS captures
+#2.40000 - Add advisory and report on pthread out of storage messages
+#          send to kmsoms failure advisory.
 
 # Following is the embedded "DATA" file used to explain
 # advisories and reports.
@@ -15259,7 +15325,7 @@ The message means the late arriving data was discarded. This
 can mean that the agent is overloaded, there are communication
 issues, or the remote TEMS is overloaded.
 
-Recovery plan:  If this occurs a lot, work with IBM support
+Recovery plan:  If this occurs a lot, work with IBM Support
 to identify the underlying cause and eliminate it. If there
 are just a few, the impact is probably not that important.
 --------------------------------------------------------------
@@ -15274,7 +15340,7 @@ Meaning: This usually means some application support is
 missing from the TEMS. As a result monitoring related to that
 table is not performed.
 
-Recovery plan:  Work with IBM support to identify the
+Recovery plan:  Work with IBM Support to identify the
 underlying cause and eliminate it.
 --------------------------------------------------------------
 
@@ -15697,7 +15763,7 @@ Meaning: The remote TEMS has reconnected with the hub TEMS multiple
 times. This has many origins including hub TEMS overload, configuration
 problems and communications issues.
 
-Recovery plan: Involve IBM support.
+Recovery plan: Involve IBM Support.
 --------------------------------------------------------------
 
 TEMSAUDIT1037E
@@ -15745,7 +15811,7 @@ an enormous proportion of the limited tracing logs and often hides
 important information. This can delay diagnostic work considerably.
 
 Only use these settings when IBM L3 support/development or very experienced
-other IBM support people advise.
+other IBM Support people advise.
 
 Recovery plan: Avoid such use unless advised by IBM Support.
 --------------------------------------------------------------
@@ -15850,7 +15916,7 @@ That can occur if the tables get significantly larger, the
 latency between remote and hub TEMS gets larger, or the
 system running the remote TEMS has less than needed capacity.
 
-Recovery plan:  Work with IBM support to diagnose and correct
+Recovery plan:  Work with IBM Support to diagnose and correct
 the condition.
 ----------------------------------------------------------------
 
@@ -15866,7 +15932,7 @@ database files have an index verify performed. If this
 fails that means things are seriously wrong and the
 TEMS will be unstable or fail again.
 
-Recovery plan:  Work with IBM support to correct the condition.
+Recovery plan:  Work with IBM Support to correct the condition.
 ----------------------------------------------------------------
 
 TEMSAUDIT1045W
@@ -15883,7 +15949,7 @@ Usually the related database files can be reset to emptytable
 status on both primary and backup hub TEMS to restore normal
 operation.
 
-Recovery plan:  Work with IBM support to correct the condition.
+Recovery plan:  Work with IBM Support to correct the condition.
 ----------------------------------------------------------------
 
 TEMSAUDIT1046W
@@ -16036,7 +16102,7 @@ caused by many reasons including TEMS database problems,
 network problems and excessive workload.
 
 
-Recovery plan: Contact IBM support for aid in diagnosis.
+Recovery plan: Contact IBM Support for aid in diagnosis.
 ----------------------------------------------------------------
 
 TEMSAUDIT1052E
@@ -16054,7 +16120,7 @@ This is a most severe issue and needs prompt diagnosis. It can be
 caused by many reasons including TEMS database problems,
 network problems and excessive workload.
 
-Recovery plan: Contact IBM support for aid in diagnosis.
+Recovery plan: Contact IBM Support for aid in diagnosis.
 ----------------------------------------------------------------
 
 TEMSAUDIT1053W
@@ -18122,7 +18188,7 @@ This could prevent normal functioning. It might just mean
 unnecessary overhead.
 
 Recovery plan: Most common is specifying "none" instead of "0".
-Contact IBM support if unsure.
+Contact IBM Support if unsure.
 ----------------------------------------------------------------
 
 TEMSAUDIT1172W
@@ -18137,7 +18203,7 @@ unnecessary overhead. In one case there was a onfiguration pointing
 to the FTO partner hub TEMS but the name ended in ".co" instead of ".com".
 
 Recovery plan: Most common is specifying "none" instead of "0".
-Contact IBM support if unsure.
+Contact IBM Support if unsure.
 ----------------------------------------------------------------
 
 TEMSAUDIT1173E
@@ -18173,7 +18239,7 @@ is suggested like 2048/4096 etc.
 In other cases, the system did not have enough paging space for
 the workload.
 
-Recovery plan: Make corrections and consult IBM support if needed.
+Recovery plan: Make corrections and consult IBM Support if needed.
 ----------------------------------------------------------------
 
 TEMSAUDIT1175W
@@ -18195,7 +18261,39 @@ maximum defined and this condition seriously slowed down all
 the event transmission.
 
 Recovery plan: If this is seen, review all EIF transfer definitions
-and resolve any issues. Consult IBM support if needed.
+and resolve any issues. Consult IBM Support if needed.
+----------------------------------------------------------------
+
+TEMSAUDIT1176E
+Text: pthread severe errors[count]
+
+Tracing: error
+(6448CC3D.0000-1D08:pthread_cond_init.c,67,"pthread_cond_init") errno ENOMEM
+(6448D594.0003-3330:klxt_createthread.c,69,"KLXT_CreateThread") errno ENOMEM
+
+Meaning: ITM logic uses Posix pthreads. If a severe error is
+encountered an error is reported.
+
+In one case, a Windows system had enough main memory but the
+virtual storage was insufficient to run a TEMS. The TEMS
+failed very quickly.
+
+Recovery plan: Check for sufficient virtual storage and
+reconfigure. Consult IBM Support if needed.
+----------------------------------------------------------------
+
+TEMSAUDIT1177E
+Text: TEMS possible crash - Send to ksmoms failed.
+
+Tracing: operations log
+ Mon Jan 16 00:40:38 2023 KO4SRV105  Send to ksmoms failed.
+
+Meaning: This is often seen when the TEMS has crashed. This
+is sometimes resolved by fixes in uplevel maintenance.
+
+The TEMS must be configured to capture a core or crash dump.
+
+Recovery plan: Consult IBM Support.
 ----------------------------------------------------------------
 
 TEMSREPORT001
@@ -19292,7 +19390,7 @@ Count,Node,Thrunode,Product,Thrunode_new,Product_new,
 This shows hub TEMS detected node duplication. This usually means
 duplicate agent name cases.
 
-Recovery plan: Involve IBM support to resolve issues.
+Recovery plan: Involve IBM Support to resolve issues.
 ----------------------------------------------------------------
 
 TEMSREPORT042
@@ -19312,7 +19410,7 @@ Epoch,Local_Time,Scan_Types,
 This shows hex time and the local time when the possible portscan
 cases occured. This may be useful in finding the underlying cause.
 
-Recovery plan: Involve IBM support to resolve issues.
+Recovery plan: Involve IBM Support to resolve issues.
 ----------------------------------------------------------------
 
 TEMSREPORT043
@@ -19333,7 +19431,7 @@ This shows the lines from the last 1000 bytes of the
 itm_config.log and itm_install.log. It can be useful in
 understanding what has happened recently.
 
-Recovery plan: Involve IBM support to resolve issues.
+Recovery plan: Involve IBM Support to resolve issues.
 ----------------------------------------------------------------
 
 TEMSREPORT044
@@ -19357,7 +19455,7 @@ line in all the log segments.
 
 This may be inconsistent if the diagnostic logs wrapped around.
 
-Recovery plan: Involve IBM support to any resolve issues.
+Recovery plan: Involve IBM Support to any resolve issues.
 ----------------------------------------------------------------
 
 TEMSREPORT045
@@ -20254,7 +20352,7 @@ naturally. See this document:
 Sitworld: TEMS Database Repair `
 https://www.ibm.com/developerworks/community/blogs/jalvord/entry/Sitworld_TEMS_Database_Repair?lang=en
 
-Recovery plan: Repair the QA1CDSCA file and work with IBM support
+Recovery plan: Repair the QA1CDSCA file and work with IBM Support
 if that does not correct the issue.
 ----------------------------------------------------------------
 
@@ -20812,4 +20910,21 @@ Size,Filename,
 Meaning: See Advisory TEMS1175W for details
 
 Recovery plan: Correct EIF target definitions
----------------------------------------.-------------------------
+----------------------------------------------------------------
+      `
+TEMSREPORT099
+Text: pthread errno reports [count]
+
+Trace: error
+(6448CC3D.0000-1D08:pthread_cond_init.c,67,"pthread_cond_init") errno ENOMEM
+(6448D594.0003-3330:klxt_createthread.c,69,"KLXT_CreateThread") errno ENOMEM
+
+Example report
+Key,Count,
+KLXT_CreateThread|ENOMEM,966,
+pthread_cond_init|ENOMEM,2216,
+
+Meaning: See Advisory TEMS1176E for details
+
+Recovery plan: See Advisory TEMS1176E for details
+----------------------------------------------------------------
